@@ -17,12 +17,16 @@
 ## Usage
 - Convert the rwkv5 model using `rwkv_model.py`
 - Convert the tokenizer using `convert_tokenizer.py`
+- Build the demo code:
+```
+$ make -C chatrwkv-qualcomm
+```
 
 ## TODO
-- Add demo code for running inference on the device.
-- Calibrate the GroupNorm scales with a more elegant method, like calculating KL-divergence.
-- Add support for INT16/INT8 quantized inference.
-- Package a library for easy use and integration.
+- [x] Add demo code for running inference on the device.
+- [ ] Calibrate the GroupNorm scales with a more elegant method, like calculating KL-divergence.
+- [ ] Add support for INT16/INT8 quantized inference.
+- [ ] Package a library for easy use and integration.
 
 ## Questions
 Q: How to solve the problem of outputing NaNs when inferencing RWKV's all operations with FP16?

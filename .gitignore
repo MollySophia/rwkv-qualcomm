@@ -5,3 +5,4 @@ output/
 gmon.out
 qacc_temp/
 obj/
+bin/
