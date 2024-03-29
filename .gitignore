@@ -6,3 +6,5 @@ gmon.out
 qacc_temp/
 obj/
 bin/
+*.pyc
+__pycache__
