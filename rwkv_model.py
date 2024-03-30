@@ -25,7 +25,7 @@ def sample_logits(out, temperature=1.0, top_p=0.8):
     return out
 
 class RWKV_RNN(torch.nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, chunks=1, chunk_idx=0):
         super().__init__()
         self.args = args
         self.eval() # set torch to inference mode
@@ -56,10 +56,13 @@ class RWKV_RNN(torch.nn.Module):
             if int(self.version) == 6 and 'time_faaaa' in k:
                 self.n_head = w[k].shape[0]
         
-        print("Model version:", self.version)
-        print("n_layer:", self.args.n_layer)
-        print("n_embd:", self.args.n_embd)
-        print("vocab_size:", self.args.vocab_size)
+        if chunk_idx == 0:
+            print("Model version:", self.version)
+            print("n_layer:", self.args.n_layer)
+            print("n_embd:", self.args.n_embd)
+            print("vocab_size:", self.args.vocab_size)
+            print("n_att:", self.args.n_att)
+            print("n_ffn:", self.args.n_ffn)
         self.head_size = w['blocks.0.ln1.weight'].shape[0] // self.n_head
 
         REAL_TIME_FIRST = False
@@ -68,7 +71,17 @@ class RWKV_RNN(torch.nn.Module):
         if REAL_TIME_FIRST:
             w = {k.replace('.time_faaaa','.time_first') if '.time_faaaa' in k else k: v for k, v in w.items()}
 
+        layers_per_chunk = self.args.n_layer // chunks
+        self.layer_begin = chunk_idx * layers_per_chunk
+        self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
+        self.chunk_idx = chunk_idx
+        print(f"Chunk {chunk_idx}: layers {self.layer_begin} to {self.layer_end}")
+
         for k in w.keys():
+            if 'blocks.' in k:
+                if int(k.split('.')[1]) < self.layer_begin or int(k.split('.')[1]) >= self.layer_end:
+                    del w[k]
+                    continue
             w[k] = w[k].float() # convert to f32 type
             if      '.time_' in k: w[k] = w[k].squeeze()
             if '.time_decay' in k and '_w' not in k:
@@ -83,7 +96,7 @@ class RWKV_RNN(torch.nn.Module):
                     w[k] = w[k].reshape(-1, 1, 1)
                     if self.version in [5.2, 6.0]:
                         w[k] = w[k].reshape(self.n_head, -1, 1)
-            if 'ln' in k: w[k] = w[k].reshape(1, -1)
+            if 'ln_x' in k: w[k] = w[k].reshape(1, -1)
             if '.time_mix' in k or ('maa' in k and not 'w' in k): w[k] = w[k].reshape(1, -1)
         
         self.w = types.SimpleNamespace() # set self.w from w
@@ -114,26 +127,28 @@ class RWKV_RNN(torch.nn.Module):
         self.norm_scales = [1.0 for i in range(self.args.n_layer)]
 
     def layer_norm(self, x, w):
-        return F.layer_norm(x.flatten(), (self.args.n_embd,), w.weight.flatten(), w.bias.flatten(), 1e-5).view(1, -1)
+        return F.layer_norm(x.flatten(), (self.args.n_embd,), weight=w.weight, bias=w.bias, eps=1e-5).view(1, -1)
 
     def group_norm(self, x, weight, bias, eps: float, i=-1, calibrate=False):
-        if calibrate == False:
+        if calibrate:
+            x = x.view(1, self.n_head, -1)
+            mean = x.mean(-1, keepdim=True)
+            tmp = (x - mean)
+            if calibrate:
+                if 65504.0 / torch.max(torch.abs(tmp**2)).item() < self.norm_scales[i]:
+                    self.norm_scales[i] = 65504.0 / torch.max(torch.abs(tmp**2)).item()
+            
+            var = torch.mean(tmp ** 2, -1, keepdim=True)
+            x = tmp / (var + eps).sqrt()
+            x = x.view(1, -1)
+            return x * weight + bias
+        else:
             x = x * np.sqrt(self.norm_scales[i])
             eps = eps * self.norm_scales[i]
-        x = x.view(1, self.n_head, -1)
-        mean = x.mean(-1, keepdim=True)
-        tmp = (x - mean)
-        if calibrate:
-            if 65504.0 / torch.max(torch.abs(tmp**2)).item() < self.norm_scales[i]:
-                self.norm_scales[i] = 65504.0 / torch.max(torch.abs(tmp**2)).item()
-        
-        # if calibrate == False:
-        #     var = torch.mean(torch.clamp(tmp**2, min=-65504.0, max=65504.0), -1, keepdim=True)
-        # else:
-        var = torch.mean(tmp ** 2, -1, keepdim=True)
-        x = tmp / (var + eps).sqrt()
-        x = x.view(1, -1)
-        return x * weight + bias
+            x = list(torch.chunk(x, self.n_head, dim=-1))
+            for i in range(self.n_head):
+                x[i] = F.layer_norm(x[i].flatten(), (self.head_size,), eps=eps)
+            return torch.cat(x, dim=-1).view(1, -1) * weight + bias
 
     def wkv(self, k, v, r, state2, time_first, time_decay, scale=1):
         state2 = state2 * scale
@@ -146,8 +161,9 @@ class RWKV_RNN(torch.nn.Module):
     def channel_mixing_v5(self, x, state, i:int, time_mix_k, time_mix_r, kw, vw, rw):
         xk = (x * time_mix_k + state * (1 - time_mix_k))
         xr = (x * time_mix_r + state * (1 - time_mix_r))
+
         ffn_size = kw.shape[0]
-        a, b = 1, ffn_size
+        a, b = self.n_head, int(ffn_size / self.n_head)
         r = F.conv2d(xr.view(1, 1, self.n_head, self.head_size), rw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(1, -1)
         k = F.conv2d(xk.view(1, 1, self.n_head, self.head_size), kw.view(ffn_size, 1, self.n_head, self.head_size)).view(1, 1, a, b)
 
@@ -180,19 +196,14 @@ class RWKV_RNN(torch.nn.Module):
         xr = x * time_mix_r + state1 * (1 - time_mix_r)
         xg = x * time_mix_g + state1 * (1 - time_mix_g)
 
-        # r = F.conv2d(xr.view(1, 1, self.n_head, self.head_size), rw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, 1, S)
-        # k = F.conv2d(xk.view(1, 1, self.n_head, self.head_size), kw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, S, 1)
-        # v = F.conv2d(xv.view(1, 1, self.n_head, self.head_size), vw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, 1, S)
-        # g = F.conv2d(xg.view(1, 1, self.n_head, self.head_size), gw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(1, self.args.n_embd)
-
-        r = (rw @ xr.view(-1, 1)).view(H, 1, S)
-        k = (kw @ xk.view(-1, 1)).view(H, S, 1)
-        v = (vw @ xv.view(-1, 1)).view(H, 1, S)
-        g = (gw @ xg.view(-1, 1)).view(1, -1)
+        r = F.conv2d(xr.view(1, 1, self.n_head, self.head_size), rw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, 1, S)
+        k = F.conv2d(xk.view(1, 1, self.n_head, self.head_size), kw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, S, 1)
+        v = F.conv2d(xv.view(1, 1, self.n_head, self.head_size), vw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(H, 1, S)
+        g = F.conv2d(xg.view(1, 1, self.n_head, self.head_size), gw.view(self.args.n_embd, 1, self.n_head, self.head_size)).view(1, self.args.n_embd)
 
         g = g * torch.sigmoid(g)
 
-        x, state2 = self.wkv(k, v, r, state2, time_first, time_decay)
+        x, state2 = self.wkv(k, v, r, state2, time_first, time_decay, scale=1/8)
         x = x.reshape(1, -1)
 
         x = self.group_norm(x, weight=ln_w, bias=ln_b, eps = 1e-5, i=i, calibrate=calibrate) * g
@@ -223,21 +234,23 @@ class RWKV_RNN(torch.nn.Module):
         w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).float().view(H, S, 1)
         w = torch.exp(-torch.exp(w.float()))
 
-        x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1)
+        x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1/8)
 
-        x = self.group_norm(x, weight=ln_w, bias=ln_b, eps = 64e-5, i=i, calibrate=calibrate) * g
+        x = self.group_norm(x, weight=ln_w, bias=ln_b, eps = 1e-5, i=i, calibrate=calibrate) * g
         return (ow @ x.view(-1, 1)).view(1, -1), state2
         
-    def forward(self, token, *states, calibrate=False):
+    def forward(self, in0, *states, calibrate=False):
         with torch.no_grad():
             for i in range(self.args.n_layer):
                 self.__dict__[f"state{3*i}"] = states[3*i]
                 self.__dict__[f"state{3*i+1}"] = states[3*i+1]
                 self.__dict__[f"state{3*i+2}"] = states[3*i+2]
-
-            x = self.embedding(token)
+            if self.chunk_idx == 0:
+                x = self.embedding(in0)
+            else:
+                x = in0
             if int(self.version) == 5:
-                for i in range(self.args.n_layer):
+                for i in range(self.layer_begin, self.layer_end):
                     att = self.w.blocks[i].att
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
@@ -256,7 +269,7 @@ class RWKV_RNN(torch.nn.Module):
                         if (i+1) % self.args.RESCALE_LAYER == 0:
                             x = x / 2
             elif int(self.version) == 6:
-                for i in range(self.args.n_layer):
+                for i in range(self.layer_begin, self.layer_end):
                     att = self.w.blocks[i].att
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v6(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
@@ -287,14 +300,12 @@ class RWKV_RNN(torch.nn.Module):
 
 tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
 abctokenizer = ABCTokenizer()
-EOS_ID = abctokenizer.eos_token_id
-TOKEN_SEP = ''
 
 args = types.SimpleNamespace()
-args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
-# args.MODEL_NAME = '/Users/molly/Downloads/RWKV-5-ABC-82M-v1-20230901-ctx1024'
-# args.MODEL_NAME = '/Users/molly/Downloads/RWKV-5-World-0.4B-v2-20231113-ctx4096'
-# args.MODEL_NAME = '/home/molly/workspace/RWKV-5-World-1B5-v2-20231025-ctx4096'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-ABC-82M-v1-20230901-ctx1024'
+args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-1B5-v2-20231025-ctx4096'
 
 if 'ABC' in args.MODEL_NAME:
     args.RESCALE_LAYER = 0
@@ -388,7 +399,7 @@ for i in range(model.args.n_layer):
 run_context("\n我们发现", length=100, calibrate=True)
 # run_context("\nElon Musk has", calibrate=True)
 # os.system("rm -rf data/iteration*")
-# run_context("\n我们发现", length=300, generate_samples=True)
+# run_context("\n我们发现", length=100)
 
 print("norm_scales = [", end="")
 for i in range(model.args.n_layer):
