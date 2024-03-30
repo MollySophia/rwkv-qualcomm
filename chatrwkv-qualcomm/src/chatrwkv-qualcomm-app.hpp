@@ -46,6 +46,14 @@ class QnnRwkvApp {
 
   StatusCode finalizeGraphs();
 
+  StatusCode createPowerConfigId();
+
+  StatusCode setPowerConfig();
+
+  StatusCode destroyPowerConfigId();
+
+  StatusCode setRpcLatencyAndPolling();
+
   StatusCode execute(int token);
 
   // StatusCode registerOpPackages();
@@ -93,6 +101,10 @@ class QnnRwkvApp {
   int m_nATT;
   int m_nFFN;
   int m_vocabSize;
+
+  uint32_t powerConfigId;
+  uint32_t deviceId = 0;
+  uint32_t coreId = 0;
 
   QnnFunctionPointers m_qnnFunctionPointers;
   std::string m_promptPath;

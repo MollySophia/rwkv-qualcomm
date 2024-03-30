@@ -399,6 +399,14 @@ int main(int argc, char** argv) {
       return app->reportError("Profiling Initialization failure");
     }
 
+    if (rwkv_app::StatusCode::SUCCESS != app->createPowerConfigId()) {
+      return app->reportError("Power Config Id Creation failure");
+    } else {
+      if (rwkv_app::StatusCode::SUCCESS != app->setPowerConfig()) {
+        return app->reportError("Power Config Set failure");
+      }
+    }
+
     // if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
     //   return app->reportError("Register Op Packages failure");
     // }
@@ -469,6 +477,10 @@ int main(int argc, char** argv) {
 
     if (rwkv_app::StatusCode::SUCCESS != app->freeContext()) {
       return app->reportError("Context Free failure");
+    }
+
+    if (rwkv_app::StatusCode::SUCCESS != app->destroyPowerConfigId()) {
+      return app->reportError("Power Config Id Destroy failure");
     }
 
     if (rwkv_app::StatusCode::FAILURE != devicePropertySupportStatus) {
