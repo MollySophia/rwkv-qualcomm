@@ -135,7 +135,12 @@ class RWKV_RNN(torch.nn.Module):
         self.norm_scales = [1.0 for i in range(self.args.n_layer)]
 
     def layer_norm(self, x, w):
-        return F.layer_norm(x.flatten(), (self.args.n_embd,), weight=w.weight, bias=w.bias, eps=1e-5).view(1, -1)
+        mean = x.mean(-1, keepdim=True)
+        tmp = x - mean
+        var = torch.mean(tmp ** 2, -1, keepdim=True)
+        x = tmp / (var + 1e-5).sqrt()
+        return (x * w.weight + w.bias).view(1, -1)
+        # return F.layer_norm(x.flatten(), (self.args.n_embd,), weight=w.weight, bias=w.bias, eps=1e-5).view(1, -1)
 
     def group_norm(self, x, weight, bias, eps: float, i=-1, calibrate=False):
         # if calibrate:
@@ -235,8 +240,8 @@ class RWKV_RNN(torch.nn.Module):
         g = (gw @ xg.view(-1, 1)).view(1, -1)
         g = g * F.sigmoid(g)
 
-        w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).float().view(H, S, 1)
-        w = torch.exp(-torch.exp(w.float()))
+        w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).view(H, S, 1)
+        w = torch.exp(-torch.exp(w))
 
         x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1/8)
 
@@ -370,10 +375,10 @@ tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
 abctokenizer = ABCTokenizer()
 
 args = types.SimpleNamespace()
-# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
+args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-ABC-82M-v1-20230901-ctx1024'
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
-args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-1B5-v2-20231025-ctx4096'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-1B5-v2-20231025-ctx4096'
 
 if 'ABC' in args.MODEL_NAME:
     args.RESCALE_LAYER = 0
@@ -383,8 +388,8 @@ else:
 TEMPERATURE = 1.0
 TOP_P = 0.7
 
-# model = RWKV_RNN(args)
-model = make_chunks(2)
+model = RWKV_RNN(args)
+# model = make_chunks(2)
 
 # prompt = """S:3
 # B:9
