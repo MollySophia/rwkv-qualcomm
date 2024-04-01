@@ -25,6 +25,7 @@ $ make -C chatrwkv-qualcomm
 ## Tested models
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 - RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
+- RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
 ## TODO
 - [x] Add demo code for running inference on the device.
