@@ -789,7 +789,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
 
   // copy state tensors
   for (size_t idx = 1; idx < m_numLayer*3; idx++) {
-    copyTensor(&m_inputTensors[idx], &m_outputTensors[idx-1], &m_ioTensor);
+  copyTensor(&m_inputTensors[idx], &m_outputTensors[idx-1], &m_ioTensor);
   }
 
   int *token_input = (int*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0]).data;
@@ -808,16 +808,17 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
   }
 
   if (StatusCode::SUCCESS == returnStatus) {
+    const int outputIdx = m_numLayer*3;
     if (m_lastOutput.empty())
       m_lastOutput.resize(m_vocabSize);
-    if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[m_numLayer*3]) == QNN_DATATYPE_FLOAT_16) {
+    if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[outputIdx]) == QNN_DATATYPE_FLOAT_16) {
       pal::StringOp::memscpy(m_lastOutput.data(),
                             m_vocabSize * sizeof(uint16_t),
-                            QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[m_numLayer*3]).data,
+                            QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[outputIdx]).data,
                             m_vocabSize * sizeof(uint16_t));
     } else {
       float *buffer;
-      m_ioTensor.convertToFloat(&buffer, &m_outputTensors[m_numLayer*3]);
+      m_ioTensor.convertToFloat(&buffer, &m_outputTensors[outputIdx]);
       if (buffer != nullptr) {
         for (int i = 0; i < m_vocabSize; i++) {
           m_lastOutput[i] = half_float::half(buffer[i]);
