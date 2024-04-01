@@ -375,9 +375,9 @@ tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
 abctokenizer = ABCTokenizer()
 
 args = types.SimpleNamespace()
-args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-ABC-82M-v1-20230901-ctx1024'
-# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
+args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-1B5-v2-20231025-ctx4096'
 
 if 'ABC' in args.MODEL_NAME:
@@ -405,8 +405,8 @@ model = RWKV_RNN(args)
 # prompt = chr(abctokenizer.bos_token_id) + prompt
 # run_prompt(prompt, tokenizer = abctokenizer, calibrate=True)
 
-# print("Calibrating norm scales...")
-# run_prompt(model, "\n我们发现", tokenizer=tokenizer, length=100, calibrate=True)
+print("Calibrating norm scales...")
+run_prompt(model, "\n我们发现", tokenizer=tokenizer, length=100, calibrate=True)
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
