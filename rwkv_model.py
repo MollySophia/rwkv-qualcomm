@@ -371,19 +371,31 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
 def make_chunks(chunks):
     return [RWKV_RNN(args, chunks=chunks, chunk_idx=i) for i in range(chunks)]
 
-tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
-abctokenizer = ABCTokenizer()
-
 args = types.SimpleNamespace()
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
-# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-ABC-82M-v1-20230901-ctx1024'
-args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
+args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-ABC-82M-v1-20230901-ctx1024'
+# args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-0.4B-v2-20231113-ctx4096'
 # args.MODEL_NAME = '/home/molly/workspace/models/RWKV-5-World-1B5-v2-20231025-ctx4096'
 
 if 'ABC' in args.MODEL_NAME:
     args.RESCALE_LAYER = 0
+    tokenizer = ABCTokenizer()
+    prompt = """S:3
+B:9
+E:4
+B:9
+E:4
+E:4
+B:9
+L:1/8
+M:3/4
+K:D
+ Bc |"G" d2 cB"A" A2 FE |"Bm" F2 B4 F^G |"""
+    prompt = chr(tokenizer.bos_token_id) + prompt
 else:
     args.RESCALE_LAYER = 2
+    tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
+    prompt = "\n我们发现"
 
 TEMPERATURE = 1.0
 TOP_P = 0.7
@@ -391,32 +403,14 @@ TOP_P = 0.7
 model = RWKV_RNN(args)
 # model = make_chunks(2)
 
-# prompt = """S:3
-# B:9
-# E:4
-# B:9
-# E:4
-# E:4
-# B:9
-# L:1/8
-# M:3/4
-# K:D
-#  Bc |"G" d2 cB"A" A2 FE |"Bm" F2 B4 F^G |"""
-# prompt = chr(abctokenizer.bos_token_id) + prompt
-# run_prompt(prompt, tokenizer = abctokenizer, calibrate=True)
-
 print("Calibrating norm scales...")
-run_prompt(model, "\n我们发现", tokenizer=tokenizer, length=100, calibrate=True)
+run_prompt(model, prompt, tokenizer=tokenizer, length=100, calibrate=True)
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
     print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
     exit(1)
 os.path.exists("onnx") or os.mkdir("onnx")
-
-import onnx, io
-from onnxsim import simplify
-from onnxmltools.utils import float16_converter
 
 if type(model) == list:
     args = model[0].args
@@ -431,12 +425,24 @@ if type(model) == list:
         inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         torch.onnx.export(model[i], tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx", opset_version=17)
         print(f"onnx model chunk{i} saved to onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx")
+
+    config = f"""version: {args.version}
+head_size: {args.head_size}
+n_layer: {args.n_layer}
+n_embd: {args.n_embd}
+n_att: {args.n_att}
+n_ffn: {args.n_ffn}
+vocab_size: {args.vocab_size}
+"""
+    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
+        f.write(config)
     
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
         os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --float_bw 16 --no_simplification")
         os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c onnx/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.cpp -b onnx/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.bin -t aarch64-android")
 else:
+    args = model.args
     inputs = [torch.LongTensor([0])]
     for i in range(model.args.n_layer):
         inputs.append(torch.zeros(1, model.args.n_embd))
@@ -444,6 +450,17 @@ else:
         inputs.append(torch.zeros(1, model.args.n_embd))
     torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", opset_version=17)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
+    config = f"""version: {args.version}
+head_size: {args.head_size}
+n_layer: {args.n_layer}
+n_embd: {args.n_embd}
+n_att: {args.n_att}
+n_ffn: {args.n_ffn}
+vocab_size: {args.vocab_size}
+"""
+    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
+        f.write(config)
+
     print("Converting to QNN model...")
     os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 16")
     print("Compiling QNN model library...")
