@@ -244,9 +244,9 @@ std::unique_ptr<rwkv_app::QnnRwkvApp> processCommandLine(int argc,
     showHelpAndExit("Missing option: --config_path\n");
   }
 
-  if (tokenizerPath.empty()) {
-    showHelpAndExit("Missing option: --tokenizer_path\n");
-  }
+  // if (tokenizerPath.empty()) {
+  //   showHelpAndExit("Missing option: --tokenizer_path\n");
+  // }
 
   if (loadFromCachedBinary && systemLibraryPath.empty()) {
     showHelpAndExit(
@@ -256,7 +256,7 @@ std::unique_ptr<rwkv_app::QnnRwkvApp> processCommandLine(int argc,
 
   QNN_INFO("Model: %s", modelPath.c_str());
   QNN_INFO("Backend: %s", backEndPath.c_str());
-  QNN_INFO("Tokenizer Path: %s", tokenizerPath.c_str());
+  // QNN_INFO("Tokenizer Path: %s", tokenizerPath.c_str());
 
   QnnFunctionPointers qnnFunctionPointers;
   // Load backend and model .so and validate all the required function symbols are resolved
@@ -437,9 +437,11 @@ int main(int argc, char** argv) {
 
     std::chrono::duration<double> duration_invoke;
     int token_num = 0;
-
-    srand((unsigned)time(NULL));
     std::string prompt = "\n我们发现";
+    srand((unsigned)time(NULL));
+    if (app->m_vocabSize == 128)
+      prompt = "\x02S:3\nB:9\nE:4\nB:9\nE:4\nE:4\nB:9\nL:1/8\nM:3/4\nK:D\n Bc |\"G\" d2 cB\"A\" A2 FE |\"Bm\" F2 B4 F^G |";
+
     std::vector<int> token_ids = app->m_tokenizer->Encode(prompt);
     for (auto token_id : token_ids) {
       std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
@@ -452,7 +454,6 @@ int main(int argc, char** argv) {
     }
 
     int token = sample_logits(app->m_lastOutput, 0.7, 0.9, 0);
-
     std::cout << prompt;
     for (int i = 0; i < 300; i++) {
       std::cout << app->m_tokenizer->Decode(token);

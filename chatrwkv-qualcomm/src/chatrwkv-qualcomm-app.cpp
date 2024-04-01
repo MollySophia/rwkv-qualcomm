@@ -128,12 +128,21 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initialize() {
     return StatusCode::FAILURE;
   }
 
-  Tokenizer tokenizer(m_tokenizerPath);
-  if (!tokenizer.good()) {
-    QNN_ERROR("Could not read tokenizer file");
-    return StatusCode::FAILURE;
+  if (m_tokenizerPath.empty()) {
+    if (m_vocabSize == 128) {
+      m_tokenizer = std::make_shared<ABCTokenizer>();
+    } else {
+      QNN_ERROR("Tokenizer path is empty and the model is not an ABC model");
+      return StatusCode::FAILURE;
+    }
+  } else {
+    Tokenizer tokenizer(m_tokenizerPath);
+    if (!tokenizer.good()) {
+      QNN_ERROR("Could not read tokenizer file");
+      return StatusCode::FAILURE;
+    }
+    m_tokenizer = std::make_shared<Tokenizer>(tokenizer);
   }
-  m_tokenizer = std::make_shared<Tokenizer>(tokenizer);
 
   // for (int i = 0; i < m_numLayer; i++) {
   //   m_stateTensors.push_back(std::vector<float>(m_nEmbd, 0.f));

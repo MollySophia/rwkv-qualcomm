@@ -13,9 +13,19 @@ private:
     TRIE *next;
 };
 
-class Tokenizer {
+class TokenizerBase {
 public:
+    virtual ~TokenizerBase() = default;
 
+    virtual std::vector<int> Encode(std::string str) = 0;
+
+    virtual std::string Decode(int id) = 0;
+
+    virtual std::string Decode(const std::vector<int> &ids) = 0;
+};
+
+class Tokenizer : public TokenizerBase {
+public:
     Tokenizer(std::string file_path);
 
     std::vector<int> Encode(std::string str);
@@ -32,7 +42,7 @@ private:
     bool is_good;
 };
 
-class ABCTokenizer {
+class ABCTokenizer : public TokenizerBase {
 public:
     std::vector<int> Encode(std::string str);
 

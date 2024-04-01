@@ -84,16 +84,9 @@ class QnnRwkvApp {
 
   virtual ~QnnRwkvApp();
 
-  std::shared_ptr<Tokenizer> m_tokenizer;
+  std::shared_ptr<TokenizerBase> m_tokenizer;
   // std::vector<std::vector<float>> m_stateTensors;
   std::vector<half_float::half> m_lastOutput;
-
- private:
-  StatusCode extractBackendProfilingInfo(Qnn_ProfileHandle_t profileHandle);
-
-  StatusCode extractProfilingSubEvents(QnnProfile_EventId_t profileEventId);
-
-  StatusCode extractProfilingEvent(QnnProfile_EventId_t profileEventId);
 
   int m_headSize;
   int m_nEmbd;
@@ -101,6 +94,13 @@ class QnnRwkvApp {
   int m_nATT;
   int m_nFFN;
   int m_vocabSize;
+
+ private:
+  StatusCode extractBackendProfilingInfo(Qnn_ProfileHandle_t profileHandle);
+
+  StatusCode extractProfilingSubEvents(QnnProfile_EventId_t profileEventId);
+
+  StatusCode extractProfilingEvent(QnnProfile_EventId_t profileEventId);
 
   uint32_t powerConfigId;
   uint32_t deviceId = 0;
