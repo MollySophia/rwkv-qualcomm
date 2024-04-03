@@ -17,6 +17,8 @@
 #include "Utils.hpp"
 #include "QnnWrapperUtils.hpp"
 #include "IOTensor.hpp"
+#include "DynamicLoadUtil.hpp"
+#include "PAL/DynamicLoading.hpp"
 
 #include <HTP/QnnHtpPerfInfrastructure.h>
 #include <QnnInterface.h>
@@ -29,6 +31,7 @@ std::string defaultOutputPath = "./output";
 
 rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                                        void* backendLibraryHandle,
+                                       void* modelHandle,
                                        rwkv_app::ProfilingLevel profilingLevel,
                                        std::string cachedBinaryPath,
                                        std::string saveBinaryName)
@@ -37,6 +40,7 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
       m_cachedBinaryPath(cachedBinaryPath),
       m_profilingLevel(profilingLevel),
       m_backendLibraryHandle(backendLibraryHandle),
+      m_modelHandle(modelHandle),
       m_isBackendInitialized(false),
       m_isContextCreated(false) {
   m_outputPath = defaultOutputPath;
@@ -44,6 +48,32 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
 }
 
 rwkv_app::QnnRwkvApp::~QnnRwkvApp() {
+  if (StatusCode::SUCCESS != freeGraphs()) {
+    QNN_ERROR("Could not free graphs.");
+  }
+
+  if (StatusCode::SUCCESS != freeContext()) {
+    QNN_ERROR("Could not free context.");
+  }
+
+  if (StatusCode::SUCCESS != destroyPowerConfigId()) {
+    QNN_ERROR("Could not destroy power config id.");
+  }
+
+  auto devicePropertySupportedStatus = isDevicePropertySupported();
+  if (StatusCode::FAILURE != devicePropertySupportedStatus) {
+    auto freeDeviceStatus = freeDevice();
+    if (StatusCode::FAILURE == freeDeviceStatus) {
+      QNN_ERROR("Could not free device.");
+    }
+  }
+
+  if (m_backendLibraryHandle)
+    pal::dynamicloading::dlClose(m_backendLibraryHandle);
+
+  if (m_modelHandle)
+    pal::dynamicloading::dlClose(m_modelHandle);
+
   // Free Profiling object if it was created
   if (nullptr != m_profileBackendHandle) {
     QNN_DEBUG("Freeing backend profile object.");
@@ -52,15 +82,6 @@ rwkv_app::QnnRwkvApp::~QnnRwkvApp() {
       QNN_ERROR("Could not free backend profile handle.");
     }
   }
-  // Free context if not already done
-  if (m_isContextCreated) {
-    QNN_DEBUG("Freeing context");
-    if (QNN_CONTEXT_NO_ERROR !=
-        m_qnnFunctionPointers.qnnInterface.contextFree(m_context, nullptr)) {
-      QNN_ERROR("Could not free context");
-    }
-  }
-  m_isContextCreated = false;
   // Terminate backend
   if (m_isBackendInitialized && nullptr != m_qnnFunctionPointers.qnnInterface.backendFree) {
     QNN_DEBUG("Freeing backend");
@@ -90,8 +111,9 @@ std::string rwkv_app::QnnRwkvApp::getBackendBuildId() {
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initialize() {
   // initialize logging in the backend
   if (log::isLogInitialized()) {
+    QnnLog_Level_t logLevel{QNN_LOG_LEVEL_ERROR};
+    log::setLogLevel(logLevel);
     auto logCallback = log::getLogCallback();
-    auto logLevel    = log::getLogLevel();
     QNN_INFO("Initializing logging in the backend. Callback: [%p], Log Level: [%d]",
              logCallback,
              logLevel);

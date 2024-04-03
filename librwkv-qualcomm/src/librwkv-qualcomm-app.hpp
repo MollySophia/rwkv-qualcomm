@@ -24,6 +24,7 @@ class QnnRwkvApp {
  public:
   QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                void *backendHandle,
+               void *modelHandle,
                ProfilingLevel profilingLevel           = ProfilingLevel::OFF,
                std::string cachedBinaryPath            = "",
                std::string saveBinaryName              = "");
@@ -107,6 +108,7 @@ class QnnRwkvApp {
   qnn_wrapper_api::GraphInfo_t **m_graphsInfo;
   uint32_t m_graphsCount;
   void *m_backendLibraryHandle;
+  void *m_modelHandle;
   iotensor::IOTensor m_ioTensor;
   Qnn_Tensor_t *m_inputTensors = nullptr;
   Qnn_Tensor_t *m_outputTensors = nullptr;

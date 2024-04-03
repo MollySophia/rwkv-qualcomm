@@ -4,6 +4,7 @@
 #include "PAL/DynamicLoading.hpp"
 #include "QnnTypeMacros.hpp"
 #include "half.hpp"
+#include "Logger.hpp"
 
 using namespace qnn::tools;
 
@@ -68,12 +69,21 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
         }
     }
 
+    if (rwkv_app::StatusCode::SUCCESS != app->initializeTensors()) {
+        std::cerr << "Tensor allocation failure" << std::endl;
+        return StatusCode::FAILURE;
+    }
+
     return StatusCode::SUCCESS;
 }
 
 StatusCode QnnRwkvBackendCreate(
     QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string modelPath, std::string backendPath
 ) {
+    if (!qnn::log::initializeLogging()) {
+        std::cerr << "ERROR: Unable to initialize logging!\n";
+        return StatusCode::FAILURE;
+    }
     void* backendHandle;
     rwkv_app::QnnFunctionPointers qnnFunctionPointers;
     auto statusCode = dynamicloadutil::getQnnFunctionPointers(
@@ -94,7 +104,7 @@ StatusCode QnnRwkvBackendCreate(
         }
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle);
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle);
     return QnnRwkvBackendInitialize(*backend, false);
 }
 
@@ -128,40 +138,8 @@ StatusCode QnnRwkvBackendCreateWithContext(
       rwkv_app::exitWithMessage("Error initializing QNN System Function Pointers", EXIT_FAILURE);
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle);
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle);
     return QnnRwkvBackendInitialize(*backend, true);
-}
-
-StatusCode QnnRwkvBackendDestroy(QnnRwkvBackend_t backend) {
-    if (!backend) {
-        return StatusCode::FAILURE;
-    }
-    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
-    if (rwkv_app::StatusCode::SUCCESS != app->freeGraphs()) {
-        std::cerr << "Graph Free failure" << std::endl;
-        return StatusCode::FAILURE;
-    }
-
-    if (rwkv_app::StatusCode::SUCCESS != app->freeContext()) {
-        std::cerr << "Context Free failure" << std::endl;
-        return StatusCode::FAILURE;
-    }
-
-    if (rwkv_app::StatusCode::SUCCESS != app->destroyPowerConfigId()) {
-        std::cerr << "Power Config Id destruction failure" << std::endl;
-        return StatusCode::FAILURE;
-    }
-
-    auto devicePropertySupportStatus = app->isDevicePropertySupported();
-    if (rwkv_app::StatusCode::FAILURE != devicePropertySupportStatus) {
-      auto freeDeviceStatus = app->freeDevice();
-      if (rwkv_app::StatusCode::SUCCESS != freeDeviceStatus) {
-        std::cerr << "Device free failure" << std::endl;
-        return StatusCode::FAILURE;
-      }
-    }
-
-    return StatusCode::SUCCESS;
 }
 
 StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputBuffer, size_t inputSize) {
@@ -170,7 +148,7 @@ StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputB
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
-    std::vector<uint32_t> shape;
+    std::vector<size_t> shape;
     if (StatusCode::SUCCESS != QnnRwkvGetInputShape(backend, inputIdx, shape)) {
         return StatusCode::FAILURE;
     }
@@ -181,7 +159,7 @@ StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputB
     }
 
     if (elemcount != inputSize) {
-        std::cerr << "Input size mismatch" << std::endl;
+        std::cerr << "Input " << inputIdx << " size mismatch: " << elemcount << " != " << inputSize << std::endl;
         return StatusCode::FAILURE;
     }
 
@@ -205,7 +183,7 @@ StatusCode QnnRwkvGetOutput(QnnRwkvBackend_t backend, int outputIdx, float* outp
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
-    std::vector<uint32_t> shape;
+    std::vector<size_t> shape;
     if (StatusCode::SUCCESS != QnnRwkvGetOutputShape(backend, outputIdx, shape)) {
         return StatusCode::FAILURE;
     }
@@ -216,7 +194,7 @@ StatusCode QnnRwkvGetOutput(QnnRwkvBackend_t backend, int outputIdx, float* outp
     }
 
     if (elemcount != outputSize) {
-        std::cerr << "Output size mismatch" << std::endl;
+        std::cerr << "Output " << outputIdx << " size mismatch: " << elemcount << " != " << outputSize << std::endl;
         return StatusCode::FAILURE;
     }
 
@@ -256,8 +234,12 @@ int QnnRwkvGetOutputNum(QnnRwkvBackend_t backend) {
     return graphInfo.numOutputTensors;
 }
 
-StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vector<uint32_t>& shape) {
+StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vector<size_t>& shape) {
     if (!backend) {
+        return StatusCode::FAILURE;
+    }
+    if (inputIdx >= QnnRwkvGetInputNum(backend)) {
+        std::cerr << "Input index out of bounds" << inputIdx << std::endl;
         return StatusCode::FAILURE;
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
@@ -269,8 +251,12 @@ StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vec
 
 }
 
-StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::vector<uint32_t>& shape) {
+StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::vector<size_t>& shape) {
     if (!backend) {
+        return StatusCode::FAILURE;
+    }
+    if (outputIdx >= QnnRwkvGetOutputNum(backend)) {
+        std::cerr << "Output index out of bounds" << outputIdx << std::endl;
         return StatusCode::FAILURE;
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);

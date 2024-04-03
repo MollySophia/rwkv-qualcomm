@@ -20,8 +20,6 @@ StatusCode QnnRwkvBackendCreate(QnnRwkvBackend_t *backend, QnnRwkvModel_t *model
 
 StatusCode QnnRwkvBackendCreateWithContext(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath);
 
-StatusCode QnnRwkvBackendDestroy(QnnRwkvBackend_t backend);
-
 StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputBuffer, size_t inputSize);
 
 StatusCode QnnRwkvGetOutput(QnnRwkvBackend_t backend, int outputIdx, float* outputBuffer, size_t outputSize);
@@ -30,8 +28,8 @@ int QnnRwkvGetInputNum(QnnRwkvBackend_t backend);
 
 int QnnRwkvGetOutputNum(QnnRwkvBackend_t backend);
 
-StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vector<uint32_t>& shape);
+StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vector<size_t>& shape);
 
-StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::vector<uint32_t>& shape);
+StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::vector<size_t>& shape);
 
 StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
