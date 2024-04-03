@@ -279,3 +279,12 @@ StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token) {
     }
     return StatusCode::SUCCESS;
 }
+
+StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    for (size_t idx = 1; idx < (*app->m_graphsInfo)[0].numInputTensors; idx++) {
+        app->copyTensor(&app->m_inputTensors[idx], &app->m_outputTensors[idx-1]);
+    }
+
+    return StatusCode::SUCCESS;
+}

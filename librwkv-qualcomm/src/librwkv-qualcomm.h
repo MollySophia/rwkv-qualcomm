@@ -33,3 +33,5 @@ StatusCode QnnRwkvGetInputShape(QnnRwkvBackend_t backend, int inputIdx, std::vec
 StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::vector<size_t>& shape);
 
 StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
+
+StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
