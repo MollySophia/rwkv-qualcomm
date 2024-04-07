@@ -16,12 +16,12 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
     if (rwkv_app::StatusCode::SUCCESS != app->initialize()) {
-        std::cerr << "Initialization failure" << std::endl;
+        QNN_ERROR("Initialization failure");
         return StatusCode::FAILURE;
     }
 
     if (rwkv_app::StatusCode::SUCCESS != app->initializeBackend()) {
-        std::cerr << "Backend initialization failure" << std::endl;
+        QNN_ERROR("Backend initialization failure");
         return StatusCode::FAILURE;
     }
 
@@ -29,48 +29,48 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
     if (rwkv_app::StatusCode::FAILURE != devicePropertySupportStatus) {
       auto createDeviceStatus = app->createDevice();
       if (rwkv_app::StatusCode::SUCCESS != createDeviceStatus) {
-        std::cerr << "Device creation failure" << std::endl;
+        QNN_ERROR("Device creation failure");
         return StatusCode::FAILURE;
       }
     }
 
     if (rwkv_app::StatusCode::SUCCESS != app->initializeProfiling()) {
-      std::cerr << "Profiling initialization failure" << std::endl;
-      return StatusCode::FAILURE;
+        QNN_ERROR("Profiling initialization failure");
+        return StatusCode::FAILURE;
     }
 
     if (rwkv_app::StatusCode::SUCCESS != app->createPowerConfigId()) {
-      std::cerr << "Power Config Id creation failure" << std::endl;
+        QNN_ERROR("Power Config ID creation failure");
         return StatusCode::FAILURE;
     } else {
       if (rwkv_app::StatusCode::SUCCESS != app->setPowerConfig()) {
-        std::cerr << "Power Config setting failure" << std::endl;
+        QNN_ERROR("Power Config setting failure");
         return StatusCode::FAILURE;
       }
     }
 
     if (!context) {
         if (rwkv_app::StatusCode::SUCCESS != app->createContext()) {
-            std::cerr << "Context creation failure" << std::endl;
+            QNN_ERROR("Context creation failure");
             return StatusCode::FAILURE;
         }
         if (rwkv_app::StatusCode::SUCCESS != app->composeGraphs()) {
-            std::cerr << "Graph composition failure" << std::endl;
+            QNN_ERROR("Graph composition failure");
             return StatusCode::FAILURE;
         }
         if (rwkv_app::StatusCode::SUCCESS != app->finalizeGraphs()) {
-            std::cerr << "Graph finalization failure" << std::endl;
+            QNN_ERROR("Graph finalization failure");
             return StatusCode::FAILURE;
         }
     } else {
         if (rwkv_app::StatusCode::SUCCESS != app->createFromBinary()) {
-            std::cerr << "Create from binary failure" << std::endl;
+            QNN_ERROR("Binary creation failure");
             return StatusCode::FAILURE;
         }
     }
 
     if (rwkv_app::StatusCode::SUCCESS != app->initializeTensors()) {
-        std::cerr << "Tensor allocation failure" << std::endl;
+        QNN_ERROR("Tensor initialization failure");
         return StatusCode::FAILURE;
     }
 
@@ -138,7 +138,8 @@ StatusCode QnnRwkvBackendCreateWithContext(
       rwkv_app::exitWithMessage("Error initializing QNN System Function Pointers", EXIT_FAILURE);
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle);
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, qnn::tools::rwkv_app::ProfilingLevel::OFF,
+        contextPath);
     return QnnRwkvBackendInitialize(*backend, true);
 }
 
@@ -274,7 +275,7 @@ StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token) {
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     if (rwkv_app::StatusCode::SUCCESS != app->execute(token)) {
-        std::cerr << "Execution failure" << std::endl;
+        QNN_ERROR("Execution failure");
         return StatusCode::FAILURE;
     }
     return StatusCode::SUCCESS;

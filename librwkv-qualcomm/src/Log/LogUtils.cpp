@@ -7,6 +7,9 @@
 //==============================================================================
 
 #include "LogUtils.hpp"
+#ifdef ANDROID
+#include <android/log.h>
+#endif
 
 void qnn::log::utils::logStdoutCallback(const char* fmt,
                                         QnnLog_Level_t level,
@@ -43,3 +46,34 @@ void qnn::log::utils::logStdoutCallback(const char* fmt,
     fprintf(stdout, "\n");
   }
 }
+
+#ifdef ANDROID
+void qnn::log::utils::logAndroidCallback(const char* fmt,
+                                        QnnLog_Level_t level,
+                                        uint64_t timestamp,
+                                        va_list argp){
+  int loglevel = ANDROID_LOG_UNKNOWN;
+  switch (level) {
+    case QNN_LOG_LEVEL_ERROR:
+      loglevel = ANDROID_LOG_ERROR;
+      break;
+    case QNN_LOG_LEVEL_WARN:
+      loglevel = ANDROID_LOG_WARN;
+      break;
+    case QNN_LOG_LEVEL_INFO:
+      loglevel = ANDROID_LOG_INFO;
+      break;
+    case QNN_LOG_LEVEL_DEBUG:
+      loglevel = ANDROID_LOG_DEBUG;
+      break;
+    case QNN_LOG_LEVEL_VERBOSE:
+      loglevel = ANDROID_LOG_VERBOSE;
+      break;
+    case QNN_LOG_LEVEL_MAX:
+      loglevel = ANDROID_LOG_UNKNOWN;
+      break;
+  }
+
+  __android_log_print(loglevel, "RWKV-QNN", fmt, argp);
+}
+#endif

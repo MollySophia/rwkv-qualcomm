@@ -20,6 +20,7 @@ namespace log {
 namespace utils {
 
 void logStdoutCallback(const char* fmt, QnnLog_Level_t level, uint64_t timestamp, va_list argp);
+void logAndroidCallback(const char* fmt, QnnLog_Level_t level, uint64_t timestamp, va_list argp);
 static std::mutex sg_logUtilMutex;
 
 }  // namespace utils

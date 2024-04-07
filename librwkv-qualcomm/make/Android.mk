@@ -23,5 +23,5 @@ MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/Utils/*.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/WrapperUtils/*.cpp)
 LOCAL_MODULE                   := librwkv-qualcomm
 LOCAL_SRC_FILES                := $(subst make/,,$(MY_SRC_FILES))
-LOCAL_LDLIBS                   := -lGLESv2 -lEGL
+LOCAL_LDLIBS                   := -lGLESv2 -lEGL -llog
 include $(BUILD_STATIC_LIBRARY)

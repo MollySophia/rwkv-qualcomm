@@ -40,7 +40,11 @@ std::shared_ptr<Logger> Logger::createLogger(QnnLog_Callback_t callback,
 Logger::Logger(QnnLog_Callback_t callback, QnnLog_Level_t maxLevel, QnnLog_Error_t* status)
     : m_callback(callback), m_maxLevel(maxLevel), m_epoch(getTimestamp()) {
   if (!callback) {
+#ifdef ANDROID
+    m_callback = utils::logAndroidCallback;
+#else
     m_callback = utils::logStdoutCallback;
+#endif
   }
 }
 

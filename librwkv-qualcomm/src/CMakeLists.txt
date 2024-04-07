@@ -1,6 +1,6 @@
 set(APP "librwkv-qualcomm")
 set(APP_SOURCES "librwkv-qualcomm-app.cpp"
-                "main.cpp"
+                "librwkv-qualcomm.cpp"
                 "Log/Logger.cpp"
                 "Log/LogUtils.cpp"
                 "PAL/src/windows/Common.cpp"
