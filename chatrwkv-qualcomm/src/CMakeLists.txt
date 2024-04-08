@@ -1,6 +1,7 @@
 set(APP "chatrwkv-qualcomm")
 set(APP_SOURCES "chatrwkv-qualcomm-app.cpp"
                 "main.cpp"
+                "tokenizer.cpp"
                 "Log/Logger.cpp"
                 "Log/LogUtils.cpp"
                 "PAL/src/windows/Common.cpp"

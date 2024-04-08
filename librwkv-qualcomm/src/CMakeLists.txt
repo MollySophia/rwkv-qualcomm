@@ -16,7 +16,7 @@ set(APP_SOURCES "librwkv-qualcomm-app.cpp"
                 "Utils/Utils.cpp"
                 "WrapperUtils/QnnWrapperUtils.cpp")
 
-add_executable(${APP} ${APP_SOURCES})
+add_library(${APP} STATIC ${APP_SOURCES})
 
 target_compile_definitions(${APP} PUBLIC "-DNOMINMAX")
 target_link_libraries(${APP} PRIVATE Shlwapi Shell32)
