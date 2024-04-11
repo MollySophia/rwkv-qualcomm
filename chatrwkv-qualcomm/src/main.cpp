@@ -348,13 +348,13 @@ int sample_logits(std::vector<half_float::half> logits, float temperature, float
   for (int i = 0; i < length; i++)
       top_probs.push_back(std::pow(sorted_probs[i].second, 1.f / temperature));
 
-  float random_value = rand() / float(RAND_MAX) * cumsum;
-  cumsum = 0;
-  for (int i = 0; i < length; i++) {
-      cumsum += top_probs[i];
-      if (cumsum >= random_value)
-          return sorted_probs[i].first;
-  }
+  // float random_value = rand() / float(RAND_MAX) * cumsum;
+  // cumsum = 0;
+  // for (int i = 0; i < length; i++) {
+  //     cumsum += top_probs[i];
+  //     if (cumsum >= random_value)
+  //         return sorted_probs[i].first;
+  // }
 
   return sorted_probs[0].first;
 }

@@ -74,6 +74,6 @@ void qnn::log::utils::logAndroidCallback(const char* fmt,
       break;
   }
 
-  __android_log_print(loglevel, "RWKV-QNN", fmt, argp);
+  __android_log_print(loglevel, "RWKV-QNN", (std::string(fmt) + "\n").c_str(), argp);
 }
 #endif

@@ -20,6 +20,8 @@ StatusCode QnnRwkvBackendCreate(QnnRwkvBackend_t *backend, QnnRwkvModel_t *model
 
 StatusCode QnnRwkvBackendCreateWithContext(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath);
 
+StatusCode QnnRwkvBackendCreateWithContextBuffer(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath, uint8_t *buffer, uint64_t size);
+
 StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputBuffer, size_t inputSize);
 
 StatusCode QnnRwkvGetOutput(QnnRwkvBackend_t backend, int outputIdx, float* outputBuffer, size_t outputSize);
@@ -35,3 +37,5 @@ StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::v
 StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
 
 StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
+
+StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend);

@@ -23,6 +23,7 @@
 #include <HTP/QnnHtpPerfInfrastructure.h>
 #include <QnnInterface.h>
 #include <HTP/QnnHtpDevice.h>
+#include <HTP/QnnHtpGraph.h>
 
 using namespace qnn;
 using namespace qnn::tools;
@@ -293,8 +294,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::finalizeGraphs() {
   return returnStatus;
 }
 
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary() {
-  if (m_cachedBinaryPath.empty()) {
+rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, uint64_t bufferSize) {
+  if (m_cachedBinaryPath.empty() && (nullptr == in_buffer || 0 == bufferSize)) {
     QNN_ERROR("No name provided to read binary file from.");
     return StatusCode::FAILURE;
   }
@@ -304,26 +305,31 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary() {
     QNN_ERROR("QNN System function pointers are not populated.");
     return StatusCode::FAILURE;
   }
-  uint64_t bufferSize{0};
-  std::shared_ptr<uint8_t> buffer{nullptr};
-  // read serialized binary into a byte buffer
-  tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
-  std::tie(status, bufferSize) = tools::datautil::getFileSize(m_cachedBinaryPath);
-  if (0 == bufferSize) {
-    QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
-    return StatusCode::FAILURE;
-  }
-  buffer = std::shared_ptr<uint8_t>(new uint8_t[bufferSize], std::default_delete<uint8_t[]>());
-  if (!buffer) {
-    QNN_ERROR("Failed to allocate memory.");
-    return StatusCode::FAILURE;
-  }
 
-  status = tools::datautil::readBinaryFromFile(
-      m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer.get()), bufferSize);
-  if (status != tools::datautil::StatusCode::SUCCESS) {
-    QNN_ERROR("Failed to read binary data.");
-    return StatusCode::FAILURE;
+  std::shared_ptr<uint8_t> buffer{nullptr};
+
+  if (in_buffer && bufferSize) {
+    buffer = std::shared_ptr<uint8_t>(in_buffer);
+  } else {
+    // read serialized binary into a byte buffer
+    tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
+    std::tie(status, bufferSize) = tools::datautil::getFileSize(m_cachedBinaryPath);
+    if (0 == bufferSize) {
+      QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
+      return StatusCode::FAILURE;
+    }
+    buffer = std::shared_ptr<uint8_t>(new uint8_t[bufferSize], std::default_delete<uint8_t[]>());
+    if (!buffer) {
+      QNN_ERROR("Failed to allocate memory.");
+      return StatusCode::FAILURE;
+    }
+
+    status = tools::datautil::readBinaryFromFile(
+        m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer.get()), bufferSize);
+    if (status != tools::datautil::StatusCode::SUCCESS) {
+      QNN_ERROR("Failed to read binary data.");
+      return StatusCode::FAILURE;
+    }
   }
 
   // inspect binary info
@@ -768,6 +774,12 @@ void rwkv_app::QnnRwkvApp::copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src) {
                             datautil::calculateElementCount(dims) * sizeof(uint16_t),
                             QNN_TENSOR_GET_CLIENT_BUF(src).data,
                             datautil::calculateElementCount(dims) * sizeof(uint16_t));
+    else if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_32 &&
+      QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_32)
+      pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
+                            datautil::calculateElementCount(dims) * sizeof(float),
+                            QNN_TENSOR_GET_CLIENT_BUF(src).data,
+                            datautil::calculateElementCount(dims) * sizeof(float));
     else {
       float *buffer;
       if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_16) {
@@ -776,18 +788,26 @@ void rwkv_app::QnnRwkvApp::copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src) {
         for (int i = 0; i < datautil::calculateElementCount(dims); i++) {
           buffer[i] = float(ptr[i]);
         }
-      } else {
+      } else if (QNN_TENSOR_GET_DATA_TYPE(src) != QNN_DATATYPE_FLOAT_32) {
         m_ioTensor.convertToFloat(&buffer, src);
+      } else {
+        buffer = (float*)QNN_TENSOR_GET_CLIENT_BUF(src).data;
       }
 
       if (QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_16) {
         half_float::half *ptr = (half_float::half*)QNN_TENSOR_GET_CLIENT_BUF(dst).data;
         for (int i = 0; i < datautil::calculateElementCount(dims); i++) {
           ptr[i] = half_float::half(buffer[i]);
+          free(buffer);
         }
-      } else {
+      } else if (QNN_TENSOR_GET_DATA_TYPE(dst) != QNN_DATATYPE_FLOAT_32) {
         m_ioTensor.copyFromFloatToNative(buffer, dst);
+        free(buffer);
+      } else {
+        pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
+                              datautil::calculateElementCount(dims) * sizeof(float),
+                              buffer,
+                              datautil::calculateElementCount(dims) * sizeof(float));
       }
-      free(buffer);
     }
   };

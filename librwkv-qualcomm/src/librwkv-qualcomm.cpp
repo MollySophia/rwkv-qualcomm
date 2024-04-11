@@ -8,7 +8,7 @@
 
 using namespace qnn::tools;
 
-StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
+StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool usingHtp) {
     if (!backend) {
         return StatusCode::FAILURE;
     }
@@ -39,14 +39,14 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
         return StatusCode::FAILURE;
     }
 
-    if (rwkv_app::StatusCode::SUCCESS != app->createPowerConfigId()) {
-        QNN_ERROR("Power Config ID creation failure");
-        return StatusCode::FAILURE;
-    } else {
-      if (rwkv_app::StatusCode::SUCCESS != app->setPowerConfig()) {
-        QNN_ERROR("Power Config setting failure");
-        return StatusCode::FAILURE;
-      }
+    if (usingHtp) {
+        if (rwkv_app::StatusCode::SUCCESS != app->createPowerConfigId()) {
+            QNN_ERROR("Power Config ID creation failure");
+        } else {
+            if (rwkv_app::StatusCode::SUCCESS != app->setPowerConfig()) {
+                QNN_ERROR("Power Config setting failure");
+            }
+        }
     }
 
     if (!context) {
@@ -63,7 +63,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context) {
             return StatusCode::FAILURE;
         }
     } else {
-        if (rwkv_app::StatusCode::SUCCESS != app->createFromBinary()) {
+        if (rwkv_app::StatusCode::SUCCESS != app->createFromBinary(app->m_binaryBuffer, app->m_binarySize)) {
             QNN_ERROR("Binary creation failure");
             return StatusCode::FAILURE;
         }
@@ -105,13 +105,18 @@ StatusCode QnnRwkvBackendCreate(
     }
 
     *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle);
-    return QnnRwkvBackendInitialize(*backend, false);
+    bool usingHtp = backendPath.find("Htp") != std::string::npos;
+    return QnnRwkvBackendInitialize(*backend, false, usingHtp);
 }
 
 StatusCode QnnRwkvBackendCreateWithContext(
     QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath,
     std::string backendPath, std::string systemlibPath
 ) {
+    if (!qnn::log::initializeLogging()) {
+        std::cerr << "ERROR: Unable to initialize logging!\n";
+        return StatusCode::FAILURE;
+    }
     void* backendHandle;
     rwkv_app::QnnFunctionPointers qnnFunctionPointers;
     auto statusCode = dynamicloadutil::getQnnFunctionPointers(
@@ -140,7 +145,55 @@ StatusCode QnnRwkvBackendCreateWithContext(
 
     *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, qnn::tools::rwkv_app::ProfilingLevel::OFF,
         contextPath);
-    return QnnRwkvBackendInitialize(*backend, true);
+    bool usingHtp = backendPath.find("Htp") != std::string::npos;
+    return QnnRwkvBackendInitialize(*backend, true, usingHtp);
+}
+
+StatusCode QnnRwkvBackendCreateWithContextBuffer(
+    QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath,
+    std::string backendPath, std::string systemlibPath, uint8_t *buffer, uint64_t size) {
+    if (buffer == nullptr || size == 0) {
+        return StatusCode::FAILURE;
+    }
+
+    if (!qnn::log::initializeLogging()) {
+        std::cerr << "ERROR: Unable to initialize logging!\n";
+        return StatusCode::FAILURE;
+    }
+    void* backendHandle;
+    rwkv_app::QnnFunctionPointers qnnFunctionPointers;
+    auto statusCode = dynamicloadutil::getQnnFunctionPointers(
+        backendPath, contextPath, &qnnFunctionPointers, &backendHandle,
+        false, modelHandle);
+
+    if (dynamicloadutil::StatusCode::SUCCESS != statusCode) {
+        if (dynamicloadutil::StatusCode::FAIL_LOAD_BACKEND == statusCode) {
+            rwkv_app::exitWithMessage(
+                "Error initializing QNN Function Pointers: could not load backend: " + backendPath,
+                EXIT_FAILURE);
+        } else if (dynamicloadutil::StatusCode::FAIL_LOAD_MODEL == statusCode) {
+            rwkv_app::exitWithMessage(
+                "Error initializing QNN Function Pointers: could not load model context: " + contextPath,
+                EXIT_FAILURE);
+        } else {
+            rwkv_app::exitWithMessage("Error initializing QNN Function Pointers", EXIT_FAILURE);
+        }
+    }
+
+    statusCode =
+        dynamicloadutil::getQnnSystemFunctionPointers(systemlibPath, &qnnFunctionPointers);
+    if (dynamicloadutil::StatusCode::SUCCESS != statusCode) {
+      rwkv_app::exitWithMessage("Error initializing QNN System Function Pointers", EXIT_FAILURE);
+    }
+
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, qnn::tools::rwkv_app::ProfilingLevel::OFF,
+        contextPath);
+
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(*backend);
+    app->m_binaryBuffer = buffer;
+    app->m_binarySize = size;
+    bool usingHtp = backendPath.find("Htp") != std::string::npos;
+    return QnnRwkvBackendInitialize(*backend, true, usingHtp);
 }
 
 StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputBuffer, size_t inputSize) {
@@ -285,6 +338,17 @@ StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     for (size_t idx = 1; idx < (*app->m_graphsInfo)[0].numInputTensors; idx++) {
         app->copyTensor(&app->m_inputTensors[idx], &app->m_outputTensors[idx-1]);
+    }
+
+    return StatusCode::SUCCESS;
+}
+
+StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend) {
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    for (size_t idx = 0; idx < (*app->m_graphsInfo)[0].numInputTensors/3; idx++) {
+        app->copyTensor(&app->m_inputTensors[3*idx+1], &app->m_outputTensors[3*idx]);
+        app->copyTensor(&app->m_inputTensors[3*idx+3], &app->m_outputTensors[3*idx+1]);
+        app->copyTensor(&app->m_inputTensors[3*idx+2], &app->m_outputTensors[3*idx+2]);
     }
 
     return StatusCode::SUCCESS;

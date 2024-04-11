@@ -59,7 +59,7 @@ class QnnRwkvApp {
 
   // StatusCode registerOpPackages();
 
-  StatusCode createFromBinary();
+  StatusCode createFromBinary(uint8_t *binary, size_t binarySize);
 
   StatusCode saveBinary();
 
@@ -101,6 +101,8 @@ class QnnRwkvApp {
   std::string m_outputPath;
   std::string m_saveBinaryName;
   std::string m_cachedBinaryPath;
+  uint8_t *m_binaryBuffer = nullptr;
+  uint64_t m_binarySize = 0;
   QnnBackend_Config_t **m_backendConfig = nullptr;
   Qnn_ContextHandle_t m_context         = nullptr;
   QnnContext_Config_t **m_contextConfig = nullptr;

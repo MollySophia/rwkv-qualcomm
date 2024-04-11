@@ -165,7 +165,7 @@ iotensor::StatusCode iotensor::IOTensor::copyFromFloatToNative(float* floatBuffe
       break;
 
     default:
-      QNN_ERROR("Datatype not supported yet!");
+      QNN_ERROR("copyFromFloatToNative: Datatype not supported yet!");
       returnStatus = StatusCode::FAILURE;
       break;
   }
@@ -630,7 +630,7 @@ iotensor::StatusCode iotensor::IOTensor::convertToFloat(float** out, Qnn_Tensor_
       break;
 
     default:
-      QNN_ERROR("Datatype not supported yet!");
+      QNN_ERROR("convertToFloat: Datatype not supported yet!");
       returnStatus = StatusCode::FAILURE;
       break;
   }
