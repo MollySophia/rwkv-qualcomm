@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <vector>
 
 #include "half.hpp"
 #include "DataUtil.hpp"
@@ -33,6 +34,7 @@ std::string defaultOutputPath = "./output";
 rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                                        void* backendLibraryHandle,
                                        void* modelHandle,
+                                       std::vector<std::vector<float>> embedding,
                                        rwkv_app::ProfilingLevel profilingLevel,
                                        std::string cachedBinaryPath,
                                        std::string saveBinaryName)
@@ -44,6 +46,7 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
       m_modelHandle(modelHandle),
       m_isBackendInitialized(false),
       m_isContextCreated(false) {
+  m_embedding = embedding;
   m_outputPath = defaultOutputPath;
   return;
 }
@@ -684,41 +687,51 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::setRpcLatencyAndPolling() {
 }
 
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
-  if (nullptr == m_inputTensors || nullptr == m_outputTensors) {
-    auto graphInfo     = (*m_graphsInfo)[0];
-    if (iotensor::StatusCode::SUCCESS !=
-        m_ioTensor.setupInputAndOutputTensors(&m_inputTensors, &m_outputTensors, graphInfo)) {
-      QNN_ERROR("Error in setting up Input and output Tensors");
-      return StatusCode::FAILURE;
-    }
-    for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
-      // std::cout << "Input Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[i]) << std::endl;
-      std::vector<size_t> dims;
-      for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[i]); j++) {
-        dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[i]) + j));
+  if (nullptr == m_inputTensors[0] || nullptr == m_outputTensors[0]) {
+    for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
+      auto graphInfo     = (*m_graphsInfo)[graph_id];
+      // std::cout << "Graph " << graph_id << " : " << graphInfo.graphName << std::endl;
+      if (iotensor::StatusCode::SUCCESS !=
+          m_ioTensor.setupInputAndOutputTensors(&m_inputTensors[graph_id], &m_outputTensors[graph_id], graphInfo)) {
+        QNN_ERROR("Error in setting up Input and output Tensors");
+        return StatusCode::FAILURE;
       }
-      if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[i]) == QNN_DATATYPE_FLOAT_16)
-        memset(QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[i]).data, 0, datautil::calculateElementCount(dims) * sizeof(uint16_t));
-      else {
-        float *ptr = new float[datautil::calculateElementCount(dims)];
-        memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
-        m_ioTensor.copyFromFloatToNative(ptr, &m_inputTensors[i]);
-        delete[] ptr;
+      for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
+        // std::cout << "Input Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]) << std::endl;
+        std::vector<size_t> dims;
+        for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[graph_id][i]); j++) {
+          dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[graph_id][i]) + j));
+        }
+        if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_16)
+          memset(QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(uint16_t));
+        else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_32)
+          memset(QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(float));
+        else {
+          float *ptr = new float[datautil::calculateElementCount(dims)];
+          memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
+          m_ioTensor.copyFromFloatToNative(ptr, &m_inputTensors[graph_id][i]);
+          delete[] ptr;
+        }
       }
-    }
-    for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
-      // std::cout << "Output Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_outputTensors[i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[i]) << std::endl;
-      std::vector<size_t> dims;
-      for (int j = 0; j < QNN_TENSOR_GET_RANK(m_outputTensors[i]); j++) {
-        dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_outputTensors[i]) + j));
-      }
-      if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[i]) == QNN_DATATYPE_FLOAT_16)
-        memset(QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[i]).data, 0, datautil::calculateElementCount(dims) * sizeof(uint16_t));
-      else {
-        float *ptr = new float[datautil::calculateElementCount(dims)];
-        memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
-        m_ioTensor.copyFromFloatToNative(ptr, &m_outputTensors[i]);
-        delete[] ptr;
+      for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
+        // std::cout << "Output Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]) << std::endl;
+        if (std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i])).find("kv") != std::string::npos) {
+          m_isExternalWkv = true;
+        }
+        std::vector<size_t> dims;
+        for (int j = 0; j < QNN_TENSOR_GET_RANK(m_outputTensors[graph_id][i]); j++) {
+          dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_outputTensors[graph_id][i]) + j));
+        }
+        if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_16)
+          memset(QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(uint16_t));
+        else if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_32)
+          memset(QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(float));
+        else {
+          float *ptr = new float[datautil::calculateElementCount(dims)];
+          memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
+          m_ioTensor.copyFromFloatToNative(ptr, &m_outputTensors[graph_id][i]);
+          delete[] ptr;
+        }
       }
     }
   }
@@ -727,35 +740,82 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
 
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
   auto returnStatus = StatusCode::SUCCESS;
-  auto graphInfo     = (*m_graphsInfo)[0];
 
-  if (nullptr == m_inputTensors || nullptr == m_outputTensors)
+  if (nullptr == m_inputTensors[0] || nullptr == m_outputTensors[0])
     return StatusCode::FAILURE;
 
-  int *token_input = (int*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0]).data;
-  *token_input = token;
-
-  auto executeStatus =
-      m_qnnFunctionPointers.qnnInterface.graphExecute(graphInfo.graph,
-                                                      m_inputTensors,
-                                                      graphInfo.numInputTensors,
-                                                      m_outputTensors,
-                                                      graphInfo.numOutputTensors,
-                                                      m_profileBackendHandle,
-                                                      nullptr);
-  if (QNN_GRAPH_NO_ERROR != executeStatus) {
-    returnStatus = StatusCode::FAILURE;
+  if (m_embedding.empty()) {
+    int *token_input = (int*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0][0]).data;
+    *token_input = token;
+  } else {
+    if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_16) {
+      half_float::half *ptr = (half_float::half*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0][0]).data;
+      for (int i = 0; i < m_embedding.size(); i++) {
+        ptr[i] = half_float::half(m_embedding[token][i]);
+      }
+    } else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_32) {
+      float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0][0]).data;
+      memcpy(ptr, m_embedding[token].data(), m_embedding[token].size() * sizeof(float));
+    } else {
+      m_ioTensor.copyFromFloatToNative(m_embedding[token].data(), &m_inputTensors[0][0]);
+    }
   }
+
+  // auto print = [](Qnn_Tensor_t *tensor) {
+  //   float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(tensor).data;
+  //   for (int i = 0; i < 10; i++) {
+  //     std::cout << ptr[i] << " ";
+  //   }
+  //   std::cout << std::endl;
+  // };
+
+  // for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
+  //   for (int idx = 0; idx < (*m_graphsInfo)[graph_id].numInputTensors; idx++) {
+  //     if (idx == 0 && graph_id == 0) continue;
+  //     std::cout << "Input Tensor " << idx << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][idx]) << std::endl;
+  //     print(&m_inputTensors[graph_id][idx]);
+  //   }
+  // }
+
+  for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
+    auto graphInfo     = (*m_graphsInfo)[graph_id];
+    if (graph_id) { // chunked models
+      copyTensor(&m_inputTensors[graph_id][0], &m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]);
+    }
+    auto executeStatus =
+        m_qnnFunctionPointers.qnnInterface.graphExecute(graphInfo.graph,
+                                                        m_inputTensors[graph_id],
+                                                        graphInfo.numInputTensors,
+                                                        m_outputTensors[graph_id],
+                                                        graphInfo.numOutputTensors,
+                                                        m_profileBackendHandle,
+                                                        nullptr);
+    if (QNN_GRAPH_NO_ERROR != executeStatus) {
+      returnStatus = StatusCode::FAILURE;
+    }
+  }
+
+  // for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
+  //   for (int idx = 0; idx < (*m_graphsInfo)[graph_id].numInputTensors; idx++) {
+  //     if (idx == 0 && graph_id == 0) continue;
+  //     std::cout << "Input Tensor " << idx << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][idx]) << std::endl;
+  //     print(&m_inputTensors[graph_id][idx]);
+  //   }
+  // }
+
+  m_inferenced = true;
 
   return returnStatus;
 }
 
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeGraphs() {
-  auto graphInfo     = (*m_graphsInfo)[0];
-  m_ioTensor.tearDownInputAndOutputTensors(
-      m_inputTensors, m_outputTensors, graphInfo.numInputTensors, graphInfo.numOutputTensors);
-  m_inputTensors  = nullptr;
-  m_outputTensors = nullptr;
+  for (int i = 0; i < m_graphsCount; i++) {
+    auto graphInfo     = (*m_graphsInfo)[i];
+    m_ioTensor.tearDownInputAndOutputTensors(
+        m_inputTensors[i], m_outputTensors[i], graphInfo.numInputTensors, graphInfo.numOutputTensors);
+    m_inputTensors[i]  = nullptr;
+    m_outputTensors[i] = nullptr;
+  }
 
   qnn_wrapper_api::freeGraphsInfo(&m_graphsInfo, m_graphsCount);
   m_graphsInfo = nullptr;

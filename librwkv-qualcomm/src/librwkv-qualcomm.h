@@ -20,7 +20,7 @@ StatusCode QnnRwkvBackendCreate(QnnRwkvBackend_t *backend, QnnRwkvModel_t *model
 
 StatusCode QnnRwkvBackendCreateWithContext(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath);
 
-StatusCode QnnRwkvBackendCreateWithContextBuffer(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath, uint8_t *buffer, uint64_t size);
+StatusCode QnnRwkvBackendCreateWithContextBuffer(QnnRwkvBackend_t *backend, QnnRwkvModel_t *modelHandle, std::string contextPath, std::string backendPath, std::string systemlibPath, uint8_t *buffer, uint64_t size, uint8_t *emb_buffer, uint64_t emb_size, int vocab_size);
 
 StatusCode QnnRwkvSetInput(QnnRwkvBackend_t backend, int inputIdx, float* inputBuffer, size_t inputSize);
 

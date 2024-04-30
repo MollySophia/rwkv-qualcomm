@@ -17,9 +17,9 @@ export TARGET = linux-x86_64
 # specify compiler
 export CXX := clang++-9
 
-.PHONY: all $(EXE_SOURCES) all_x86 all_android
+.PHONY: all $(EXE_SOURCES) all_android
 
-all: $(EXE_SOURCES) all_x86 all_android
+all: $(EXE_SOURCES) all_android
 
 # Combined Targets
 clean: clean_x86 clean_android

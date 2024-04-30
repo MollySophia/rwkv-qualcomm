@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <queue>
+#include <vector>
 
 #include "IOTensor.hpp"
 #include "Interfaces.hpp"
@@ -25,6 +26,7 @@ class QnnRwkvApp {
   QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                void *backendHandle,
                void *modelHandle,
+               std::vector<std::vector<float>> embedding = {},
                ProfilingLevel profilingLevel           = ProfilingLevel::OFF,
                std::string cachedBinaryPath            = "",
                std::string saveBinaryName              = "");
@@ -112,8 +114,11 @@ class QnnRwkvApp {
   void *m_backendLibraryHandle;
   void *m_modelHandle;
   iotensor::IOTensor m_ioTensor;
-  Qnn_Tensor_t *m_inputTensors = nullptr;
-  Qnn_Tensor_t *m_outputTensors = nullptr;
+  Qnn_Tensor_t *m_inputTensors[4] = {nullptr};
+  Qnn_Tensor_t *m_outputTensors[4] = {nullptr};
+  std::vector<std::vector<float>> m_embedding = {};
+  bool m_isExternalWkv = false;
+  bool m_inferenced = false;
   bool m_isBackendInitialized;
   bool m_isContextCreated;
   Qnn_ProfileHandle_t m_profileBackendHandle              = nullptr;

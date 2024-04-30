@@ -12,3 +12,4 @@ bin/
 __pycache__
 .vscode/
 tmp/
+samples*/

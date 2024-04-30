@@ -319,8 +319,12 @@ inline Qnn_TensorMemType_t getQnnTensorMemType(const Qnn_Tensor_t* const tensor)
 }
 
 inline Qnn_ClientBuffer_t getQnnTensorClientBuf(const Qnn_Tensor_t& tensor) {
-  // TensorCompatTest justifies no need to check version
-  return tensor.v1.clientBuf;
+  if (tensor.version == QNN_TENSOR_VERSION_1) {
+    return tensor.v1.clientBuf;
+  } else if (tensor.version == QNN_TENSOR_VERSION_2) {
+      return tensor.v2.clientBuf;
+  }
+  return QNN_CLIENT_BUFFER_INIT;
 }
 
 inline Qnn_ClientBuffer_t getQnnTensorClientBuf(const Qnn_Tensor_t* const tensor) {
