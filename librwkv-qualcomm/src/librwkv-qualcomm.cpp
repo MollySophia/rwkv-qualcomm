@@ -487,3 +487,30 @@ StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend) {
 
     return StatusCode::SUCCESS;
 }
+
+StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    if (!app->m_inferenced)
+        return StatusCode::SUCCESS;
+    for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
+        for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
+            for (size_t idx = 0; idx < (*app->m_graphsInfo)[graph_id].numOutputTensors - 1; idx++) {
+                size_t elemcount = 1;
+                for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_outputTensors[graph_id][idx]); i++) {
+                    elemcount *= *(QNN_TENSOR_GET_DIMENSIONS(app->m_outputTensors[graph_id][idx]) + i);
+                }
+                if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_16) {
+                    uint16_t *ptr = (uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                    memset(ptr, 0, elemcount * sizeof(uint16_t));
+                } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_32) {
+                    float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                    memset(ptr, 0, elemcount * sizeof(float));
+                } else {
+                    // TODO: quantized
+                }
+            }
+        }
+    }
+
+    return StatusCode::SUCCESS;
+}
