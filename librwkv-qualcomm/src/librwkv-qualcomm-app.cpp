@@ -840,6 +840,13 @@ void rwkv_app::QnnRwkvApp::copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src) {
                             datautil::calculateElementCount(dims) * sizeof(float),
                             QNN_TENSOR_GET_CLIENT_BUF(src).data,
                             datautil::calculateElementCount(dims) * sizeof(float));
+    else if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_INT_16 &&
+      QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_INT_16) {
+      pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
+                            datautil::calculateElementCount(dims) * sizeof(int16_t),
+                            QNN_TENSOR_GET_CLIENT_BUF(src).data,
+                            datautil::calculateElementCount(dims) * sizeof(int16_t));
+    }
     else {
       float *buffer;
       if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_16) {

@@ -7,10 +7,17 @@
 #include "Logger.hpp"
 #include <cmath>
 #include <fstream>
+
+#ifdef ANDROID
 #include <android/log.h>
 
 #define LOG_ERROR(msg) \
     __android_log_print(ANDROID_LOG_ERROR, "librwkv-qualcomm", "%s", std::string(msg).c_str())
+
+#else
+#define LOG_ERROR(msg) \
+    std::cout << msg << std::endl
+#endif
 
 using namespace qnn::tools;
 
@@ -436,41 +443,14 @@ StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     if (!app->m_inferenced)
         return StatusCode::SUCCESS;
-    if (!app->m_isExternalWkv) {
-        for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
-            for (size_t idx = 1; idx < (*app->m_graphsInfo)[graph_id].numInputTensors; idx++) {
-                app->copyTensor(&app->m_inputTensors[graph_id][idx], &app->m_outputTensors[graph_id][idx-1]);
-            }
-        }
-    } else {
-        auto cal_wkv = [&app](size_t kv_idx, size_t decay_idx, size_t state_idx, size_t graph_idx) {
-            float* kv = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_idx][kv_idx]).data;
-            float* decay = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_idx][decay_idx]).data;
-            float* state = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_inputTensors[graph_idx][state_idx]).data;
-            std::vector<size_t> dims;
-            for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_inputTensors[graph_idx][state_idx]); i++) {
-                dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(app->m_inputTensors[graph_idx][state_idx]) + i));
-            }
 
-            for (int a = 0; a < dims[0]; a++) {
-                for (int b = 0; b < dims[1]; b++) {
-                    // float decay_val = exp(-exp(*decay++));
-                    float decay_val = *decay++;
-                    for (int c = 0; c < dims[2]; c++) {
-                        // std::cout << "state = " << decay_val << " * " << *state << " + " << *kv << std::endl;
-                        *state = decay_val * *state + *kv;
-                        state++;
-                        kv++;
-                    }
-                }
-            }
-        };
-        for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
-            for (size_t idx = 0; idx < ((*app->m_graphsInfo)[graph_id].numOutputTensors-1)/4; idx++) {
-                app->copyTensor(&app->m_inputTensors[graph_id][3*idx+1], &app->m_outputTensors[graph_id][4*idx]);
-                cal_wkv(4*idx+2, 4*idx+1, 3*idx+2, graph_id);
-                app->copyTensor(&app->m_inputTensors[graph_id][3*idx+3], &app->m_outputTensors[graph_id][4*idx+3]);
-            }
+    for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
+        for (size_t idx = 1; idx < (*app->m_graphsInfo)[graph_id].numInputTensors; idx++) {
+            // app->copyTensor(&app->m_inputTensors[graph_id][idx], &app->m_outputTensors[graph_id][idx-1]);
+            // zero copy
+            auto tmp = getQnnTensorClientBuf(app->m_inputTensors[graph_id][idx]);
+            setQnnTensorClientBuf(app->m_inputTensors[graph_id][idx], getQnnTensorClientBuf(app->m_outputTensors[graph_id][idx-1]));
+            setQnnTensorClientBuf(app->m_outputTensors[graph_id][idx-1], tmp);
         }
     }
 
