@@ -9,40 +9,23 @@ import torch.nn as nn
 from torch.nn import functional as F
 from typing import List,Set,Dict
 import os
-from rwkv_tokenizer import RWKV_TOKENIZER, ABCTokenizer
 import scipy
+from tqdm import tqdm
 
 def sample_logits(out, temperature=1.0, top_p=0.8):
-    probs = F.softmax(out, dim=-1).numpy()
+    probs = F.softmax(out, dim=-1).cpu().numpy()
     sorted_probs = np.sort(probs)[::-1]
     cumulative_probs = np.cumsum(sorted_probs)
     cutoff = float(sorted_probs[np.argmax(cumulative_probs > top_p)])
     probs[probs < cutoff] = 0
     if temperature != 1.0:
-        probs = probs.pow(1.0 / temperature)
+        probs = torch.tensor(probs).pow(1.0 / temperature).numpy()
     probs = probs / np.sum(probs)
     out = np.random.choice(a=len(probs), p=probs)
-    out = np.argmax(probs)
     return out
 
-import matplotlib.pyplot as plt
-def draw_distribution(tensor_list, file_name):
-    plt.cla()
-    tensor_array = np.stack([t.flatten().numpy() for t in tensor_list])
-    max_values = np.max(tensor_array, axis=0)
-    min_values = np.min(tensor_array, axis=0)
-    low_99 = np.percentile(tensor_array, 1, axis=0)
-    high_99 = np.percentile(tensor_array, 99, axis=0)
-    low_75 = np.percentile(tensor_array, 25, axis=0)
-    high_75 = np.percentile(tensor_array, 75, axis=0)
-    plt.fill_between(range(len(max_values)), min_values, max_values, color='blue', alpha=0.5)
-    plt.fill_between(range(len(max_values)), low_99, high_99, color='orange', alpha=0.5)
-    plt.fill_between(range(len(max_values)), low_75, high_75, color='red', alpha=0.5)
-    plt.savefig(file_name)
-
-plot_tensors = []
 class RWKV_RNN(torch.nn.Module):
-    def __init__(self, args, chunks=1, chunk_idx=0, fp16=False):
+    def __init__(self, args, chunks=1, chunk_idx=0):
         super().__init__()
         self.args = args
         self.eval() # set torch to inference mode
@@ -95,22 +78,47 @@ class RWKV_RNN(torch.nn.Module):
         self.chunks = chunks
         print(f"Chunk {chunk_idx}: layers {self.layer_begin} to {self.layer_end}")
 
+        self.gpu = False
+        self.INFERENCE_DEVICE = torch.device('cpu')
+        if self.args.USE_CUDA:
+            if torch.cuda.is_available():
+                self.INFERENCE_DEVICE = torch.device('cuda')
+            else:
+                self.args.USE_CUDA = False
+        elif self.args.USE_XPU:
+            try:
+                import intel_extension_for_pytorch as ipex
+                self.INFERENCE_DEVICE = torch.device('xpu')
+            except:
+                self.args.USE_XPU = False
+        if self.INFERENCE_DEVICE is not torch.device('cpu'):
+            self.gpu = True
         w_new = {}
         for k in w.keys():
             if 'blocks' in k:
                 parts = k.split('.')
                 if int(parts[1]) < self.layer_begin or int(parts[1]) >= self.layer_end:
                     continue
-            w_new[k] = w[k]
+            if self.args.fp16:
+                w[k] = w[k].half() # convert to f16 type
+            else:
+                w[k] = w[k].float() # convert to f32 type
+            if 'emb' in k or ('blocks.0.ln0' in k):
+                if chunk_idx > 0:
+                    continue
+                if not self.args.USE_EMBEDDING:
+                    w_new[k] = w[k]
+                    continue
+            if 'ln_out' in k or 'head' in k:
+                if chunk_idx < chunks - 1:
+                    continue
+
+            w_new[k] = w[k].to(self.INFERENCE_DEVICE) if self.gpu else w[k]
         del w
         w = w_new
 
         for k in w.keys():
-            if fp16:
-                w[k] = w[k].half() # convert to f16 type
-            else:
-                w[k] = w[k].float() # convert to f32 type
-            if      '.time_' in k: w[k] = w[k].squeeze()
+            if '.time_' in k: w[k] = w[k].squeeze()
             if '.time_decay' in k and '_w' not in k:
                 if int(self.args.version) == 5:
                     w[k] = torch.exp(-torch.exp(w[k])).reshape(-1, 1, 1)
@@ -124,7 +132,7 @@ class RWKV_RNN(torch.nn.Module):
                         w[k] = w[k].reshape(-1, 1, 1)
                     else:
                         w[k] = torch.exp(w[k].float()).reshape(-1, 1, 1)
-                        if fp16:
+                        if self.args.fp16:
                             w[k] = w[k].half()
                     if self.args.version in [5.2, 6.0]:
                         w[k] = w[k].reshape(self.args.n_head, -1, 1)
@@ -147,17 +155,14 @@ class RWKV_RNN(torch.nn.Module):
                     here = getattr(here, p)
             setattr(here, last, w[k])
 
-        # r = torch.randint(low=0, high=2, size=(self.args.head_size,), dtype=torch.float16 if fp16 else torch.float32)
-        # r = r * 2 - 1
-        H = torch.tensor(scipy.linalg.hadamard(self.args.head_size), dtype=torch.float16 if fp16 else torch.float32)
-        # H = H @ torch.diag(r) # randomize the Hadamard matrix
-        self.Qt = H.t().unsqueeze(0) / (self.args.head_size / 8)
-        self.Q = H.unsqueeze(0) / 8
-
         if self.chunk_idx == 0:
             self.w.emb.weight = F.layer_norm(self.w.emb.weight.float(), (self.args.n_embd,), weight=self.w.blocks[0].ln0.weight.flatten().float(), bias=self.w.blocks[0].ln0.bias.flatten().float())
-            if fp16:
+            if self.args.fp16:
                 self.w.emb.weight = self.w.emb.weight.half()
+            if self.gpu:
+                self.w.emb.weight = self.w.emb.weight.to(self.INFERENCE_DEVICE)
+            if self.args.USE_EMBEDDING:
+                self.embedding = torch.nn.Embedding.from_pretrained(self.w.emb.weight, freeze=True)
 
         if self.args.RESCALE_LAYER > 0:
             for i in range(self.layer_begin, self.layer_end):
@@ -165,23 +170,15 @@ class RWKV_RNN(torch.nn.Module):
                 self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
 
     def layer_norm(self, x, w):
-        # plot_tensors.append(x.flatten())
         return F.instance_norm(x.view(1, 1, 1, -1), eps=1e-5).view(1, -1) * w.weight + w.bias
+        # return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
 
     def wkv(self, k, v, r, state2, time_first, time_decay, scale=1, i=-1, use_hadamard=False):
-        state2 = state2.view(self.args.n_head, self.args.head_size, self.args.head_size) * scale
         v = v * scale
         kv = k @ v
-        if use_hadamard:
-            wkv = r @ ((time_first * kv + state2) @ self.Qt)
-        else:
-            wkv = r @ (time_first * kv + state2)
-        new_state2 = (time_decay * state2 + kv).view(self.args.n_head * self.args.head_size * self.args.head_size) / scale
-        plot_tensors.append(wkv.flatten())
-        if use_hadamard:
-            return wkv @ self.Q, new_state2
-        else:
-            return wkv, new_state2
+        wkv = r @ (time_first * kv + state2)
+        new_state2 = time_decay * state2 + kv
+        return wkv, new_state2
 
     def channel_mixing_v5(self, x, state, i:int, time_mix_k, time_mix_r, kw, vw, rw):
         xk = (x * time_mix_k + state * (1 - time_mix_k))
@@ -256,19 +253,11 @@ class RWKV_RNN(torch.nn.Module):
 
         sx = state1 - x
         xxx = x + sx * x_maa
-        xxx = torch.tanh(xxx @ tm_w1).view(5, 1, -1)
-        xxx = torch.bmm(xxx, tm_w2).view(5, -1)
-        maa = torch.cat([w_maa.unsqueeze(0), k_maa, v_maa, r_maa, g_maa], dim=0)
-        # print(x.shape, sx.shape, maa.shape)
+        xxx = torch.tanh((xxx @ tm_w1).view(5, 1, -1))
+        xxx = torch.bmm(xxx, tm_w2)
+        maa = torch.cat([w_maa.view(1, 1, -1), k_maa.view(1, 1, -1), v_maa.view(1, 1, -1), r_maa.view(1, 1, -1), g_maa.view(1, 1, -1)], dim=0)
         xxx = x + sx * (maa + xxx)
-        xw, xk, xv, xr, xg = torch.split(xxx, 1, dim=-2)
-        # mw, mk, mv, mr, mg = xxx.unbind(dim=0)
-
-        # xw = x + sx * (w_maa + mw)
-        # xk = x + sx * (k_maa + mk)
-        # xv = x + sx * (v_maa + mv)
-        # xr = x + sx * (r_maa + mr)
-        # xg = x + sx * (g_maa + mg)
+        xw, xk, xv, xr, xg = torch.split(xxx, 1, dim=0)
 
         r = (xr @ rw.t()).view(H, 1, S)
         k = (xk @ kw.t()).view(H, S, 1)
@@ -277,12 +266,13 @@ class RWKV_RNN(torch.nn.Module):
         g = g * F.sigmoid(g)
 
         w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).view(H, S, 1)
-        # e^(-e^2.8) is near the finest precision of f16
-        w = torch.exp(-torch.exp(w.clip(-100, 2.8)))
+        w = torch.exp(-torch.exp(w.clip(-9.72, 2.27)))
+        # w = torch.exp(-torch.exp(w))
 
-        x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1/8, i=i, use_hadamard=True)
+        x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1/8, i=i, use_hadamard=False)
 
-        x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b) * g
+        x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
+        x = x * g
         return x @ ow.t(), state2
 
     def forward(self, in0, *states, calibrate=False):
@@ -291,13 +281,14 @@ class RWKV_RNN(torch.nn.Module):
                 self.__dict__[f"state{3*i}"] = states[3*(i-self.layer_begin)]
                 self.__dict__[f"state{3*i+1}"] = states[3*(i-self.layer_begin)+1]
                 self.__dict__[f"state{3*i+2}"] = states[3*(i-self.layer_begin)+2]
-            # if self.chunk_idx == 0:
-            #     # x = self.embedding(in0)
-            # else:
-            x = in0.view(1, 1, -1)
+            if self.args.USE_EMBEDDING and self.chunk_idx == 0:
+                x = self.embedding(in0).view(1, 1, -1)
+            else:
+                x = in0
             if self.args.version == 5:
                 for i in range(self.layer_begin, self.layer_end):
                     att = self.w.blocks[i].att
+                    # x_ln = self.att[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
                         att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_first, att.time_decay, 
@@ -306,6 +297,7 @@ class RWKV_RNN(torch.nn.Module):
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
+                    # x_ln = self.ffn[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
                     x = x + self.channel_mixing_v5(x_ln, self.__dict__[f"state{3*i+2}"], i, 
                         ffn.time_mix_k, ffn.time_mix_r, 
@@ -317,6 +309,7 @@ class RWKV_RNN(torch.nn.Module):
             elif self.args.version in [5.1, 5.2]:
                 for i in range(self.layer_begin, self.layer_end):
                     att = self.w.blocks[i].att
+                    # x_ln = self.att[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5_1(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
                         att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_mix_g, att.time_first, att.time_decay, 
@@ -325,6 +318,7 @@ class RWKV_RNN(torch.nn.Module):
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
+                    # x_ln = self.ffn[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
                     x = x + self.channel_mixing_v5(x_ln, self.__dict__[f"state{3*i+2}"], i, 
                         ffn.time_mix_k, ffn.time_mix_r, 
@@ -336,6 +330,7 @@ class RWKV_RNN(torch.nn.Module):
             elif int(self.args.version) == 6:
                 for i in range(self.layer_begin, self.layer_end):
                     att = self.w.blocks[i].att
+                    # x_ln = self.att[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v6(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
                         att.time_maa_x, att.time_maa_w, att.time_maa_k, att.time_maa_v, att.time_maa_r, att.time_maa_g, att.time_maa_w1, att.time_maa_w2,
@@ -345,6 +340,7 @@ class RWKV_RNN(torch.nn.Module):
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
+                    # x_ln = self.ffn[i].layernorm(x)
                     x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
                     x = x + self.channel_mixing_v6(x_ln, self.__dict__[f"state{3*i+2}"], i, 
                         ffn.time_maa_k, ffn.time_maa_r, 
@@ -356,76 +352,106 @@ class RWKV_RNN(torch.nn.Module):
             
             if self.chunk_idx == self.chunks - 1:
                 x = self.layer_norm(x, self.w.ln_out)
-                x = F.conv2d(x.view(1, self.args.n_embd, 1, 1), self.w.head.weight.view(self.args.vocab_size, self.args.n_embd, 1, 1))
-            return_list = [x.flatten()]
+                if "7B" in self.args.MODEL_NAME:
+                    a, b = torch.chunk(self.w.head.weight.t(), 2, dim=1)
+                    x = torch.cat([x @ a, x @ b], dim=1)
+                else:
+                    x = x @ self.w.head.weight.t()
+                x = x.view(self.args.vocab_size)
+            else:
+                x = x.view(self.args.n_embd)
+            return_list = [x]
             for i in range(self.layer_begin, self.layer_end):
                 return_list.append(self.__dict__[f"state{3*i}"])
                 return_list.append(self.__dict__[f"state{3*i+1}"])
                 return_list.append(self.__dict__[f"state{3*i+2}"])
             return return_list
 
-def run_prompt(model, context, length=150, calibrate=False, generate_samples=False, tokenizer=None, fp16=False):
+iteration_count = 0
+def run_prompt(model, context, length=150, calibrate=False, generate_samples=False, tokenizer=None):
+    global iteration_count
+    fp16 = False
+    if iteration_count == 0 and generate_samples:
+        not os.path.exists("input_list.txt") or os.remove("input_list.txt")
     assert tokenizer != None
-    iteration_count = 0
     input_list_lines = []
-    print(context, end="")
+    if length != 0:
+        print(context, end="")
     if type(model) == list:
         args = model[0].args
         chunks = len(model)
     else:
         args = model.args
         chunks = -1
+    fp16 = args.fp16
+    INFERENCE_DEVICE = model[0].INFERENCE_DEVICE if chunks > 0 else model.INFERENCE_DEVICE
 
     states = []
     for i in range(args.n_layer):
         if fp16:
             states.append(torch.zeros(1, args.n_embd, dtype=torch.float16))
-            states.append(torch.zeros(args.n_head * args.head_size * args.head_size, dtype=torch.float16))
+            states.append(torch.zeros(args.n_head, args.head_size, args.head_size, dtype=torch.float16))
             states.append(torch.zeros(1, args.n_embd, dtype=torch.float16))
         else:
             states.append(torch.zeros(1, args.n_embd))
-            states.append(torch.zeros(args.n_head * args.head_size * args.head_size))
+            states.append(torch.zeros(args.n_head, args.head_size, args.head_size))
             states.append(torch.zeros(1, args.n_embd))
+        if INFERENCE_DEVICE is not torch.device('cpu'):
+            states = [tensor.to(INFERENCE_DEVICE) for tensor in states]
 
     def encode(tokenizer, x):
-        if 'Tokenizer' in str(type(tokenizer)):
+        if 'Tokenizer' in str(type(tokenizer)) and not 'ABCTokenizer' in str(type(tokenizer)):
             return tokenizer.encode(x).ids
         else:
             return tokenizer.encode(x)
+    
+    if chunks > 0:
+        if generate_samples:
+            input_list_lines = [[] for i in range(chunks)]
 
-    for token in encode(tokenizer, context):
+    iterator = encode(tokenizer, context) if length != 0 else tqdm(encode(tokenizer, context))
+    for token in iterator:
         if chunks > 0:
-            if generate_samples:
-                input_list_lines = [[] for i in range(chunks)]
             for i in range(chunks):
-                in0 = model[0].w.emb.weight[token] if i == 0 else inputs[0]
+                if args.USE_EMBEDDING:
+                    in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
+                else:
+                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
+                if INFERENCE_DEVICE is not torch.device('cpu'):
+                    in0 = in0.to(INFERENCE_DEVICE)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
                     os.path.exists(f"samples_chunk{i}") or os.mkdir(f"samples_chunk{i}")
                     os.path.exists(f"samples_chunk{i}/{iteration_count}") or os.mkdir(f"samples_chunk{i}/{iteration_count}")
                     for j in range(len(inputs)):
-                        inputs[j].numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
+                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 inputs = model[i].forward(*inputs, calibrate=calibrate)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
                     states[j] = inputs[j - 3*model[i].layer_begin + 1]
             if generate_samples:
-                os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
-                inputs[0].numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}.bin")
                 iteration_count += 1
         else:
-            in0 = model.w.emb.weight[token]
+            if args.USE_EMBEDDING:
+                in0 = torch.LongTensor([token])
+            else:
+                in0 = model.w.emb.weight[token].view(1, 1, -1)
+            if INFERENCE_DEVICE is not torch.device('cpu'):
+                in0 = in0.to(INFERENCE_DEVICE)
             inputs = [in0] + states
             if generate_samples:
+                os.path.exists("samples") or os.mkdir("samples")
                 os.path.exists(f"samples/{iteration_count}") or os.mkdir(f"samples/{iteration_count}")
                 for j in range(len(inputs)):
-                    inputs[j].numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
+                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
             inputs = model.forward(*inputs, calibrate=calibrate)
             states = inputs[1:]
             if generate_samples:
-                os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
-                inputs[0].numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}.bin")
+                # os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
+                # os.path.exists(f"sample_outputs/{iteration_count}") or os.mkdir(f"sample_outputs/{iteration_count}")
+                # for j in range(len(inputs)):
+                #     inputs[j].cpu().numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}/output_{j}.bin")
                 iteration_count += 1
 
     all_tokens = []
@@ -449,196 +475,56 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
             tmp = tokenizer.decode(all_tokens[out_last:])
             if 'MIDI' in args.MODEL_NAME:
                 tmp = ' ' + tmp
-            if '\ufffd' not in tmp: # only print when we have a valid utf-8 string
-                print(tmp, end="", flush=True)
-                out_last = i + 1
+            print(tmp, end="", flush=True)
+            out_last = i + 1
         except:
             pass
 
         if chunks > 0:
             for i in range(chunks):
-                in0 = model[0].w.emb.weight[token] if i == 0 else inputs[0]
+                if args.USE_EMBEDDING:
+                    in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
+                else:
+                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
+                if INFERENCE_DEVICE is not torch.device('cpu'):
+                    in0 = in0.to(INFERENCE_DEVICE)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
                     os.path.exists(f"samples_chunk{i}/{iteration_count}") or os.mkdir(f"samples_chunk{i}/{iteration_count}")
                     for j in range(len(inputs)):
-                        inputs[j].numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
+                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 inputs = model[i].forward(*inputs, calibrate=calibrate)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
                     states[j] = inputs[j - 3*model[i].layer_begin + 1]
             if generate_samples:
-                os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
-                inputs[0].numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}.bin")
                 iteration_count += 1
         else:
-            in0 = model.w.emb.weight[token]
+            if args.USE_EMBEDDING:
+                in0 = torch.LongTensor([token])
+            else:
+                in0 = model.w.emb.weight[token].view(1, 1, -1)
+            if INFERENCE_DEVICE is not torch.device('cpu'):
+                in0 = in0.to(INFERENCE_DEVICE)
             inputs = [in0] + states
             if generate_samples:
                 os.path.exists(f"samples/{iteration_count}") or os.mkdir(f"samples/{iteration_count}")
                 for j in range(len(inputs)):
-                    inputs[j].numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
+                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
+                iteration_count += 1
             inputs = model.forward(*inputs, calibrate=calibrate)
             states = inputs[1:]
-            if generate_samples:
-                os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
-                inputs[0].numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}.bin")
-                iteration_count += 1
 
     print('\n')
     if generate_samples:
         if chunks > 0:
             for i in range(chunks):
-                with open(f"input_list_chunk{i}.txt", "w") as f:
+                with open(f"input_list_chunk{i}.txt", "a") as f:
                     f.writelines(input_list_lines[i])
         else:
-            with open(f"input_list.txt", "w") as f:
+            with open(f"input_list.txt", "a") as f:
                 f.writelines(input_list_lines)
 
-def make_chunks(chunks, fp16=False):
-    return [RWKV_RNN(args, chunks=chunks, chunk_idx=i, fp16=fp16) for i in range(chunks)]
-
-args = types.SimpleNamespace()
-model_dir = '/home/molly/workspace/models/'
-# args.MODEL_NAME = model_dir + 'RWKV-6-ABC-85M-v1-20240217-ctx1024'
-args.MODEL_NAME = model_dir + 'RWKV-6-MIDI-120M-20240220-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-x060-World-3B-v2.1-20240417-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-5-ABC-82M-v1-20230901-ctx1024'
-# args.MODEL_NAME = model_dir + 'RWKV-5-MIDI-120M-v1-20230728-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-5-World-0.4B-v2-20231113-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-5-World-1B5-v2-20231025-ctx4096'
-# args.MODEL_NAME = model_dir + 'RWKV-5-World-3B-v2-20231118-ctx16k'
-
-if 'ABC' in args.MODEL_NAME:
-    args.RESCALE_LAYER = 0
-    tokenizer = ABCTokenizer()
-    prompt = """S:3
-B:9
-E:4
-B:9
-E:4
-E:4
-B:9
-L:1/8
-M:3/4
-K:D
- Bc | d2 cB A2 FE | F2 B4 F^G |
-"""
-    prompt = chr(tokenizer.bos_token_id) + prompt
-elif 'MIDI' in args.MODEL_NAME:
-    args.RESCALE_LAYER = 0
-    from tokenizers import Tokenizer
-    tokenizer = Tokenizer.from_file("./tokenizer-midi.json")
-    prompt = "<pad> " + "v:5b:3 v:5b:2 t125 t125 t125 t106 pi:43:5 t24 pi:4a:7 t15 pi:4f:7 t17 pi:56:7 t18 pi:54:7 t125 t49 pi:51:7 t117 pi:4d:7 t125 t125 t111 pi:37:7 t14 pi:3e:6 t15 pi:43:6 t12 pi:4a:7 t17 pi:48:7 t125 t60 pi:45:7 t121 pi:41:7 t125 t117 s:46:5 s:52:5 f:46:5 f:52:5 t121 s:45:5 s:46:0 s:51:5 s:52:0 f:45:5 f:46:0 f:51:5 f:52:0 t121 s:41:5 s:45:0 s:4d:5 s:51:0 f:41:5 f:45:0 f:4d:5 f:51:0 t102 pi:37:0 pi:3e:0 pi:41:0 pi:43:0 pi:45:0 pi:48:0 pi:4a:0 pi:4d:0 pi:4f:0 pi:51:0 pi:54:0 pi:56:0 t19 s:3e:5 s:41:0 s:4a:5 s:4d:0 f:3e:5 f:41:0 f:4a:5 f:4d:0 t121 v:3a:5 t121 v:39:7 t15 v:3a:0 t106 v:35:8 t10 v:39:0 t111 v:30:8 v:35:0 t125 t117 v:32:8 t10 v:30:0 t125 t125 t103 v:5b:0 v:5b:0 t9 pi:4a:7"
-else:
-    args.RESCALE_LAYER = 2
-    tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
-    prompt = "\n我们发现"
-
-TEMPERATURE = 1.0
-TOP_P = 0.7
-
-model = RWKV_RNN(args)
-# model = make_chunks(4)
-model_fp16 = RWKV_RNN(args, fp16=True)
-# model_fp16 = make_chunks(4, fp16=True)
-
-# run_prompt(model, prompt, tokenizer=tokenizer, length=1000, generate_samples=True)
-# run_prompt(model, prompt, tokenizer=tokenizer, length=100)
-run_prompt(model_fp16, prompt, tokenizer=tokenizer, length=100, fp16=True)
-# draw_distribution(plot_tensors, "wkv.png")
-# quit()
-
-qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
-if not qnn_sdk_root:
-    print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
-    exit(1)
-os.path.exists("onnx") or os.mkdir("onnx")
-
-if type(model) == list:
-    model[0].w.emb.weight.numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
-    args = model[0].args
-    states = []
-    for i in range(args.n_layer):
-        states.append(torch.zeros(1, args.n_embd))
-        states.append(torch.zeros(args.n_head * args.head_size * args.head_size))
-        states.append(torch.zeros(1, args.n_embd))
-
-    for i in range(len(model)):
-        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}"
-        os.path.exists(dirname) or os.mkdir(dirname)
-        in0 = model[0].w.emb.weight[0] if i == 0 else torch.zeros(args.n_embd)
-        inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
-        input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
-        output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
-        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx", input_names=input_names, output_names=output_names, opset_version=15)
-        print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx")
-
-    config = f"""version: {args.version}
-head_size: {args.head_size}
-n_layer: {args.n_layer}
-n_embd: {args.n_embd}
-n_att: {args.n_att}
-n_ffn: {args.n_ffn}
-vocab_size: {args.vocab_size}
-"""
-    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
-        f.write(config)
-    
-    print("Converting and compiling QNN models...")
-    for i in range(len(model)):
-        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}"
-        os.path.exists(dirname) or os.mkdir(dirname)
-        os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --float_bw 32 --no_simplification --converter_op_package_lib ./customop/CustomOpPackage_Converter_Op_Package/ConverterOpPackage/libConverterOpPackage.so --op_package_config ./customop/CustomOpPackage.xml")
-        os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.bin -t x86_64-linux-clang")
-else:
-    model.w.emb.weight.numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
-    args = model.args
-    inputs = [model.w.emb.weight[0]]
-    for i in range(model.args.n_layer):
-        inputs.append(torch.zeros(1, model.args.n_embd))
-        inputs.append(torch.zeros(model.args.n_head, model.args.head_size, model.args.head_size))
-        inputs.append(torch.zeros(1, model.args.n_embd))
-    input_names = ['id'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
-    output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
-    torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=15)
-    print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-    config = f"""version: {args.version}
-head_size: {args.head_size}
-n_layer: {args.n_layer}
-n_embd: {args.n_embd}
-n_att: {args.n_att}
-n_ffn: {args.n_ffn}
-vocab_size: {args.vocab_size}
-"""
-    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
-        f.write(config)
-
-    print("Converting to QNN model...")
-    os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 --no_simplification --converter_op_package_lib ./customop/CustomOpPackage_Converter_Op_Package/ConverterOpPackage/libConverterOpPackage.so --op_package_config ./customop/CustomOpPackage.xml")
-    print("Compiling QNN model library...")
-    os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c onnx/{args.MODEL_NAME.split('/')[-1]}.cpp -b onnx/{args.MODEL_NAME.split('/')[-1]}.bin -t x86_64-linux-clang")
-
-# from onnxsim import simplify
-# import onnx
-# import json
-# onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-# model_simplified, check = simplify("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-# assert check, "Simplified ONNX model could not be validated"
-
-# encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
-# graph = onnx_model.graph
-# for i in range(len(graph.node)):
-    # if "Pow" in graph.node[i].op_type or "Sqrt" in graph.node[i].op_type or "Div" in graph.node[i].op_type \
-    #         or "Mul" in graph.node[i].op_type: 
-    #     for j in graph.node[i].input:
-    #         encodings_dict['activation_encodings'][j] = [{"bitwidth": 16, "dtype": "float"}]
-    #     for j in graph.node[i].output:
-    #         encodings_dict['activation_encodings'][j] = [{"bitwidth": 16, "dtype": "float"}]
-
-# with open('onnx/quant_override.json', 'w') as encoding_json:
-#     json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
-
-# onnx.save(model_simplified, "onnx/" + args.MODEL_NAME.split("/")[-1] + "_simplified.onnx")
+def make_chunks(chunks, args):
+    return [RWKV_RNN(args, chunks=chunks, chunk_idx=i) for i in range(chunks)]
