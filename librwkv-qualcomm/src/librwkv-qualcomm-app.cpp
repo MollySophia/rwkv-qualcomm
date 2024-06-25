@@ -5,7 +5,11 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
-
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "half.hpp"
 #include "DataUtil.hpp"
 #include "Logger.hpp"
@@ -25,6 +29,10 @@
 #include <QnnInterface.h>
 #include <HTP/QnnHtpDevice.h>
 #include <HTP/QnnHtpGraph.h>
+#include <HTP/QnnHtpContext.h>
+#include <QnnContext.h>
+
+#define USE_MMAP 0
 
 using namespace qnn;
 using namespace qnn::tools;
@@ -258,6 +266,22 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
 // are expected to be read by the app.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::composeGraphs() {
   auto returnStatus = StatusCode::SUCCESS;
+  if (m_graphConfigsInfo == nullptr) {
+    m_graphConfigsInfoCount = 1;
+    m_graphConfigsInfo = new qnn_wrapper_api::GraphConfigInfo_t*[m_graphConfigsInfoCount];
+    m_graphConfigsInfo[0] = new qnn_wrapper_api::GraphConfigInfo_t();
+    m_graphConfigsInfo[0]->graphName = (char*)"RWKV_6_ABC_85M_v1_20240217_ctx1024";
+    m_graphConfigsInfo[0]->graphConfigs = (const QnnGraph_Config_t**)new QnnGraph_Config_t*[2];
+
+    static QnnHtpGraph_CustomConfig_t customConfig;
+    customConfig.option = QNN_HTP_GRAPH_CONFIG_OPTION_PRECISION;
+    customConfig.precision = QNN_PRECISION_FLOAT16;
+    static QnnGraph_Config_t graphConfig;
+    graphConfig.option = QNN_GRAPH_CONFIG_OPTION_CUSTOM;
+    graphConfig.customConfig = &customConfig;
+    m_graphConfigsInfo[0]->graphConfigs[0] = &graphConfig;
+    m_graphConfigsInfo[0]->graphConfigs[1] = nullptr;
+  }
   if (qnn_wrapper_api::ModelError_t::MODEL_NO_ERROR !=
       m_qnnFunctionPointers.composeGraphsFnHandle(
           m_backendHandle,
@@ -321,6 +345,27 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
       return StatusCode::FAILURE;
     }
+
+#if USE_MMAP
+    int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
+    if (fd < 0) {
+      QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
+      return StatusCode::FAILURE;
+    }
+    buffer = std::shared_ptr<uint8_t>(
+        (uint8_t*)mmap(NULL, bufferSize, PROT_READ, MAP_SHARED, fd, 0), [bufferSize](uint8_t* p) {
+            if (p) {
+              munmap(p, bufferSize);
+            }
+          }
+        );
+
+    if (buffer.get() == MAP_FAILED) {
+      QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
+      close(fd);
+      return StatusCode::FAILURE;
+    }
+#else
     buffer = std::shared_ptr<uint8_t>(new uint8_t[bufferSize], std::default_delete<uint8_t[]>());
     if (!buffer) {
       QNN_ERROR("Failed to allocate memory.");
@@ -333,6 +378,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       QNN_ERROR("Failed to read binary data.");
       return StatusCode::FAILURE;
     }
+#endif
   }
 
   // inspect binary info
@@ -690,14 +736,14 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
   if (nullptr == m_inputTensors[0] || nullptr == m_outputTensors[0]) {
     for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
       auto graphInfo     = (*m_graphsInfo)[graph_id];
-      // std::cout << "Graph " << graph_id << " : " << graphInfo.graphName << std::endl;
+      QNN_INFO("Graph %d : %s", graph_id, graphInfo.graphName);
       if (iotensor::StatusCode::SUCCESS !=
           m_ioTensor.setupInputAndOutputTensors(&m_inputTensors[graph_id], &m_outputTensors[graph_id], graphInfo)) {
         QNN_ERROR("Error in setting up Input and output Tensors");
         return StatusCode::FAILURE;
       }
       for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
-        // std::cout << "Input Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]) << std::endl;
+        QNN_INFO("Input Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]));
         std::vector<size_t> dims;
         for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[graph_id][i]); j++) {
           dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[graph_id][i]) + j));
@@ -714,7 +760,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         }
       }
       for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
-        // std::cout << "Output Tensor " << i << " : " << QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]) << " Type: " << QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]) << std::endl;
+        QNN_INFO("Output Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]));
         if (std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i])).find("kv") != std::string::npos) {
           m_isExternalWkv = true;
         }
@@ -858,7 +904,11 @@ void rwkv_app::QnnRwkvApp::copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src) {
       } else if (QNN_TENSOR_GET_DATA_TYPE(src) != QNN_DATATYPE_FLOAT_32) {
         m_ioTensor.convertToFloat(&buffer, src);
       } else {
-        buffer = (float*)QNN_TENSOR_GET_CLIENT_BUF(src).data;
+        buffer = (float*)malloc(datautil::calculateElementCount(dims) * sizeof(float));
+        pal::StringOp::memscpy(buffer,
+                              datautil::calculateElementCount(dims) * sizeof(float),
+                              QNN_TENSOR_GET_CLIENT_BUF(src).data,
+                              datautil::calculateElementCount(dims) * sizeof(float));
       }
 
       if (QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_16) {

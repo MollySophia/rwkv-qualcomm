@@ -21,6 +21,8 @@ enum class StatusCode {
   QNN_FEATURE_UNSUPPORTED
 };
 
+const int max_chunks = 8;
+
 class QnnRwkvApp {
  public:
   QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
@@ -114,8 +116,8 @@ class QnnRwkvApp {
   void *m_backendLibraryHandle;
   void *m_modelHandle;
   iotensor::IOTensor m_ioTensor;
-  Qnn_Tensor_t *m_inputTensors[4] = {nullptr};
-  Qnn_Tensor_t *m_outputTensors[4] = {nullptr};
+  Qnn_Tensor_t *m_inputTensors[max_chunks] = {nullptr};
+  Qnn_Tensor_t *m_outputTensors[max_chunks] = {nullptr};
   std::vector<std::vector<float>> m_embedding = {};
   bool m_isExternalWkv = false;
   bool m_inferenced = false;
