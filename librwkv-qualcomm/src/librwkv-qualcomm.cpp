@@ -89,7 +89,6 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
 
     if (app->m_embedding.empty()) {
         std::string emb_path = modelPath.substr(0, modelPath.find_last_of(".")) + ".emb";
-        __android_log_print(ANDROID_LOG_INFO, "librwkv-qualcomm", "emb_path = %s", emb_path.c_str());
         std::ifstream emb_file;
         emb_file.open(emb_path, std::ios::in|std::ios::binary);
         if (emb_file.is_open()) {
@@ -150,7 +149,6 @@ StatusCode QnnRwkvBackendCreateWithContext(
     std::string backendPath, std::string systemlibPath
 ) {
     if (!qnn::log::initializeLogging()) {
-        __android_log_print(ANDROID_LOG_ERROR, "librwkv-qualcomm", "ERROR: Unable to initialize logging!\n");
         return StatusCode::FAILURE;
     }
     void* backendHandle;
