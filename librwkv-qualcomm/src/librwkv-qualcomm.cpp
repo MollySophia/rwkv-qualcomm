@@ -473,24 +473,67 @@ StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
     if (!app->m_inferenced)
         return StatusCode::SUCCESS;
     for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
-        for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
-            for (size_t idx = 0; idx < (*app->m_graphsInfo)[graph_id].numOutputTensors - 1; idx++) {
-                size_t elemcount = 1;
-                for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_outputTensors[graph_id][idx]); i++) {
-                    elemcount *= *(QNN_TENSOR_GET_DIMENSIONS(app->m_outputTensors[graph_id][idx]) + i);
-                }
-                if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_16) {
-                    uint16_t *ptr = (uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
-                    memset(ptr, 0, elemcount * sizeof(uint16_t));
-                } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_32) {
-                    float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
-                    memset(ptr, 0, elemcount * sizeof(float));
-                } else {
-                    // TODO: quantized
-                }
+        for (size_t idx = 0; idx < (*app->m_graphsInfo)[graph_id].numOutputTensors - 1; idx++) {
+            size_t elemcount = 1;
+            for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_outputTensors[graph_id][idx]); i++) {
+                elemcount *= *(QNN_TENSOR_GET_DIMENSIONS(app->m_outputTensors[graph_id][idx]) + i);
+            }
+            if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_16) {
+                uint16_t *ptr = (uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                memset(ptr, 0, elemcount * sizeof(uint16_t));
+            } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_32) {
+                float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                memset(ptr, 0, elemcount * sizeof(float));
+            } else {
+                // TODO: quantized
             }
         }
     }
 
+    return StatusCode::SUCCESS;
+}
+
+StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath) {
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    app->m_outputPath = contextPath;
+    app->m_saveBinaryName = "model_cache";
+    if (rwkv_app::StatusCode::SUCCESS != app->saveBinary()) {
+        LOG_ERROR("Context saving failed");
+        return StatusCode::FAILURE;
+    }
+    return StatusCode::SUCCESS;
+}
+
+StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<std::vector<float>>> states) {
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+
+    size_t n_tensors = states[0].size() * states.size();
+    if (n_tensors != app->m_graphsCount * (app->m_graphsInfo[0]->numInputTensors - 1)) {
+        LOG_ERROR("States size mismatch");
+        return StatusCode::FAILURE;
+    }
+    size_t current_tensor = 0;
+
+    for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
+        for (size_t idx = 0; idx < (*app->m_graphsInfo)[graph_id].numOutputTensors - 1; idx++) {
+            size_t states_i = current_tensor / states[0].size();
+            size_t states_j = current_tensor % states[0].size();
+            if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_16) {
+                uint16_t *ptr = (uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                for (size_t i = 0; i < states[states_i][states_j].size(); i++) {
+                    ptr[i] = half_float::half(states[states_i][states_j][i] / 8);
+                }
+            } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][idx]) == QNN_DATATYPE_FLOAT_32) {
+                float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
+                for (size_t i = 0; i < states[states_i][states_j].size(); i++) {
+                    ptr[i] = states[states_i][states_j][i] / 8;
+                }
+            } else {
+                // TODO: quantized
+            }
+            current_tensor++;
+        }
+    }
+    app->m_inferenced = true;
     return StatusCode::SUCCESS;
 }

@@ -41,3 +41,7 @@ StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
 StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend);
 
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
+
+StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath);
+
+StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<std::vector<float>>> states);
