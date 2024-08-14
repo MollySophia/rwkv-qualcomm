@@ -73,7 +73,8 @@ void qnn::log::utils::logAndroidCallback(const char* fmt,
       loglevel = ANDROID_LOG_UNKNOWN;
       break;
   }
-
-  __android_log_print(loglevel, "RWKV-QNN", (std::string(fmt) + "\n").c_str(), argp);
+  char logStr[1024];
+  vsnprintf(logStr, sizeof(logStr), fmt, argp);
+  __android_log_print(loglevel, "RWKV-QNN", "%s\n", logStr);
 }
 #endif
