@@ -11,6 +11,25 @@ from typing import List,Set,Dict
 import os
 import scipy
 from tqdm import tqdm
+import torch.utils.cpp_extension
+wkv_c_impl_src = """
+#include <torch/script.h>
+#include <tuple>
+
+static std::tuple<torch::Tensor, torch::Tensor> custom_wkv(
+    torch::Tensor k, torch::Tensor v, torch::Tensor r,
+    torch::Tensor state2, torch::Tensor time_first,
+    torch::Tensor time_decay) {
+    auto kv = torch::matmul(k, v);
+    auto wkv = torch::matmul(r, (time_first * kv + state2));
+    auto new_state2 = time_decay * state2 + kv;
+    return std::make_tuple(wkv, new_state2);
+}
+
+TORCH_LIBRARY(rwkv, m) {
+  m.def("custom_wkv", &custom_wkv);
+}
+"""
 
 def sample_logits(out, temperature=1.0, top_p=0.8):
     probs = F.softmax(out, dim=-1).cpu().numpy()
@@ -38,6 +57,16 @@ class RWKV_RNN(torch.nn.Module):
         self.args.n_layer = 0
         self.args.version = 5
         REAL_TIME_FIRST = False
+
+        if self.args.wkv_customop:
+            try:
+                module = torch.utils.cpp_extension.load_inline(
+                    name='custom_wkv', cpp_sources=[wkv_c_impl_src])
+            except:
+                pass
+            self.wkv_func = torch.ops.rwkv.custom_wkv
+        else:
+            self.wkv_func = self.wkv
 
         for k in w.keys():
             layer_id = int(k.split('.')[1]) if ('blocks.' in k) else 0
@@ -170,11 +199,10 @@ class RWKV_RNN(torch.nn.Module):
                 self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
 
     def layer_norm(self, x, w):
-        return F.instance_norm(x.view(1, 1, 1, -1), eps=1e-5).view(1, -1) * w.weight + w.bias
-        # return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
+        # return F.instance_norm(x.view(1, 1, 1, -1), eps=1e-5).view(1, -1) * w.weight + w.bias
+        return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
 
-    def wkv(self, k, v, r, state2, time_first, time_decay, scale=1, i=-1, use_hadamard=False):
-        v = v * scale
+    def wkv(self, k, v, r, state2, time_first, time_decay):
         kv = k @ v
         wkv = r @ (time_first * kv + state2)
         new_state2 = time_decay * state2 + kv
@@ -189,7 +217,7 @@ class RWKV_RNN(torch.nn.Module):
 
         r = torch.sigmoid(r)
         # square relu, primer paper
-        k = torch.square(torch.relu(k))
+        k = torch.pow(torch.relu(k), 2)
         v = k @ vw.t()
         return r * v
 
@@ -198,14 +226,19 @@ class RWKV_RNN(torch.nn.Module):
         xk = x + sx * time_maa_k
         xr = x + sx * time_maa_r
 
-        r = xr @ rw.t()
-        k = xk @ kw.t()
+        # r = xr @ rw.t()
+        # k = xk @ kw.t()
+        N = self.args.n_embd
+        r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(-1, 8, 8)
+        k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(-1, N//8, 1, 8)).view(-1, 8, 8)
 
         r = torch.sigmoid(r)
         # square relu, primer paper
-        k = torch.square(torch.relu(k))
-        v = k @ vw.t()
-        return r * v
+        k = torch.pow(torch.relu(k), 2)
+        # v = k @ vw.t()
+        v = F.conv2d(k.view(1, -1, 1, 1), vw.view(N, -1, 1, 1)).view(-1, 8, 8)
+        return (r * v).view(1, 1, N)
+        # return r * v
 
     def time_mixing_v5(self, x, state1, state2, i:int, time_mix_k, time_mix_v, time_mix_r, time_first, time_decay, kw, vw, rw, ow, ln_w, ln_b, calibrate=False):
         H = self.args.n_head
@@ -217,9 +250,9 @@ class RWKV_RNN(torch.nn.Module):
 
         r = (xr @ rw.t()).view(H, 1, S)
         k = (xk @ kw.t()).view(H, S, 1)
-        v = (xv @ vw.t()).view(H, 1, S)
+        v = (xv @ vw.t()).view(H, 1, S) / 32
 
-        x, state2 = self.wkv(k, v, r, state2, time_first, time_decay, scale=1/32, use_hadamard=True)
+        x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
 
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
         return x @ ow.t(), state2
@@ -239,10 +272,11 @@ class RWKV_RNN(torch.nn.Module):
         g = xg @ gw.t()
         g = g * F.sigmoid(g)
 
+        # avoid fp16 overflow
         if ("ABC" in self.args.MODEL_NAME):
-            x, state2 = self.wkv(k, v, r, state2, time_first, time_decay, scale=1)
-        else:
-            x, state2 = self.wkv(k, v, r, state2, time_first, time_decay, scale=1/128)
+            v = v / 128
+
+        x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
 
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b) * g
         return x @ ow.t(), state2
@@ -253,27 +287,35 @@ class RWKV_RNN(torch.nn.Module):
 
         sx = state1 - x
         xxx = x + sx * x_maa
-        xxx = torch.tanh((xxx @ tm_w1).view(5, 1, -1))
+        xxx = torch.tanh((xxx @ tm_w1.t().view(5, -1, H*S).transpose(1, 2)))
         xxx = torch.bmm(xxx, tm_w2)
         maa = torch.cat([w_maa.view(1, 1, -1), k_maa.view(1, 1, -1), v_maa.view(1, 1, -1), r_maa.view(1, 1, -1), g_maa.view(1, 1, -1)], dim=0)
         xxx = x + sx * (maa + xxx)
         xw, xk, xv, xr, xg = torch.split(xxx, 1, dim=0)
 
-        r = (xr @ rw.t()).view(H, 1, S)
-        k = (xk @ kw.t()).view(H, S, 1)
-        v = (xv @ vw.t()).view(H, 1, S)
-        g = xg @ gw.t()
+        N = H * S
+        # r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(H, 1, S)
+        # k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(N, N//8, 1, 8) / 2).view(H, S, 1)
+        # v = F.conv2d(xv.view(1, N//8, 1, 8), vw.view(N, N//8, 1, 8) / 4).view(H, 1, S)
+        g = F.conv2d(xg.view(1, N//8, 1, 8), gw.view(N, N//8, 1, 8)).view(1, 1, N)
+        r = (xr @ rw.view(H, S, H*S).transpose(1, 2))
+        k = (xk @ (kw.view(H, S, H*S).transpose(1, 2) / 2)).view(H, S, 1)
+        v = (xv @ (vw.view(H, S, H*S).transpose(1, 2) / 4))
+        # g = xg @ gw.t()
+
         g = g * F.sigmoid(g)
 
         w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).view(H, S, 1)
         w = torch.exp(-torch.exp(w.clip(-9.72, 2.27)))
         # w = torch.exp(-torch.exp(w))
 
-        x, state2 = self.wkv(k, v, r, state2, time_first, w, scale=1/8, i=i, use_hadamard=False)
+        x, state2 = self.wkv_func(k, v, r, state2, time_first, w)
 
+        # x = (F.instance_norm(x.view(1, H, 1, S), eps=1e-5).view(1, 8, N//8) * ln_w.view(1, 8, N//8) + ln_b.view(1, 8, N//8))
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
         x = x * g
-        return x @ ow.t(), state2
+        # return x @ ow.t(), state2
+        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
 
     def forward(self, in0, *states, calibrate=False):
         with torch.no_grad():
@@ -282,7 +324,7 @@ class RWKV_RNN(torch.nn.Module):
                 self.__dict__[f"state{3*i+1}"] = states[3*(i-self.layer_begin)+1]
                 self.__dict__[f"state{3*i+2}"] = states[3*(i-self.layer_begin)+2]
             if self.args.USE_EMBEDDING and self.chunk_idx == 0:
-                x = self.embedding(in0).view(1, 1, -1)
+                x = self.embedding(in0)
             else:
                 x = in0
             if self.args.version == 5:
@@ -368,7 +410,7 @@ class RWKV_RNN(torch.nn.Module):
             return return_list
 
 iteration_count = 0
-def run_prompt(model, context, length=150, calibrate=False, generate_samples=False, tokenizer=None):
+def run_prompt(model, context, length=150, calibrate=False, generate_samples=False, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
     global iteration_count
     fp16 = False
     if iteration_count == 0 and generate_samples:

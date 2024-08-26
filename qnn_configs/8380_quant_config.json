@@ -1,0 +1,25 @@
+{
+    "graphs": {
+        "vtcm_mb": 0,
+        "O": 3.0,
+        "dlbc": 1.0,
+        "graph_names": [
+            "model_v2",
+            "RWKV_6_MIDI_120M_20240220_ctx4096"
+        ]
+    },
+    "devices": [
+    {
+        "dsp_arch": "v73",
+        "device_id": 0,
+        "soc_id": 60,
+        "pd_session": "unsigned",
+        "cores": [
+        {
+            "core_id": 0,
+            "perf_profile": "burst"
+        }
+        ]
+    }
+    ]
+}

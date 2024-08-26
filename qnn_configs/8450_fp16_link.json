@@ -1,0 +1,7 @@
+{
+    "backend_extensions" :
+    {
+        "shared_library_path" : "/opt/qcom/aistack/qnn/2.20.0.240223/lib/x86_64-linux-clang/libQnnHtpNetRunExtensions.so",
+        "config_file_path" : "/home/molly/workspace/rwkv-qualcomm/qnn_configs/8450_fp16_config.json"
+    }
+}

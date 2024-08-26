@@ -6,7 +6,7 @@ import torch
 import numpy as np
 
 USE_SNPE_DLC = False
-USE_QNN_QUANT = False
+USE_QNN_QUANT = True
 ACT_BITWIDTH = 16
 WEIGHTS_BITWIDTH = 8
 
@@ -14,6 +14,7 @@ model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
 model_args.USE_XPU = False
 model_args.fp16 = False
+model_args.wkv_customop = False
 
 model_args.USE_EMBEDDING = True
 model_dir = '/home/molly/workspace/models/'
@@ -58,8 +59,8 @@ else:
     prompt = "\n我们发现"
 
 # model = RWKV_RNN(model_args)
-# model = make_chunks(2, model_args)
-model = make_chunks(4, model_args)
+model = make_chunks(2, model_args)
+# model = make_chunks(4, model_args)
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
@@ -73,7 +74,7 @@ def quant_override(model):
         graph = model.graph
         for i in range(len(graph.node)):
             if "MatMul" == graph.node[i].op_type:
-                if ("Reshape" in graph.node[i].input[0] and ("Add" in graph.node[i].input[1])):
+                if ("MatMul" in graph.node[i].input[0] and ("Add" in graph.node[i].input[1])) or ("Reshape" in graph.node[i].input[0] and ("MatMul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1])):
                     for j in graph.node[i].input:
                         if not "Split" in j:
                             if "Constant" in j:
@@ -82,14 +83,22 @@ def quant_override(model):
                                 encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
                     for j in graph.node[i].output:
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-                # else:
-                #     for j in graph.node[i].input:
-                #         if "Constant" in j:
-                #             encodings_dict['param_encodings'][j] = [{"bitwidth": 4, "dtype": "int"}]
+
+            if "Mul" == graph.node[i].op_type and "Exp" in graph.node[i].input[0]:
+                # for j in graph.node[i].input:
+                #     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+
             if "Add" == graph.node[i].op_type:
-                if "Mul" in graph.node[i].input[1] and "Add" in graph.node[i].input[0]:
+                if ("Mul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1]) and ("Add" in graph.node[i].input[0]):
                     # for j in graph.node[i].input:
                     encodings_dict['activation_encodings'][graph.node[i].input[0]] = [{"bitwidth": 32, "dtype": "float"}]
+                    for j in graph.node[i].output:
+                        encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                if "Mul_" in graph.node[i].input[0] and "MatMul" in graph.node[i].input[1]:
+                    # for j in graph.node[i].input:
+                    #     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
                     for j in graph.node[i].output:
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
@@ -144,7 +153,15 @@ if type(model) == list:
         input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
-        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx", input_names=input_names, output_names=output_names, opset_version=15)
+        if args.wkv_customop:
+            def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay, scale):
+                out1, out2 = g.op("rwkv::custom_wkv", k, v, r, state2, time_first, time_decay, scale, outputs=2)
+                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([args.n_head, 1, args.head_size])),\
+                 out2.setType(k.type().with_dtype(torch.float32).with_sizes([args.n_head, args.head_size, args.head_size]))
+            from torch.onnx import register_custom_op_symbolic
+            register_custom_op_symbolic('rwkv::custom_wkv', onnx_custom_wkv, 9)
+
+        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
         print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx")
     
     quant_override(model)
@@ -172,15 +189,16 @@ vocab_size: {args.vocab_size}
             os.system(converter_cmd)
 
         else:
-            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --float_bw 32 --no_simplification " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
+            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
             if USE_QNN_QUANT:
-                converter_cmd += f" --use_per_row_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
+                converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
                 if WEIGHTS_BITWIDTH == 4:
                     converter_cmd += " --pack_4_bit_weights"
             print(converter_cmd)
             os.system(converter_cmd)
             print("Compiling QNN model library...")
-            os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.bin")
+            compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.bin"
+            os.system(compiling_cmd)
 else:
     args = model.args
     if not args.USE_EMBEDDING:
@@ -197,7 +215,7 @@ else:
     input_names = ['id'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
     # torch.jit.trace(model, tuple(inputs)).save("onnx/" + args.MODEL_NAME.split("/")[-1] + ".pt")
-    torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=15)
+    torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
     config = f"""version: {args.version}
 head_size: {args.head_size}
@@ -223,7 +241,7 @@ vocab_size: {args.vocab_size}
     else:
         converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
         if USE_QNN_QUANT:
-            converter_cmd += f" --use_per_row_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
+            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
             if WEIGHTS_BITWIDTH == 4:
                 converter_cmd += " --pack_4_bit_weights"
         print(converter_cmd)
