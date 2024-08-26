@@ -13,3 +13,4 @@ __pycache__
 .vscode/
 tmp/
 samples*/
+input_list*
