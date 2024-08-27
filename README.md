@@ -18,7 +18,8 @@
 ## Usage
 ### Converting a FP16 model
 - `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
-- Keep these parameters: ```
+- Keep these parameters: 
+```
 USE_SNPE_DLC = False
 USE_QNN_QUANT = False
 ```
@@ -26,7 +27,8 @@ USE_QNN_QUANT = False
 ### Converting an A16W8 model
 - `make_calibration_samples.py`: Modify the model path. This script will generate calibration samples for the model. Note: Keep the value of split chunks the same as in the `convert_model.py` script.
 - `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
-- Keep these parameters: ```
+- Keep these parameters: 
+```
 USE_SNPE_DLC = False
 USE_QNN_QUANT = True
 ACT_BITWIDTH = 16
@@ -35,6 +37,8 @@ WEIGHTS_BITWIDTH = 8
 
 ## Tested models
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
+- RWKV-RWKV-x060-World-1B6-v2.1-20240328-ctx4096, a16w8: ```Average tokens per second: 23.5765```
+- RWKV-RWKV-x060-World-1B6-v2.1-20240328-ctx4096, fp16: ```Average tokens per second: 13.0575```
 - RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
 - RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
