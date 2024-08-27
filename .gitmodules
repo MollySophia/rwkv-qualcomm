@@ -1,3 +1,0 @@
-[submodule "onnxsim_large_model"]
-	path = onnxsim_large_model
-	url = https://github.com/luchangli03/onnxsim_large_model.git
