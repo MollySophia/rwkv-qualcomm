@@ -16,7 +16,8 @@
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
 ## Usage
-### Converting a FP16 model
+### 1. Convert model weights to QNN model library file.
+#### Converting a FP16 model
 - `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
 - Keep these parameters: 
 ```
@@ -24,7 +25,7 @@ USE_SNPE_DLC = False
 USE_QNN_QUANT = False
 ```
 
-### Converting an A16W8 model
+#### Converting an A16W8 model
 - `make_calibration_samples.py`: Modify the model path. This script will generate calibration samples for the model. Note: Keep the value of split chunks the same as in the `convert_model.py` script.
 - `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
 - Keep these parameters: 
@@ -33,6 +34,45 @@ USE_SNPE_DLC = False
 USE_QNN_QUANT = True
 ACT_BITWIDTH = 16
 WEIGHTS_BITWIDTH = 8
+```
+
+The outputs will be in ``lib/`` directory. The model library contains weights, as well as the functions to prepare the graph. This can either be called on device using libraries in ``lib/aarch64-android/``, or be prepared on the x86 host machine using ``lib/x86_64-linux-clang/`` to generate an HTP context cache. Qualcomm HTP has a limitation on the size of the model library file, so the model will be split into multiple chunks.
+
+### 2. Generate HTP context cache
+- Here is an example command to generate the HTP context cache for RWKV v6 1.6B:
+- ``qnn-context-binary-generator --backend /opt/qcom/aistack/qairt/2.22.6.240515/lib/x86_64-linux-clang/libQnnHtp.so --model lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk0.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk3.so --binary_file rwkv6_1b6 --config_file qnn_configs/8650_fp16_link.json``
+- Please modify the model library names, as well as the qnn sdk path in the qnn_configs/*_fp16_link.json file.
+- The output would be in ``output/rwkv6_1b6.bin``
+
+### 3. Run inference on the device
+- Build the demo code: ``make -C librwkv-qualcomm``
+- Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/rwkv6_1b6.bin /data/local/tmp/``
+- Push the tokenizer model to the device: ``adb push librwkv-qualcomm/rwkv_vocab_v20230424.bin /data/local/tmp/``
+- Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
+```/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtp.so
+/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
+/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
+/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnSystem.so
+/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpV75Stub.so
+/opt/qcom/aistack/qairt/2.22.6.240515/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so
+```
+- Finally run the demo code:
+```
+adb shell
+$ cd /data/local/tmp
+$ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/local/tmp
+$ ./rwkv-qualcomm-demo rwkv_vocab_v20230424.bin rwkv6_1b6.bin
+```
+- Example output:
+```
+Loading model context binary from rwkv6_1b6_quant.bin
+Tokenizer vocab size: 65536
+
+我们发现，这个函数的输入是一个字符串，输出是一个字符串，这是因为这个函数使用了一个递归的方法，将输入的字符串作为输入，并且使用了一个if语句来判断是否是回文字符串。
+在这个递归函数中，我们使用了两个指针来指向字符串的开始和结束位置，然后将当前位置的字符和前一个指针所指向的字符相加，并将结果存储在一个变量中。如果当前位置的字符不是回文字符串，那么我们就需要将当前位置的字符转化为回文字符串，然后将结果加到指针所指向的字符串的结果中。如果当前位置的字符是回文字符串，那么将当前位置的字符和前一个指针所指向的字符相加，然后将结果存储在另一个指针所指向的字符串的结果中，循环直到指针所指向的字符串的结束位置为止。
+我们可
+Average time per token: 0.0457569s
+Average tokens per second: 21.8546
 ```
 
 ## Tested models
