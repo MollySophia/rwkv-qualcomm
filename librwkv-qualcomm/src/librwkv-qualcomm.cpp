@@ -455,17 +455,6 @@ StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
     return StatusCode::SUCCESS;
 }
 
-StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend) {
-    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
-    for (size_t idx = 0; idx < (*app->m_graphsInfo)[0].numInputTensors/3; idx++) {
-        app->copyTensor(&app->m_inputTensors[0][3*idx+1], &app->m_outputTensors[0][3*idx]);
-        app->copyTensor(&app->m_inputTensors[0][3*idx+3], &app->m_outputTensors[0][3*idx+1]);
-        app->copyTensor(&app->m_inputTensors[0][3*idx+2], &app->m_outputTensors[0][3*idx+2]);
-    }
-
-    return StatusCode::SUCCESS;
-}
-
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     if (!app->m_inferenced)

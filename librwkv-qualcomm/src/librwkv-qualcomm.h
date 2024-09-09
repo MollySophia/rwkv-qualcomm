@@ -38,8 +38,6 @@ StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
 
 StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
 
-StatusCode QnnRwkvCopyStatesInPlace_v6(QnnRwkvBackend_t backend);
-
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
 
 StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath);
