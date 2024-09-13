@@ -9,7 +9,7 @@
 - Setup the QNN SDK environment by following the instructions in Qualcomm's [documents](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/introduction.html).
 - Setup the $QNN_SDK_ROOT environment variable to point to the QNN SDK installation directory. It should by default be installed at /opt/qcom/aistack/qnn/{version}.
 - This project has been verified with:
-    - QNN SDK 2.22.6
+    - QNN SDK 2.26.0
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
     - torch==2.3.1 (although QNN SDK is verified to work with torch==1.13.0, it's okay to use latest version of torch since we are only using torch for model conversion and onnx exporting)

@@ -1,6 +1,6 @@
 //==============================================================================
 //
-//  Copyright (c) 2019-2023 Qualcomm Technologies, Inc.
+//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
 //  All Rights Reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -13,9 +13,11 @@
 
 #include "DataUtil.hpp"
 #include "Logger.hpp"
+#ifndef __hexagon__
 #include "PAL/Directory.hpp"
 #include "PAL/FileOp.hpp"
 #include "PAL/Path.hpp"
+#endif
 
 using namespace qnn;
 using namespace qnn::tools;
@@ -184,6 +186,7 @@ datautil::StatusCode datautil::readBinaryFromFile(std::string filePath,
   return StatusCode::SUCCESS;
 }
 
+#ifndef __hexagon__
 datautil::StatusCode datautil::writeDataToFile(std::string fileDir,
                                                std::string fileName,
                                                std::vector<size_t> dims,
@@ -273,6 +276,7 @@ datautil::StatusCode datautil::writeBinaryToFile(std::string fileDir,
   os.write(reinterpret_cast<char*>(buffer), bufferSize);
   return StatusCode::SUCCESS;
 }
+#endif
 
 template <typename T_QuantType>
 datautil::StatusCode datautil::floatToTfN(

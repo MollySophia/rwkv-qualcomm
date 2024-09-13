@@ -1,6 +1,6 @@
 //==============================================================================
 //
-//  Copyright (c) 2020, 2022, 2023 Qualcomm Technologies, Inc.
+//  Copyright (c) 2020, 2022-2024 Qualcomm Technologies, Inc.
 //  All Rights Reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -39,6 +39,7 @@ class IOTensor {
                                         Qnn_Tensor_t **outputs,
                                         qnn_wrapper_api::GraphInfo_t graphInfo);
 
+#ifndef __hexagon__
   StatusCode writeOutputTensors(uint32_t graphIdx,
                                 size_t startIdx,
                                 char *graphName,
@@ -49,6 +50,7 @@ class IOTensor {
                                 std::string outputPath,
                                 size_t numInputFilesPopulated,
                                 size_t outputBatchSize);
+#endif
 
   PopulateInputTensorsRetType_t populateInputTensors(
       uint32_t graphIdx,

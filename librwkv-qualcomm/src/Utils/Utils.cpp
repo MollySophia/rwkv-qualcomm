@@ -1,3 +1,11 @@
+//==============================================================================
+//
+//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
+//  All Rights Reserved.
+//  Confidential and Proprietary - Qualcomm Technologies, Inc.
+//
+//==============================================================================
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -7,9 +15,11 @@
 #include <tuple>
 
 #include "Logger.hpp"
+#ifndef __hexagon__
 #include "PAL/Directory.hpp"
 #include "PAL/FileOp.hpp"
 #include "PAL/Path.hpp"
+#endif
 #include "PAL/StringOp.hpp"
 #include "Utils.hpp"
 #include "QnnTypeMacros.hpp"
@@ -106,7 +116,16 @@ bool rwkv_app::deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src)
                              QNN_TENSOR_GET_DIMENSIONS(src),
                              QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t));
     }
+    if (QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src)) {
+      QNN_TENSOR_SET_IS_DYNAMIC_DIMENSIONS(
+          dst, (uint8_t *)malloc(QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t)));
+      pal::StringOp::memscpy(QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(dst),
+                             QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t),
+                             QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src),
+                             QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t));
+    }
   }
+  QNN_TENSOR_SET_SPARSE_PARAMS(dst, QNN_TENSOR_GET_SPARSE_PARAMS(src));
   return true;
 }
 

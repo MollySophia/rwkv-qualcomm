@@ -1,6 +1,6 @@
 //==============================================================================
 //
-//  Copyright (c) 2019-2023 Qualcomm Technologies, Inc.
+//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
 //  All Rights Reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -68,6 +68,7 @@ ReadBatchDataRetType_t readBatchData(const std::vector<std::string>& filePaths,
 
 StatusCode readBinaryFromFile(std::string filePath, uint8_t* buffer, size_t bufferSize);
 
+#ifndef __hexagon__
 StatusCode writeDataToFile(std::string fileDir,
                            std::string fileName,
                            std::vector<size_t> dims,
@@ -85,6 +86,7 @@ StatusCode writeBinaryToFile(std::string fileDir,
                              std::string fileName,
                              uint8_t* buffer,
                              size_t bufferSize);
+#endif
 
 template <typename T_QuantType>
 datautil::StatusCode floatToTfN(

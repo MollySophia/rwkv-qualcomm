@@ -472,7 +472,12 @@ StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
                 float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][idx]).data;
                 memset(ptr, 0, elemcount * sizeof(float));
             } else {
-                // TODO: quantized
+                // TODO: optimize
+                // LOG_ERROR("Unimplemented");
+                float *ptr = new float[elemcount];
+                memset(ptr, 0, elemcount * sizeof(float));
+                app->m_ioTensor.copyFromFloatToNative(ptr, &app->m_outputTensors[graph_id][idx]);
+                delete[] ptr;
             }
         }
     }

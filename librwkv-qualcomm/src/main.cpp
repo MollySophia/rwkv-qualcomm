@@ -138,7 +138,11 @@ int main(int argc, char** argv) {
 
   std::vector<size_t> shape;
   QnnRwkvGetOutputShape(backend, QnnRwkvGetOutputNum(backend) - 1, shape);
-  if (shape[0] != vocab_size) {
+  int64_t elemcount = 1;
+  for (auto dim : shape) {
+    elemcount *= dim;
+  }
+  if (elemcount != vocab_size) {
     std::cerr << "Output shape mismatch: " << shape[0] << " != " << vocab_size << std::endl;
     return EXIT_FAILURE;
   }

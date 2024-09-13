@@ -1,6 +1,6 @@
 //==============================================================================
 //
-//  Copyright (c) 2020-2023 Qualcomm Technologies, Inc.
+//  Copyright (c) 2020-2024 Qualcomm Technologies, Inc.
 //  All Rights Reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -14,9 +14,11 @@
 #include "DataUtil.hpp"
 #include "IOTensor.hpp"
 #include "Logger.hpp"
+#ifndef __hexagon__
 #include "PAL/Directory.hpp"
 #include "PAL/FileOp.hpp"
 #include "PAL/Path.hpp"
+#endif
 #include "PAL/StringOp.hpp"
 #include "QnnTypeMacros.hpp"
 
@@ -511,6 +513,7 @@ iotensor::StatusCode iotensor::IOTensor::allocateBuffer(T** buffer, size_t& elem
 // Convert data to float or de-quantization. This is used when
 // user requests for float output and the model produces
 // non-float output.
+#ifndef __hexagon__
 iotensor::StatusCode iotensor::IOTensor::convertToFloat(float** out, Qnn_Tensor_t* tensor) {
   if (nullptr == tensor) {
     QNN_ERROR("tensors is nullptr");
@@ -776,6 +779,7 @@ iotensor::StatusCode iotensor::IOTensor::writeOutputTensors(uint32_t graphIdx,
   }
   return returnStatus;
 }
+#endif
 
 // Helper method to allocate a buffer and copy data to it.
 iotensor::StatusCode iotensor::IOTensor::allocateAndCopyBuffer(uint8_t** buffer,

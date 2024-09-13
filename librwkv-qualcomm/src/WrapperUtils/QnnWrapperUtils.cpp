@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2020, 2022-2023 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -15,6 +15,16 @@ qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeQnnTensor(Qnn_Tensor_t &tenso
   // free all pointer allocations in struct
   free((void *)QNN_TENSOR_GET_NAME(tensor));
   free(QNN_TENSOR_GET_DIMENSIONS(tensor));
+  if (QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(tensor)) {
+    free(QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(tensor));
+  }
+  auto quant = QNN_TENSOR_GET_QUANT_PARAMS(tensor);
+  auto encoding = quant.quantizationEncoding;
+  if (encoding == QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET) {
+      if (quant.axisScaleOffsetEncoding.scaleOffset != nullptr) {
+          free(quant.axisScaleOffsetEncoding.scaleOffset);
+      }
+  }
   return MODEL_NO_ERROR;
 }
 
