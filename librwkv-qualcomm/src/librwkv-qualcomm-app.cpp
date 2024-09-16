@@ -456,28 +456,55 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       QNN_ERROR("Could not create context from binary.");
       returnStatus = StatusCode::FAILURE;
     }
-    // if (ProfilingLevel::OFF != m_profilingLevel) {
-    //   extractBackendProfilingInfo(m_profileBackendHandle);
-    // }
-    // m_isContextCreated = true;
-    // if (StatusCode::SUCCESS == returnStatus) {
-    //   for (size_t graphIdx = 0; graphIdx < graphCounts[i]; graphIdx++) {
-    //     if (nullptr == m_qnnFunctionPointers.qnnInterface.graphRetrieve) {
-    //       QNN_ERROR("graphRetrieveFnHandle is nullptr.");
-    //       returnStatus = StatusCode::FAILURE;
-    //       break;
-    //     }
-    //     if (QNN_SUCCESS !=
-    //         m_qnnFunctionPointers.qnnInterface.graphRetrieve(
-    //             m_context[i], (*graphInfos[i])[graphIdx].graphName, &((*graphInfos[i])[graphIdx].graph))) {
-    //       QNN_ERROR("Unable to retrieve graph handle for graph Idx: %d", graphIdx);
-    //       returnStatus = StatusCode::FAILURE;
-    //     }
-    //   }
-    // }
+    if (ProfilingLevel::OFF != m_profilingLevel) {
+      extractBackendProfilingInfo(m_profileBackendHandle);
+    }
+    m_isContextCreated = true;
+    if (StatusCode::SUCCESS == returnStatus) {
+      for (size_t graphIdx = 0; graphIdx < graphCounts[i]; graphIdx++) {
+        if (nullptr == m_qnnFunctionPointers.qnnInterface.graphRetrieve) {
+          QNN_ERROR("graphRetrieveFnHandle is nullptr.");
+          returnStatus = StatusCode::FAILURE;
+          break;
+        }
+        if (QNN_SUCCESS !=
+            m_qnnFunctionPointers.qnnInterface.graphRetrieve(
+                m_context[i], (*graphInfos[i])[graphIdx].graphName, &((*graphInfos[i])[graphIdx].graph))) {
+          QNN_ERROR("Unable to retrieve graph handle for graph Idx: %d", graphIdx);
+          returnStatus = StatusCode::FAILURE;
+        }
+      }
+    }
     if (StatusCode::SUCCESS != returnStatus) {
       QNN_DEBUG("Cleaning up graph Info structures.");
       qnn_wrapper_api::freeGraphsInfo(&graphInfos[i], graphCounts[i]);
+    }
+  }
+
+  m_graphsCount = 0;
+  for (auto i : graphCounts) {
+    m_graphsCount += i;
+  }
+  m_graphsInfo = (qnn_wrapper_api::GraphInfo_t **)calloc(m_graphsCount, sizeof(qnn_wrapper_api::GraphInfo_t *));
+  qnn_wrapper_api::GraphInfo_t *graphInfoArr =
+      (qnn_wrapper_api::GraphInfo_t *)calloc(m_graphsCount, sizeof(qnn_wrapper_api::GraphInfo_t));
+  if (nullptr == m_graphsInfo || nullptr == graphInfoArr) {
+    QNN_ERROR("Failure to allocate memory for *graphInfo");
+    returnStatus = StatusCode::FAILURE;
+  }
+  if (StatusCode::SUCCESS == returnStatus) {
+    int gidx = 0;
+    for (int i = 0; i < n_chunks; i++) {
+      for (int j = 0; j < graphCounts[i]; j++) {
+        m_graphsInfo[gidx] = graphInfoArr + gidx;
+        m_graphsInfo[gidx]->graph = (*graphInfos[i])[j].graph;
+        m_graphsInfo[gidx]->graphName = strndup((*graphInfos[i])[j].graphName, strlen((*graphInfos[i])[j].graphName));
+        m_graphsInfo[gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
+        m_graphsInfo[gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
+        m_graphsInfo[gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;
+        m_graphsInfo[gidx]->numOutputTensors = (*graphInfos[i])[j].numOutputTensors;
+        gidx++;
+      }
     }
   }
   return returnStatus;
@@ -837,26 +864,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
     }
   }
 
-  // auto print = [](Qnn_Tensor_t *tensor) {
-  //   float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(tensor).data;
-  //   for (int i = 0; i < 10; i++) {
-  //     std::cout << ptr[i] << " ";
-  //   }
-  //   std::cout << std::endl;
-  // };
-
-  // for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
-  //   for (int idx = 0; idx < (*m_graphsInfo)[graph_id].numInputTensors; idx++) {
-  //     if (idx == 0 && graph_id == 0) continue;
-  //     std::cout << "Input Tensor " << idx << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][idx]) << std::endl;
-  //     print(&m_inputTensors[graph_id][idx]);
-  //   }
-  // }
-
   for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
     auto graphInfo     = (*m_graphsInfo)[graph_id];
     if (graph_id) { // chunked models
-      copyTensor(&m_inputTensors[graph_id][0], &m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]);
+      // copyTensor(&m_inputTensors[graph_id][0], &m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]);
+      auto tmp = getQnnTensorClientBuf(&m_inputTensors[graph_id][0]);
+      setQnnTensorClientBuf(&m_inputTensors[graph_id][0], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]));
+      setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1], tmp);
     }
     auto executeStatus =
         m_qnnFunctionPointers.qnnInterface.graphExecute(graphInfo.graph,
@@ -870,14 +884,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
       returnStatus = StatusCode::FAILURE;
     }
   }
-
-  // for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
-  //   for (int idx = 0; idx < (*m_graphsInfo)[graph_id].numInputTensors; idx++) {
-  //     if (idx == 0 && graph_id == 0) continue;
-  //     std::cout << "Input Tensor " << idx << " : " << QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][idx]) << std::endl;
-  //     print(&m_inputTensors[graph_id][idx]);
-  //   }
-  // }
 
   m_inferenced = true;
 

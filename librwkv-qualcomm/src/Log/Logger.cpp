@@ -77,7 +77,7 @@ bool qnn::log::initializeLogging() {
 #ifdef QNN_ENABLE_DEBUG
   logLevel = QNN_LOG_LEVEL_DEBUG;
 #else
-  logLevel = QNN_LOG_LEVEL_INFO;
+  logLevel = QNN_LOG_LEVEL_ERROR;
 #endif
   // Default log stream is enabled in Core/Logger component
   g_logger = ::qnn::log::Logger::createLogger(nullptr, logLevel, &status);
