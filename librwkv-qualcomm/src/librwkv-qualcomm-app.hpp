@@ -108,7 +108,7 @@ class QnnRwkvApp {
   uint8_t *m_binaryBuffer = nullptr;
   uint64_t m_binarySize = 0;
   QnnBackend_Config_t **m_backendConfig = nullptr;
-  Qnn_ContextHandle_t m_context         = nullptr;
+  Qnn_ContextHandle_t m_context[max_chunks] = {nullptr};
   QnnContext_Config_t **m_contextConfig = nullptr;
   ProfilingLevel m_profilingLevel;
   qnn_wrapper_api::GraphInfo_t **m_graphsInfo;

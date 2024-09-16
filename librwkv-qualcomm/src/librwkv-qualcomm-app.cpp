@@ -123,9 +123,8 @@ std::string rwkv_app::QnnRwkvApp::getBackendBuildId() {
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initialize() {
   // initialize logging in the backend
   if (log::isLogInitialized()) {
-    QnnLog_Level_t logLevel{QNN_LOG_LEVEL_ERROR};
-    log::setLogLevel(logLevel);
     auto logCallback = log::getLogCallback();
+    auto logLevel    = log::getLogLevel();
     QNN_INFO("Initializing logging in the backend. Callback: [%p], Log Level: [%d]",
              logCallback,
              logLevel);
@@ -239,7 +238,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createContext() {
                                   m_backendHandle,
                                   m_deviceHandle,
                                   (const QnnContext_Config_t**)m_contextConfig,
-                                  &m_context)) {
+                                  &m_context[0])) {
     QNN_ERROR("Could not create context");
     return StatusCode::FAILURE;
   }
@@ -250,7 +249,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createContext() {
 // Free context after done.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
   if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextFree(m_context, m_profileBackendHandle)) {
+      m_qnnFunctionPointers.qnnInterface.contextFree(m_context[0], m_profileBackendHandle)) {
     QNN_ERROR("Could not free context");
     return StatusCode::FAILURE;
   }
@@ -265,7 +264,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
 // say that all intermediate tensors including output tensors
 // are expected to be read by the app.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::composeGraphs() {
-  auto returnStatus = StatusCode::SUCCESS;
   if (m_graphConfigsInfo == nullptr) {
     m_graphConfigsInfoCount = 1;
     m_graphConfigsInfo = new qnn_wrapper_api::GraphConfigInfo_t*[m_graphConfigsInfoCount];
@@ -282,11 +280,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::composeGraphs() {
     m_graphConfigsInfo[0]->graphConfigs[0] = &graphConfig;
     m_graphConfigsInfo[0]->graphConfigs[1] = nullptr;
   }
+
+  auto returnStatus = StatusCode::SUCCESS;
   if (qnn_wrapper_api::ModelError_t::MODEL_NO_ERROR !=
       m_qnnFunctionPointers.composeGraphsFnHandle(
           m_backendHandle,
           m_qnnFunctionPointers.qnnInterface,
-          m_context,
+          m_context[0],
           (const qnn_wrapper_api::GraphConfigInfo_t**)m_graphConfigsInfo,
           m_graphConfigsInfoCount,
           &m_graphsInfo,
@@ -333,122 +333,152 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     return StatusCode::FAILURE;
   }
 
-  std::shared_ptr<uint8_t> buffer{nullptr};
+  std::vector<std::shared_ptr<uint8_t>> buffer;
+  std::vector<uint64_t> bufferSizes;
+  auto pos = m_cachedBinaryPath.find("_chunk");
+  int n_chunks = 1;
+  if (pos != std::string::npos) {
+    n_chunks = std::stoi(m_cachedBinaryPath.substr(m_cachedBinaryPath.find("of") + 2));
+    QNN_INFO("Number of chunks: %d", n_chunks);
+  }
+  buffer.resize(n_chunks);
+  bufferSizes.resize(n_chunks);
 
   if (in_buffer && bufferSize) {
-    buffer = std::shared_ptr<uint8_t>(in_buffer);
+    buffer[0] = std::shared_ptr<uint8_t>(in_buffer);
+    bufferSizes[0] = bufferSize;
   } else {
     // read serialized binary into a byte buffer
     tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
-    std::tie(status, bufferSize) = tools::datautil::getFileSize(m_cachedBinaryPath);
-    if (0 == bufferSize) {
-      QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
-      return StatusCode::FAILURE;
-    }
+    for (int i = 0; i < n_chunks; i++) {
+      if (n_chunks > 1) {
+        m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+        std::cout << "Reading chunk: " << m_cachedBinaryPath << std::endl;
+      }
+      std::tie(status, bufferSizes[i]) = tools::datautil::getFileSize(m_cachedBinaryPath);
+      if (0 == bufferSizes[i]) {
+        QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
+        return StatusCode::FAILURE;
+      }
+      std::cout << "Buffer size: " << bufferSizes[i] << std::endl;
 
 #if USE_MMAP
-    int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
-    if (fd < 0) {
-      QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
-      return StatusCode::FAILURE;
-    }
-    buffer = std::shared_ptr<uint8_t>(
-        (uint8_t*)mmap(NULL, bufferSize, PROT_READ, MAP_SHARED, fd, 0), [bufferSize](uint8_t* p) {
-            if (p) {
-              munmap(p, bufferSize);
+      int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
+      if (fd < 0) {
+        QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
+        return StatusCode::FAILURE;
+      }
+
+      buffer[i] = std::shared_ptr<uint8_t>(
+          (uint8_t*)mmap(NULL, bufferSizes[i], PROT_READ, MAP_SHARED, fd, 0), [bufferSizes, i](uint8_t* p) {
+              if (p) {
+                munmap(p, bufferSizes[i]);
+              }
             }
-          }
-        );
+          );
 
-    if (buffer.get() == MAP_FAILED) {
-      QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
-      close(fd);
-      return StatusCode::FAILURE;
-    }
+      if (buffer[i].get() == MAP_FAILED) {
+        QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
+        close(fd);
+        return StatusCode::FAILURE;
+      }
 #else
-    buffer = std::shared_ptr<uint8_t>(new uint8_t[bufferSize], std::default_delete<uint8_t[]>());
-    if (!buffer) {
-      QNN_ERROR("Failed to allocate memory.");
-      return StatusCode::FAILURE;
-    }
+      buffer[i] = std::shared_ptr<uint8_t>(new uint8_t[bufferSizes[i]], std::default_delete<uint8_t[]>());
+      if (!buffer[i]) {
+        QNN_ERROR("Failed to allocate memory.");
+        return StatusCode::FAILURE;
+      }
 
-    status = tools::datautil::readBinaryFromFile(
-        m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer.get()), bufferSize);
-    if (status != tools::datautil::StatusCode::SUCCESS) {
-      QNN_ERROR("Failed to read binary data.");
-      return StatusCode::FAILURE;
-    }
+      status = tools::datautil::readBinaryFromFile(
+          m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer[i].get()), bufferSizes[i]);
+      if (status != tools::datautil::StatusCode::SUCCESS) {
+        QNN_ERROR("Failed to read binary data.");
+        return StatusCode::FAILURE;
+      }
 #endif
+    }
   }
 
   // inspect binary info
   auto returnStatus = StatusCode::SUCCESS;
-  QnnSystemContext_Handle_t sysCtxHandle{nullptr};
-  if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
-    QNN_ERROR("Could not create system handle.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  const QnnSystemContext_BinaryInfo_t* binaryInfo{nullptr};
-  Qnn_ContextBinarySize_t binaryInfoSize{0};
-  if (StatusCode::SUCCESS == returnStatus &&
-      QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo(
-                         sysCtxHandle,
-                         static_cast<void*>(buffer.get()),
-                         bufferSize,
-                         &binaryInfo,
-                         &binaryInfoSize)) {
-    QNN_ERROR("Failed to get context binary info");
-    returnStatus = StatusCode::FAILURE;
-  }
-
-  // fill GraphInfo_t based on binary info
-  if (StatusCode::SUCCESS == returnStatus &&
-      !copyMetadataToGraphsInfo(binaryInfo, m_graphsInfo, m_graphsCount)) {
-    QNN_ERROR("Failed to copy metadata.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  m_qnnFunctionPointers.qnnSystemInterface.systemContextFree(sysCtxHandle);
-  sysCtxHandle = nullptr;
-
-  if (StatusCode::SUCCESS == returnStatus &&
-      nullptr == m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary) {
-    QNN_ERROR("contextCreateFromBinaryFnHandle is nullptr.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  if (StatusCode::SUCCESS == returnStatus &&
-      m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary(
-          m_backendHandle,
-          m_deviceHandle,
-          (const QnnContext_Config_t**)m_contextConfig,
-          static_cast<void*>(buffer.get()),
-          bufferSize,
-          &m_context,
-          m_profileBackendHandle)) {
-    QNN_ERROR("Could not create context from binary.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    extractBackendProfilingInfo(m_profileBackendHandle);
-  }
-  m_isContextCreated = true;
-  if (StatusCode::SUCCESS == returnStatus) {
-    for (size_t graphIdx = 0; graphIdx < m_graphsCount; graphIdx++) {
-      if (nullptr == m_qnnFunctionPointers.qnnInterface.graphRetrieve) {
-        QNN_ERROR("graphRetrieveFnHandle is nullptr.");
-        returnStatus = StatusCode::FAILURE;
-        break;
-      }
-      if (QNN_SUCCESS !=
-          m_qnnFunctionPointers.qnnInterface.graphRetrieve(
-              m_context, (*m_graphsInfo)[graphIdx].graphName, &((*m_graphsInfo)[graphIdx].graph))) {
-        QNN_ERROR("Unable to retrieve graph handle for graph Idx: %d", graphIdx);
-        returnStatus = StatusCode::FAILURE;
-      }
+  std::vector<qnn_wrapper_api::GraphInfo_t **> graphInfos(n_chunks);
+  std::vector<uint32_t> graphCounts(n_chunks);
+  for (int i = 0; i < n_chunks; i++)
+  {
+    QnnSystemContext_Handle_t sysCtxHandle{nullptr};
+    if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
+      QNN_ERROR("Could not create system handle.");
+      returnStatus = StatusCode::FAILURE;
     }
-  }
-  if (StatusCode::SUCCESS != returnStatus) {
-    QNN_DEBUG("Cleaning up graph Info structures.");
-    qnn_wrapper_api::freeGraphsInfo(&m_graphsInfo, m_graphsCount);
+
+    const QnnSystemContext_BinaryInfo_t* binaryInfo{nullptr};
+    Qnn_ContextBinarySize_t binaryInfoSize{0};
+    if (StatusCode::SUCCESS == returnStatus &&
+        QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo(
+                          sysCtxHandle,
+                          static_cast<void*>(buffer[i].get()),
+                          bufferSizes[i],
+                          &binaryInfo,
+                          &binaryInfoSize)) {
+      QNN_ERROR("Failed to get context binary info");
+      returnStatus = StatusCode::FAILURE;
+    }
+
+    // fill GraphInfo_t based on binary info
+    if (StatusCode::SUCCESS == returnStatus &&
+        !copyMetadataToGraphsInfo(binaryInfo, graphInfos[i], graphCounts[i])) {
+      QNN_ERROR("Failed to copy metadata.");
+      returnStatus = StatusCode::FAILURE;
+    }
+    m_qnnFunctionPointers.qnnSystemInterface.systemContextFree(sysCtxHandle);
+    sysCtxHandle = nullptr;
+
+    if (StatusCode::SUCCESS == returnStatus &&
+        nullptr == m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary) {
+      QNN_ERROR("contextCreateFromBinaryFnHandle is nullptr.");
+      returnStatus = StatusCode::FAILURE;
+    }
+
+    QnnHtpContext_CustomConfig_t customConfig;
+    customConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
+    customConfig.ioMemEstimation = true;
+    QnnContext_Config_t* cfgs[] = {(QnnContext_Config_t*)&customConfig, NULL};
+
+    if (StatusCode::SUCCESS == returnStatus &&
+        m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary(
+            m_backendHandle,
+            m_deviceHandle,
+            (const QnnContext_Config_t**)cfgs,
+            static_cast<void*>(buffer[i].get()),
+            bufferSizes[i],
+            &m_context[i],
+            m_profileBackendHandle)) {
+      QNN_ERROR("Could not create context from binary.");
+      returnStatus = StatusCode::FAILURE;
+    }
+    // if (ProfilingLevel::OFF != m_profilingLevel) {
+    //   extractBackendProfilingInfo(m_profileBackendHandle);
+    // }
+    // m_isContextCreated = true;
+    // if (StatusCode::SUCCESS == returnStatus) {
+    //   for (size_t graphIdx = 0; graphIdx < graphCounts[i]; graphIdx++) {
+    //     if (nullptr == m_qnnFunctionPointers.qnnInterface.graphRetrieve) {
+    //       QNN_ERROR("graphRetrieveFnHandle is nullptr.");
+    //       returnStatus = StatusCode::FAILURE;
+    //       break;
+    //     }
+    //     if (QNN_SUCCESS !=
+    //         m_qnnFunctionPointers.qnnInterface.graphRetrieve(
+    //             m_context[i], (*graphInfos[i])[graphIdx].graphName, &((*graphInfos[i])[graphIdx].graph))) {
+    //       QNN_ERROR("Unable to retrieve graph handle for graph Idx: %d", graphIdx);
+    //       returnStatus = StatusCode::FAILURE;
+    //     }
+    //   }
+    // }
+    if (StatusCode::SUCCESS != returnStatus) {
+      QNN_DEBUG("Cleaning up graph Info structures.");
+      qnn_wrapper_api::freeGraphsInfo(&graphInfos[i], graphCounts[i]);
+    }
   }
   return returnStatus;
 }
@@ -465,7 +495,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::saveBinary() {
   }
   uint64_t requiredBufferSize{0};
   if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextGetBinarySize(m_context, &requiredBufferSize)) {
+      m_qnnFunctionPointers.qnnInterface.contextGetBinarySize(m_context[0], &requiredBufferSize)) {
     QNN_ERROR("Could not get the required binary size.");
     return StatusCode::FAILURE;
   }
@@ -476,7 +506,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::saveBinary() {
   }
   uint64_t writtenBufferSize{0};
   if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextGetBinary(m_context,
+      m_qnnFunctionPointers.qnnInterface.contextGetBinary(m_context[0],
                                                           reinterpret_cast<void*>(saveBuffer.get()),
                                                           requiredBufferSize,
                                                           &writtenBufferSize)) {
