@@ -335,7 +335,7 @@ class RWKV_RNN(torch.nn.Module):
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
                         att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_first, att.time_decay, 
                         att.key.weight, att.value.weight, att.receptance.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias, calibrate=calibrate)
+                        att.ln_x.weight, att.ln_x.bias)
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
@@ -356,7 +356,7 @@ class RWKV_RNN(torch.nn.Module):
                     out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5_1(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
                         att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_mix_g, att.time_first, att.time_decay, 
                         att.key.weight, att.value.weight, att.receptance.weight, att.gate.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias, calibrate=calibrate)
+                        att.ln_x.weight, att.ln_x.bias)
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
@@ -378,7 +378,7 @@ class RWKV_RNN(torch.nn.Module):
                         att.time_maa_x, att.time_maa_w, att.time_maa_k, att.time_maa_v, att.time_maa_r, att.time_maa_g, att.time_maa_w1, att.time_maa_w2,
                         att.time_decay_w1, att.time_decay_w2, att.time_first, att.time_decay,
                         att.key.weight, att.value.weight, att.receptance.weight, att.gate.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias, calibrate=calibrate)
+                        att.ln_x.weight, att.ln_x.bias)
                     self.__dict__[f"state{3*i}"] = x_ln
                     x = x + out
                     ffn = self.w.blocks[i].ffn
@@ -410,11 +410,14 @@ class RWKV_RNN(torch.nn.Module):
             return return_list
 
 iteration_count = 0
-def run_prompt(model, context, length=150, calibrate=False, generate_samples=False, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
+def run_prompt(model, context, length=150, generate_samples=False, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
     global iteration_count
-    fp16 = False
     if iteration_count == 0 and generate_samples:
         not os.path.exists("input_list.txt") or os.remove("input_list.txt")
+        not os.path.exists("input_list_chunk0.txt") or os.remove("input_list_chunk0.txt")
+        not os.path.exists("input_list_chunk1.txt") or os.remove("input_list_chunk1.txt")
+        not os.path.exists("input_list_chunk2.txt") or os.remove("input_list_chunk2.txt")
+        not os.path.exists("input_list_chunk3.txt") or os.remove("input_list_chunk3.txt")
     assert tokenizer != None
     input_list_lines = []
     if length != 0:
@@ -468,7 +471,7 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
                     for j in range(len(inputs)):
                         inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
-                inputs = model[i].forward(*inputs, calibrate=calibrate)
+                inputs = model[i].forward(*inputs)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
                     states[j] = inputs[j - 3*model[i].layer_begin + 1]
             if generate_samples:
@@ -487,14 +490,9 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
                 for j in range(len(inputs)):
                     inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
-            inputs = model.forward(*inputs, calibrate=calibrate)
-            states = inputs[1:]
-            if generate_samples:
-                # os.path.exists("sample_outputs") or os.mkdir("sample_outputs")
-                # os.path.exists(f"sample_outputs/{iteration_count}") or os.mkdir(f"sample_outputs/{iteration_count}")
-                # for j in range(len(inputs)):
-                #     inputs[j].cpu().numpy().astype(np.float32).tofile(f"sample_outputs/{iteration_count}/output_{j}.bin")
                 iteration_count += 1
+            inputs = model.forward(*inputs)
+            states = inputs[1:]           
 
     all_tokens = []
     occurrence = {}
@@ -536,7 +534,7 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
                     for j in range(len(inputs)):
                         inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
-                inputs = model[i].forward(*inputs, calibrate=calibrate)
+                inputs = model[i].forward(*inputs)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
                     states[j] = inputs[j - 3*model[i].layer_begin + 1]
             if generate_samples:
@@ -555,7 +553,7 @@ def run_prompt(model, context, length=150, calibrate=False, generate_samples=Fal
                     inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 iteration_count += 1
-            inputs = model.forward(*inputs, calibrate=calibrate)
+            inputs = model.forward(*inputs)
             states = inputs[1:]
 
     print('\n')
