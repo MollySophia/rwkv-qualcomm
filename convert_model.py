@@ -87,10 +87,10 @@ def quant_override(model):
     import onnx
     import json
     if type(model) == list:
-        for idx in range(len(model)):
-            onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{idx}/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{idx}.onnx")
+        for i in range(len(model)):
+            onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
             encodings_dict = calc_quant_override(onnx_model, args)
-            with open("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{idx}/" + "quant_override.json", 'w') as encoding_json:
+            with open("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + "quant_override.json", 'w') as encoding_json:
                 json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
     else:
         onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
@@ -113,7 +113,7 @@ if type(model) == list:
         states = [i.to(model[0].INFERENCE_DEVICE) for i in states]
 
     for i in range(len(model)):
-        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}"
+        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
         if i == 0:
             in0 = torch.LongTensor([1]) if args.USE_EMBEDDING else model[0].w.emb.weight[0]
@@ -133,8 +133,8 @@ if type(model) == list:
             from torch.onnx import register_custom_op_symbolic
             register_custom_op_symbolic('rwkv::custom_wkv', onnx_custom_wkv, 9)
 
-        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
-        print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}.onnx")
+        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
+        print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
     
     quant_override(model)
 
@@ -151,17 +151,17 @@ vocab_size: {args.vocab_size}
     
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
-        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i}"
+        dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
         if USE_SNPE_DLC:
-            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/snpe-onnx-to-dlc -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --no_simplification " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
+            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/snpe-onnx-to-dlc -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --no_simplification " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
             if USE_QNN_QUANT:
                 converter_cmd += f" --quantization_override {dirname}/quant_override.json"
             print(converter_cmd)
             os.system(converter_cmd)
 
         else:
-            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
+            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
             if USE_QNN_QUANT:
                 converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
                 if WEIGHTS_BITWIDTH == 4:
@@ -169,7 +169,7 @@ vocab_size: {args.vocab_size}
             print(converter_cmd)
             os.system(converter_cmd)
             print("Compiling QNN model library...")
-            compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i}.bin"
+            compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
             os.system(compiling_cmd)
 else:
     args = model.args
