@@ -473,7 +473,6 @@ StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
                 memset(ptr, 0, elemcount * sizeof(float));
             } else {
                 // TODO: optimize
-                // LOG_ERROR("Unimplemented");
                 float *ptr = new float[elemcount];
                 memset(ptr, 0, elemcount * sizeof(float));
                 app->m_ioTensor.copyFromFloatToNative(ptr, &app->m_outputTensors[graph_id][idx]);
@@ -521,7 +520,13 @@ StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<st
                     ptr[i] = states[states_i][states_j][i] / 8;
                 }
             } else {
-                // TODO: quantized
+                // TODO: optimize
+                float *ptr = new float[states[states_i][states_j].size()];
+                for (size_t i = 0; i < states[states_i][states_j].size(); i++) {
+                    ptr[i] = states[states_i][states_j][i] / 8;
+                }
+                app->m_ioTensor.copyFromFloatToNative(ptr, &app->m_outputTensors[graph_id][idx]);
+                delete[] ptr;
             }
             current_tensor++;
         }
