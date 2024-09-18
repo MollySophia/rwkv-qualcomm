@@ -1,66 +1,38 @@
-from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER, ABCTokenizer
-from rwkv_src.rwkv_model import RWKV_RNN, sample_logits, make_chunks, run_prompt
+from rwkv_src.rwkv_model import RWKV_RNN, make_chunks
 import types
-import os, sys
+import os
 import torch
 import numpy as np
+import argparse
+from pathlib import Path
+
+parser = argparse.ArgumentParser(description='Convert model')
+parser.add_argument('model', type=Path, help='Path to RWKV pth file')
+parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
+parser.add_argument('--use_qnn_quant', action='store_true', help='Use QNN quantization')
+parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bitwidth')
+parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
+args = parser.parse_args()
 
 USE_SNPE_DLC = False
-USE_QNN_QUANT = True
-ACT_BITWIDTH = 16
-WEIGHTS_BITWIDTH = 8
+USE_QNN_QUANT = args.use_qnn_quant
+ACT_BITWIDTH = args.act_bitwidth
+WEIGHTS_BITWIDTH = args.weights_bitwidth
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
-model_args.USE_XPU = False
 model_args.fp16 = False
 model_args.wkv_customop = False
-
 model_args.USE_EMBEDDING = True
-model_dir = '/home/molly/workspace/models/'
-# model_args.MODEL_NAME = model_dir + 'RWKV-6-ABC-85M-v1-20240217-ctx1024'
-# model_args.MODEL_NAME = model_dir + 'RWKV-6-MIDI-120M-20240220-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-x060-World-3B-v2.1-20240417-ctx4096'
-model_args.MODEL_NAME = model_dir + 'RWKV-x060-World-1B6-v2.1-20240328-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-x060-World-7B-v2.1-20240507-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-5-ABC-82M-v1-20230901-ctx1024'
-# model_args.MODEL_NAME = model_dir + 'RWKV-5-MIDI-120M-v1-20230728-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-5-World-0.4B-v2-20231113-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-5-World-1B5-v2-20231025-ctx4096'
-# model_args.MODEL_NAME = model_dir + 'RWKV-5-World-3B-v2-20231118-ctx16k'
 
-if 'ABC' in model_args.MODEL_NAME:
+model_args.MODEL_NAME = str(args.model)
+
+if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or USE_QNN_QUANT == True:
     model_args.RESCALE_LAYER = 0
-    tokenizer = ABCTokenizer()
-    prompt = """S:3
-B:9
-E:4
-B:9
-E:4
-E:4
-B:9
-L:1/8
-M:3/4
-K:D
- Bc | d2 cB A2 FE | F2 B4 F^G |
-"""
-    prompt = chr(tokenizer.bos_token_id) + prompt
-elif 'MIDI' in model_args.MODEL_NAME:
-    model_args.RESCALE_LAYER = 0
-    from tokenizers import Tokenizer
-    tokenizer = Tokenizer.from_file("./tokenizer-midi.json")
-    prompt = "<pad>"
 else:
-    if USE_QNN_QUANT == True:
-        model_args.RESCALE_LAYER = 0
-    else:
-        model_args.RESCALE_LAYER = 6
-    tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
-    prompt = "\n我们发现"
+    model_args.RESCALE_LAYER = 6
 
-# model = RWKV_RNN(model_args)
-model = make_chunks(2, model_args)
-# model = make_chunks(4, model_args)
+model = make_chunks(args.chunks, model_args) if args.chunks > 1 else RWKV_RNN(model_args)
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:

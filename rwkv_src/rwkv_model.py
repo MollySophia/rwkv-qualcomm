@@ -9,7 +9,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 from typing import List,Set,Dict
 import os
-import scipy
 from tqdm import tqdm
 import torch.utils.cpp_extension
 wkv_c_impl_src = """
@@ -48,7 +47,9 @@ class RWKV_RNN(torch.nn.Module):
         super().__init__()
         self.args = args
         self.eval() # set torch to inference mode
-        
+
+        if '.pth' in args.MODEL_NAME:
+            args.MODEL_NAME = args.MODEL_NAME.replace('.pth', '')
         w = torch.load(args.MODEL_NAME + '.pth', map_location='cpu')
         self.args.n_embd = w['emb.weight'].shape[1]
         self.args.vocab_size = w['emb.weight'].shape[0]
@@ -62,9 +63,9 @@ class RWKV_RNN(torch.nn.Module):
             try:
                 module = torch.utils.cpp_extension.load_inline(
                     name='custom_wkv', cpp_sources=[wkv_c_impl_src])
+                self.wkv_func = torch.ops.rwkv.custom_wkv
             except:
-                pass
-            self.wkv_func = torch.ops.rwkv.custom_wkv
+                self.wkv_func = self.wkv
         else:
             self.wkv_func = self.wkv
 
@@ -114,12 +115,6 @@ class RWKV_RNN(torch.nn.Module):
                 self.INFERENCE_DEVICE = torch.device('cuda')
             else:
                 self.args.USE_CUDA = False
-        elif self.args.USE_XPU:
-            try:
-                import intel_extension_for_pytorch as ipex
-                self.INFERENCE_DEVICE = torch.device('xpu')
-            except:
-                self.args.USE_XPU = False
         if self.INFERENCE_DEVICE is not torch.device('cpu'):
             self.gpu = True
         w_new = {}
@@ -410,14 +405,14 @@ class RWKV_RNN(torch.nn.Module):
             return return_list
 
 iteration_count = 0
-def run_prompt(model, context, length=150, generate_samples=False, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
+def run_prompt(model, context, length=150, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
     global iteration_count
     if iteration_count == 0 and generate_samples:
-        not os.path.exists("input_list.txt") or os.remove("input_list.txt")
-        not os.path.exists("input_list_chunk0.txt") or os.remove("input_list_chunk0.txt")
-        not os.path.exists("input_list_chunk1.txt") or os.remove("input_list_chunk1.txt")
-        not os.path.exists("input_list_chunk2.txt") or os.remove("input_list_chunk2.txt")
-        not os.path.exists("input_list_chunk3.txt") or os.remove("input_list_chunk3.txt")
+        not os.path.exists(os.path.join(samples_output, "input_list.txt")) or os.remove(os.path.join(samples_output, "input_list.txt"))
+        not os.path.exists(os.path.join(samples_output, "input_list_chunk0.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk0.txt"))
+        not os.path.exists(os.path.join(samples_output, "input_list_chunk1.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk1.txt"))
+        not os.path.exists(os.path.join(samples_output, "input_list_chunk2.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk2.txt"))
+        not os.path.exists(os.path.join(samples_output, "input_list_chunk3.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk3.txt"))
     assert tokenizer != None
     input_list_lines = []
     if length != 0:
@@ -466,10 +461,10 @@ def run_prompt(model, context, length=150, generate_samples=False, tokenizer=Non
                     in0 = in0.to(INFERENCE_DEVICE)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
-                    os.path.exists(f"samples_chunk{i}") or os.mkdir(f"samples_chunk{i}")
-                    os.path.exists(f"samples_chunk{i}/{iteration_count}") or os.mkdir(f"samples_chunk{i}/{iteration_count}")
+                    os.path.exists(f"{samples_output}/samples_chunk{i}") or os.mkdir(f"{samples_output}/samples_chunk{i}")
+                    os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
                     for j in range(len(inputs)):
-                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
+                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 inputs = model[i].forward(*inputs)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
@@ -485,10 +480,10 @@ def run_prompt(model, context, length=150, generate_samples=False, tokenizer=Non
                 in0 = in0.to(INFERENCE_DEVICE)
             inputs = [in0] + states
             if generate_samples:
-                os.path.exists("samples") or os.mkdir("samples")
-                os.path.exists(f"samples/{iteration_count}") or os.mkdir(f"samples/{iteration_count}")
+                os.path.exists(f"{samples_output}/samples") or os.mkdir(f"{samples_output}/samples")
+                os.path.exists(f"{samples_output}/samples/{iteration_count}") or os.mkdir(f"{samples_output}/samples/{iteration_count}")
                 for j in range(len(inputs)):
-                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
+                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 iteration_count += 1
             inputs = model.forward(*inputs)
@@ -530,9 +525,9 @@ def run_prompt(model, context, length=150, generate_samples=False, tokenizer=Non
                     in0 = in0.to(INFERENCE_DEVICE)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
-                    os.path.exists(f"samples_chunk{i}/{iteration_count}") or os.mkdir(f"samples_chunk{i}/{iteration_count}")
+                    os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
                     for j in range(len(inputs)):
-                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples_chunk{i}/{iteration_count}/input_{j}.bin")
+                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin")
                     input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 inputs = model[i].forward(*inputs)
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
@@ -548,9 +543,9 @@ def run_prompt(model, context, length=150, generate_samples=False, tokenizer=Non
                 in0 = in0.to(INFERENCE_DEVICE)
             inputs = [in0] + states
             if generate_samples:
-                os.path.exists(f"samples/{iteration_count}") or os.mkdir(f"samples/{iteration_count}")
+                os.path.exists(f"{samples_output}/samples/{iteration_count}") or os.mkdir(f"{samples_output}/samples/{iteration_count}")
                 for j in range(len(inputs)):
-                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"samples/{iteration_count}/input_{j}.bin")
+                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j}.bin")
                 input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
                 iteration_count += 1
             inputs = model.forward(*inputs)
@@ -560,10 +555,10 @@ def run_prompt(model, context, length=150, generate_samples=False, tokenizer=Non
     if generate_samples:
         if chunks > 0:
             for i in range(chunks):
-                with open(f"input_list_chunk{i}.txt", "a") as f:
+                with open(f"{samples_output}/input_list_chunk{i}.txt", "w") as f:
                     f.writelines(input_list_lines[i])
         else:
-            with open(f"input_list.txt", "a") as f:
+            with open(f"{samples_output}/input_list.txt", "w") as f:
                 f.writelines(input_list_lines)
 
 def make_chunks(chunks, args):
