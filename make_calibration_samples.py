@@ -25,7 +25,7 @@ def main():
 
     model_args.MODEL_NAME = str(args.model)
 
-    tokenizer = RWKV_TOKENIZER("./rwkv_vocab_v20230424.txt")
+    tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
     model = make_chunks(args.chunks, model_args) if args.chunks > 1 else RWKV_RNN(model_args)
 

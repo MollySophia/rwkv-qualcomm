@@ -42,7 +42,7 @@ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-
 ### 3. Run inference on the device
 - Build the demo code: ``make -C librwkv-qualcomm``
 - Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
-- Push the tokenizer model to the device: ``adb push librwkv-qualcomm/rwkv_vocab_v20230424.bin /data/local/tmp/``
+- Push the tokenizer model to the device: ``adb push assets/rwkv_vocab_v20230424.bin /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
 ```/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtp.so
 /opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
