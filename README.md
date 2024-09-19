@@ -18,35 +18,30 @@
 ## Usage
 ### 1. Convert model weights to QNN model library file.
 #### Converting a FP16 model
-- `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
-- Keep these parameters: 
-```
-USE_SNPE_DLC = False
-USE_QNN_QUANT = False
-```
+- `convert_model.py`: usage: convert_model.py [-h] [--chunks CHUNKS] [--use_qnn_quant] [--act_bitwidth ACT_BITWIDTH] [--weights_bitwidth WEIGHTS_BITWIDTH] model
+- Convert the model: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 4`
 
 #### Converting an A16W8 model
-- `make_calibration_samples.py`: Modify the model path. This script will generate calibration samples for the model. Note: Keep the value of split chunks the same as in the `convert_model.py` script.
-- `convert_model.py`: Modify the model path, split chunks and other parameters in the script, then run it to convert the model to QNN SDK format.
-- Keep these parameters: 
-```
-USE_SNPE_DLC = False
-USE_QNN_QUANT = True
-ACT_BITWIDTH = 16
-WEIGHTS_BITWIDTH = 8
-```
+- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] model output chunks
+- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./ 2`
+- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant`
+- The act_bitwidth and weights_bitwidth are default to 16 and 8 respectively.
+- Note: Please keep the `chunks` parameter the same in both scripts.
 
 The outputs will be in ``lib/`` directory. The model library contains weights, as well as the functions to prepare the graph. This can either be called on device using libraries in ``lib/aarch64-android/``, or be prepared on the x86 host machine using ``lib/x86_64-linux-clang/`` to generate an HTP context cache. Qualcomm HTP has a limitation on the size of the model library file, so the model will be split into multiple chunks.
 
 ### 2. Generate HTP context cache
-- Here is an example command to generate the HTP context cache for RWKV v6 1.6B:
-- ``qnn-context-binary-generator --backend /opt/qcom/aistack/qairt/2.22.6.240515/lib/x86_64-linux-clang/libQnnHtp.so --model lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk0.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2.so,lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk3.so --binary_file rwkv6_1b6 --config_file qnn_configs/8650_fp16_link.json``
-- Please modify the model library names, as well as the qnn sdk path in the qnn_configs/*_fp16_link.json file.
-- The output would be in ``output/rwkv6_1b6.bin``
+- `make_context_cache_binary.py`: usage: make_context_cache_binary.py [-h] model_lib output_path {SM8650,SM8550,SC8380}
+- Example:
+```
+$ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.so output/ SM8650
+python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.so output/ SM8650
+```
+- The output would be in ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin`` and ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin``.
 
 ### 3. Run inference on the device
 - Build the demo code: ``make -C librwkv-qualcomm``
-- Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/rwkv6_1b6.bin /data/local/tmp/``
+- Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
 - Push the tokenizer model to the device: ``adb push librwkv-qualcomm/rwkv_vocab_v20230424.bin /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
 ```/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtp.so
@@ -61,11 +56,16 @@ The outputs will be in ``lib/`` directory. The model library contains weights, a
 adb shell
 $ cd /data/local/tmp
 $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/local/tmp
-$ ./rwkv-qualcomm-demo rwkv_vocab_v20230424.bin rwkv6_1b6.bin
+$ # Specify the path to the first model chunk. The second chunk will be loaded automatically.
+$ ./rwkv-qualcomm-demo rwkv_vocab_v20230424.bin RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 ```
 - Example output:
 ```
-Loading model context binary from rwkv6_1b6_quant.bin
+Loading model context binary from RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
+Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
+Buffer size: 1043223288
+Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin
+Buffer size: 910193528
 Tokenizer vocab size: 65536
 
 我们发现，这个函数的输入是一个字符串，输出是一个字符串，这是因为这个函数使用了一个递归的方法，将输入的字符串作为输入，并且使用了一个if语句来判断是否是回文字符串。
@@ -85,6 +85,7 @@ Average tokens per second: 21.8546
 ## TODO
 - [x] Add demo code for running inference on the device.
 - [x] Add support for INT16/INT8 quantized inference.
+- [ ] Add support for AIMET and A16W4 quantization
 - [ ] Package a library for easy use and integration.
 
 ## Questions
