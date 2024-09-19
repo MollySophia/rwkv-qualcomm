@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <map>
 
 #include "librwkv-qualcomm.h"
 #include "tokenizer.h"
@@ -151,10 +152,15 @@ int main(int argc, char** argv) {
 
   // QnnRwkvResetStates(backend);
 
+  std::map<int, float> occurences;
   std::chrono::duration<double> duration_invoke;
   int token_num = 0;
   std::string prompt = "\n我们发现";
   srand((unsigned)time(NULL));
+
+  const float presence_penalty = 0.4;
+  const float freq_penalty = 0.4;
+  const float penalty_decay = 0.996;
 
   std::vector<int> prompt_ids = tokenizer.Encode(prompt);
   for (auto token_id : prompt_ids) {
@@ -185,8 +191,15 @@ int main(int argc, char** argv) {
     std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
     duration_invoke += std::chrono::duration_cast<std::chrono::duration<double>>(infer_end - infer_start);
     token_num++;
+    for (auto &x : occurences) {
+      logits[x.first] -=
+          freq_penalty * x.second + presence_penalty;
+      x.second *= penalty_decay;
+    }
 
     token = sample_logits(logits.data(), logits.size(), 0.7, 128, 0.9);
+
+    occurences[token]++;
   }
   std::cout << std::endl;
 
