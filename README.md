@@ -85,6 +85,7 @@ Average tokens per second: 21.8546
 ## TODO
 - [x] Add demo code for running inference on the device.
 - [x] Add support for INT16/INT8 quantized inference.
+- [ ] Add document for running on Snapdragon X Elite laptops
 - [ ] Add support for AIMET and A16W4 quantization
 - [ ] Package a library for easy use and integration.
 
