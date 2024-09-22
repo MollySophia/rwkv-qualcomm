@@ -24,7 +24,7 @@ from aimet_torch.onnx_utils import OnnxExportApiArgs
 from aimet_torch.qc_quantize_op import QcQuantizeWrapper, QcQuantizeOpMode
 from aimet_torch import utils as aimet_utils
 
-# from exceptions import ExceptionConfigurator
+from .exceptions import ExceptionConfigurator
 # from registry import register_quantizer
 # import utils
 import utils.model_utils as utils
@@ -242,11 +242,10 @@ class LLMQuantizer:
         print(f"Created quantsim in {time.time() - tic} seconds")
 
         #Apply exceptions to QuantSim before computing encodings
-        # exception_configurator = ExceptionConfigurator(args)
-        # print("Applying pre-calibration exceptions")
-        # tic = time.time()
-        # exception_configurator.apply_pre_calibration_exceptions(self.quant_sim)
-        # print(f"Applied pre-cal exceptions in {time.time() - tic} seconds")
+        exception_configurator = ExceptionConfigurator(args)
+        print("Applying pre-calibration exceptions")
+        tic = time.time()
+        exception_configurator.apply_pre_calibration_exceptions(self.quant_sim)
 
         if args.parameter_encoding_file:
             self.load_param_encodings(args.parameter_encoding_file)
@@ -259,28 +258,13 @@ class LLMQuantizer:
             self.compute_encodings(calib_dataloader=train_dataloader, tokenizer=tokenizer)
             print(f"Computed encodings in {time.time() - tic} seconds")
 
-        #results = self.rwkv_generate(self.quant_sim.model, tokenizer, prompt)
-        #print(f"Quantsim results: {results}")
-
-        # if args.unify_kv_encodings:
-        #     if args.export_mode == 'kvcache':
-        #         if args.prepare_type == 'pro' and 'llama' in args.model_name:
-        #             self.write_kv_encodings_for_prepared_model()
-        #         else:
-        #             self.write_kv_encodings()
-        #     else:
-        #         if args.prepare_type == 'pro' and 'llama' in args.model_name:
-        #             self.write_bert_encodings_for_prepared_model()
-        #         else:
-        #             self.write_bert_encodings()
-
         # Apply post-calibration exceptions
-        # print("Applying post-calibration exceptions")
-        # tic = time.time()
-        # exception_configurator.apply_post_calibration_exceptions(self.quant_sim)
-        # if args.clip_activation:
-        #     self.clip_activation_quantizers(-args.clip_activation, args.clip_activation)
-        # print(f"Applied post-cal exceptions in {time.time() - tic} seconds")
+        print("Applying post-calibration exceptions")
+        tic = time.time()
+        exception_configurator.apply_post_calibration_exceptions(self.quant_sim)
+        if args.clip_activation:
+            self.clip_activation_quantizers(-args.clip_activation, args.clip_activation)
+        print(f"Applied post-cal exceptions in {time.time() - tic} seconds")
         
         # state_dict will be loaded nectar.registry.make_model while make_trainer is being called
         self.load_encodings(self.encoding_file)
