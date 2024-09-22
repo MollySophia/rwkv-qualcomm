@@ -1,0 +1,42 @@
+{
+  "module_list":
+  [
+    {
+      "module_name": "Embedding",
+      "exception_stage": "pre-calibration",
+      "exceptions": {
+        "param_exceptions": {
+          "asymmetric": "True",
+          "bitwidth": "32"
+        },
+        "input_exceptions": "None",
+        "output_exceptions": "None"
+      }
+    },
+    {
+      "module_name": "LayerNorm",
+      "exception_stage": "pre-calibration",
+      "exceptions": {
+        "param_exceptions": {
+          "asymmetric": "True",
+          "bitwidth": "32"
+        },
+        "input_exceptions": "None",
+        "output_exceptions": "None"
+      }
+    }
+  ],
+  "name_list":[
+    {
+      "module_name": "head",
+      "exception_stage": "pre-calibration",
+      "exceptions": {
+        "param_exceptions": {
+          "bitwidth": "32"
+        },
+        "input_exceptions": "None",
+        "output_exceptions": "None"
+      }
+    }
+  ]
+}
