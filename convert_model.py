@@ -14,7 +14,6 @@ parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bit
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 args = parser.parse_args()
 
-USE_SNPE_DLC = False
 USE_QNN_QUANT = args.use_qnn_quant
 ACT_BITWIDTH = args.act_bitwidth
 WEIGHTS_BITWIDTH = args.weights_bitwidth
@@ -57,20 +56,15 @@ def quant_override(model):
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
             if "Mul" == graph.node[i].op_type and "Exp" in graph.node[i].input[0]:
-                # for j in graph.node[i].input:
-                #     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
             if "Add" == graph.node[i].op_type:
                 if ("Mul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1]) and ("Add" in graph.node[i].input[0]):
-                    # for j in graph.node[i].input:
                     encodings_dict['activation_encodings'][graph.node[i].input[0]] = [{"bitwidth": 32, "dtype": "float"}]
                     for j in graph.node[i].output:
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
                 if "Mul_" in graph.node[i].input[0] and "MatMul" in graph.node[i].input[1]:
-                    # for j in graph.node[i].input:
-                    #     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
                     for j in graph.node[i].output:
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
@@ -138,39 +132,18 @@ if type(model) == list:
     
     quant_override(model)
 
-    config = f"""version: {args.version}
-head_size: {args.head_size}
-n_layer: {args.n_layer}
-n_embd: {args.n_embd}
-n_att: {args.n_att}
-n_ffn: {args.n_ffn}
-vocab_size: {args.vocab_size}
-"""
-    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
-        f.write(config)
-    
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        if USE_SNPE_DLC:
-            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/snpe-onnx-to-dlc -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --no_simplification " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
-            if USE_QNN_QUANT:
-                converter_cmd += f" --quantization_override {dirname}/quant_override.json"
-            print(converter_cmd)
-            os.system(converter_cmd)
-
-        else:
-            converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
-            if USE_QNN_QUANT:
-                converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
-                if WEIGHTS_BITWIDTH == 4:
-                    converter_cmd += " --pack_4_bit_weights"
-            print(converter_cmd)
-            os.system(converter_cmd)
-            print("Compiling QNN model library...")
-            compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
-            os.system(compiling_cmd)
+        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
+        if USE_QNN_QUANT:
+            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
+        print(converter_cmd)
+        os.system(converter_cmd)
+        print("Compiling QNN model library...")
+        compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
+        os.system(compiling_cmd)
 else:
     args = model.args
     if not args.USE_EMBEDDING:
@@ -186,37 +159,16 @@ else:
         inputs = [tensor.to(model.INFERENCE_DEVICE) for tensor in inputs]
     input_names = ['id'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
-    # torch.jit.trace(model, tuple(inputs)).save("onnx/" + args.MODEL_NAME.split("/")[-1] + ".pt")
     torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-    config = f"""version: {args.version}
-head_size: {args.head_size}
-n_layer: {args.n_layer}
-n_embd: {args.n_embd}
-n_att: {args.n_att}
-n_ffn: {args.n_ffn}
-vocab_size: {args.vocab_size}
-"""
-    with open("onnx/" + args.MODEL_NAME.split("/")[-1] + ".config", "w") as f:
-        f.write(config)
 
     quant_override(model)
 
     print("Converting to QNN model...")
-    if USE_SNPE_DLC:
-        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/snpe-onnx-to-dlc -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --no_simplification " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
-        # converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qairt-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --onnx_no_simplification " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
-        if USE_QNN_QUANT:
-            converter_cmd += f" --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json"
-        print(converter_cmd)
-        os.system(converter_cmd)
-    else:
-        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
-        if USE_QNN_QUANT:
-            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
-            if WEIGHTS_BITWIDTH == 4:
-                converter_cmd += " --pack_4_bit_weights"
-        print(converter_cmd)
-        os.system(converter_cmd)
-        print("Compiling QNN model library...")
-        os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c onnx/{args.MODEL_NAME.split('/')[-1]}.cpp -b onnx/{args.MODEL_NAME.split('/')[-1]}.bin")
+    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
+    if USE_QNN_QUANT:
+        converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
+    print(converter_cmd)
+    os.system(converter_cmd)
+    print("Compiling QNN model library...")
+    os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c onnx/{args.MODEL_NAME.split('/')[-1]}.cpp -b onnx/{args.MODEL_NAME.split('/')[-1]}.bin")
