@@ -1,4 +1,5 @@
 import torch
+import contextlib
 
 model2config_lut = {
     'Rwkv6ForCausalLM': ('num_hidden_layers', 'num_attention_heads', 'attention_hidden_size'),
@@ -32,3 +33,14 @@ def get_dummy_input_for_rwkv_causal_llm(batch_size, input_length, device, model_
         'state': get_dummy_state_kvcache(batch_size, model_cfg, device),
     }
     return inputs
+
+@contextlib.contextmanager
+def freeze_quantizers(quantizers):
+    originally_frozen = [q.is_encoding_frozen for q in quantizers]
+    try:
+        for q in quantizers:
+            q._is_encoding_frozen = True
+        yield
+    finally:
+        for q, frozen in zip(quantizers, originally_frozen):
+            q._is_encoding_frozen = frozen

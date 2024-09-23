@@ -91,7 +91,7 @@ quantizer.prepare_quantsim(dummy_input, args, dataset_builder.train_dataloader, 
 
 def test_generate(model, tokenizer,device='cuda'):
     config = model.config
-    print("Generating inference using FP32 model")
+    print("Generating inference using QuantSim model")
     prompt = "User: 请为我写一首诗\n\nAssistant:"
     input_ids = tokenizer (prompt, return_tensors='pt')
     input_ids.to(device)
