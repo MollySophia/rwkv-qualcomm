@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from aimet_torch.model_preparer import _prepare_traced_model
 
-from utils.model_utils import get_dummy_input_for_rwkv_causal_llm
+from utils.model_utils import get_dummy_input_for_rwkv_causal_llm, get_input_output_names
 from quantizers.base_quantizer import LLMQuantizer
 from utils.dataset_builder import DatasetBuilder
 
@@ -21,8 +21,10 @@ parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('model_name', type=str, help='Model name')
 parser.add_argument('linear_param_encodings', type=Path, help='Path to linear param encodings')
-parser.add_argument('--weights_bitwidth', type=int, default=4, help='Weights bitwidth')
+parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--use_cuda', action='store_true', default=True, help='Use CUDA')
+parser.add_argument('--test_generate', action='store_true', default=False, help='Test generate')
+parser.add_argument('--export_onnx', action='store_true', default=False, help='Export onnx and encoding files')
 args_parser = parser.parse_args()
 
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
@@ -31,7 +33,7 @@ args = types.SimpleNamespace()
 ##############################
 args.quant_scheme = "tf"
 args.activation_bit_width = 16
-args.parameter_bit_width = 8
+args.parameter_bit_width = args_parser.weights_bitwidth
 args.in_place_quantsim = False
 args.config_file = "quantizers/configs/default_per_channel_config.json"
 args.num_cands = 20
@@ -100,7 +102,7 @@ quantizer.prepare_quantsim(dummy_input, args, dataset_builder.train_dataloader, 
 def test_generate(model, tokenizer,device='cuda'):
     config = model.config
     print("Generating inference using QuantSim model")
-    prompt = "User: 请为我写一首诗\n\nAssistant:"
+    prompt = "\n我们发现，"
     print(prompt, end='')
     input_ids = tokenizer (prompt, return_tensors='pt')
     input_ids.to(device)
@@ -110,6 +112,11 @@ def test_generate(model, tokenizer,device='cuda'):
         input_ids = input_ids['input_ids']
     output = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=800, do_sample=True, repetition_penalty=1.1, top_p=1, top_k=128, temperature=1)
     print (tokenizer.batch_decode(output, skip_special_tokens=True)[0].split(prompt)[-1])
-test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)
 
-# TODO: Export and split the model
+if args_parser.test_generate:
+    test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)
+
+if args_parser.export_onnx:
+    input_names, output_names = get_input_output_names(model.config)
+    quantizer.export_quantsim(dummy_input=dummy_input, input_names=input_names, output_names=output_names)
+# TODO: split the model

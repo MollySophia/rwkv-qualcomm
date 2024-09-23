@@ -25,16 +25,10 @@ from aimet_torch.qc_quantize_op import QcQuantizeWrapper, QcQuantizeOpMode
 from aimet_torch import utils as aimet_utils
 
 from .exceptions import ExceptionConfigurator
-# from registry import register_quantizer
-# import utils
 import utils.model_utils as utils
 
 from importlib.metadata import version as impLib_version
 from packaging import version
-# if version.parse(impLib_version('AimetTorch')) >= version.parse('1.29.0.0.180.0.4445+torch.gpu.pt113'):
-    #AIMET supports export speed up
-from aimet_torch import onnx_utils
-onnx_utils.EXPORT_TO_ONNX_DIRECT = True
 
 
 # Exception handling in case fastforward is not enabled in AIMET build
@@ -886,10 +880,6 @@ class LLMQuantizer:
         self.quant_sim.model = self.quant_sim.model.float()
         
         tic = time.time()
-        #We need to flatten the tuples into a flat list of tensors when working with a prepared model.
-        if "position_ids_cos" in inspect.signature(self.model.forward).parameters or \
-           "past_key_0_h0_in" in inspect.signature(self.model.forward).parameters:
-            cpu_dummy_input = tuple(flatten_tensors(cpu_dummy_input))
         self.quant_sim.export(output_dir, self.model_name, cpu_dummy_input, onnx_export_args=onnx_api_args)
         print(f"Completed export in {time.time() - tic} seconds")
         

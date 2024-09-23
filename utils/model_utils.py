@@ -44,3 +44,32 @@ def freeze_quantizers(quantizers):
     finally:
         for q, frozen in zip(quantizers, originally_frozen):
             q._is_encoding_frozen = frozen
+
+def to_device(t, device):
+    if isinstance(t, torch.Tensor):
+        return t.detach().clone().to(device)
+    if isinstance(t, tuple):
+        return tuple([to_device(i, device) for i in t])
+    if isinstance(t, list):
+        return [to_device(i, device) for i in t]
+    if isinstance(t, dict):
+        return {k:to_device(v, device) for k,v in t.items()}
+    return t
+
+def to_cpu(t):
+    return to_device(t, torch.device('cpu'))
+
+def get_input_output_names(model_cfg):
+    num_layers, _, _ = extract_info_from_model_cfg(model_cfg)
+    def _get_state_names(sfx, n_layers):
+        all = []
+        for i in range(n_layers):
+            for j in range(0, 3):
+                all.extend([f'layer{i}_state{j}_{sfx}'])
+        return all
+
+    input_names = ['input_ids']
+    input_names += _get_state_names('in', num_layers)
+    output_names = ['logits']
+    output_names += _get_state_names('out', num_layers)
+    return input_names, output_names
