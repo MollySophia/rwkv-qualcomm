@@ -142,11 +142,11 @@ class LLMQuantizer:
         self.num_calibration_batches = args.num_calibration_batches
         self.export_path = args.export_dir
         self.output_dir = args.output_dir
-        #TODO - deduce model name if a path is provided in place of the model name
-        # self.export_mode = args.export_mode
         self.model_config = model_config
         self.model_name = args.model_name
         self.encoding_file = getattr(args, 'encoding_file', None)
+        self.load_sim_checkpoint = args.load_sim_checkpoint
+        self.save_sim_checkpoint = args.save_sim_checkpoint
 
     def parse_quant_scheme(self, quant_scheme):
         if quant_scheme == "tf":
@@ -246,25 +246,45 @@ class LLMQuantizer:
         print("Applying pre-calibration exceptions")
         tic = time.time()
         exception_configurator.apply_pre_calibration_exceptions(self.quant_sim)
-
+        
         if args.parameter_encoding_file:
-            self.load_param_encodings(args.parameter_encoding_file)
+            loaded_quantizers = self.load_param_encodings(args.parameter_encoding_file)
+        else:
+            loaded_quantizers = []
 
         if args.encoding_path:
             self.load_encodings(args.encoding_path)
         else:
-            print("Computing encodings")
-            tic = time.time()
-            self.compute_encodings(calib_dataloader=train_dataloader, tokenizer=tokenizer)
-            print(f"Computed encodings in {time.time() - tic} seconds")
+            with utils.freeze_quantizers(loaded_quantizers):
+                # Temporarily freezed the loaded quantizers so that compute_encodings() doesn't
+                # overwrite the loaded encodings.
 
-        # Apply post-calibration exceptions
-        print("Applying post-calibration exceptions")
-        tic = time.time()
-        exception_configurator.apply_post_calibration_exceptions(self.quant_sim)
-        if args.clip_activation:
-            self.clip_activation_quantizers(-args.clip_activation, args.clip_activation)
-        print(f"Applied post-cal exceptions in {time.time() - tic} seconds")
+                param_quantizers, input_quantizers, output_quantizers = aimet_utils.get_all_quantizers(self.quant_sim.model)
+                all_quantizers = param_quantizers + input_quantizers + output_quantizers
+
+                if any(q.enabled and not q.is_encoding_frozen for q in all_quantizers):
+                    print("Computing encodings")
+                    tic = time.time()
+                    self.compute_encodings(calib_dataloader=train_dataloader, tokenizer=tokenizer)
+                    print(f"Computed encodings in {time.time() - tic} seconds")
+                else:
+                    print("All the quantizers are disabled or frozen. Skipping compute_encodings.")
+
+        if not args.encoding_path:
+            # Apply post-calibration exceptions
+            print("Applying post-calibration exceptions")
+            tic = time.time()
+            exception_configurator.apply_post_calibration_exceptions(self.quant_sim)
+            if args.clip_activation:
+                self.clip_activation_quantizers(-args.clip_activation, args.clip_activation)
+            print(f"Applied post-cal exceptions in {time.time() - tic} seconds")
+
+        if self.save_sim_checkpoint:
+            self.save_checkpoint(self.quant_sim, self.save_sim_checkpoint)
+
+        # quant_sim_str = self.quant_sim.__str__()
+        # with open('quant_sim.txt', 'w') as f:
+        #     f.write(quant_sim_str)
         
         # state_dict will be loaded nectar.registry.make_model while make_trainer is being called
         self.load_encodings(self.encoding_file)
@@ -275,6 +295,7 @@ class LLMQuantizer:
         but some encodings only have param_encodings within the encoding file,
         this loader is to load whaterver format they have and only use param encodings in there
         """
+        loaded_quantizers = []
         with open(path) as json_file:
             param_encodings = json.load(json_file)
 
@@ -292,21 +313,23 @@ class LLMQuantizer:
                         continue
                     if param_name in param_encodings:
                         encodings = []
-                        if param_encodings[param_name][0]['bitwidth'] == param_quantizer.bitwidth:
-                            # only load & freeze encodings if bitwidth matches
-                            for encoding_dict in param_encodings[param_name]:
-                                encoding, is_symmetric = aimet_utils.create_encoding_from_dict(encoding_dict)
-                                encodings.append(encoding)
-                            param_quantizer.bitwidth = encodings[0].bw
-                            param_quantizer.use_symmetric_encodings = is_symmetric
-                            param_quantizer.encoding = encodings
-                            print(f"Setting quantization encodings for parameter: {param_name}")
-                            skipped = False
-                        else:
-                            print(f"WARNING:: Skipping {param_name}... bw from json: {param_encodings[param_name][0]['bitwidth']}, bw from quantizer: {param_quantizer.bitwidth}")
+                        for encoding_dict in param_encodings[param_name]:
+                            encoding = aimet_utils.create_encoding_from_dict(encoding_dict)
+                            is_symmetric = encoding_dict.get('is_symmetric')
+                            encodings.append(encoding)
+                        param_quantizer.bitwidth = encodings[0].bw
+                        param_quantizer.use_symmetric_encodings = is_symmetric
+                        param_quantizer.encoding = encodings
+                        print(f"Setting quantization encodings for parameter: {param_name}")
+                        skipped = False
+
+
+                if not skipped:
+                    loaded_quantizers.append(param_quantizer)
 
                 if freeze and not skipped:
                     quant_module.freeze_param_encoding(module_name, param_encodings)
+        return loaded_quantizers
 
 
     def clip_activation_quantizers(self, clamp_min, clamp_max):
