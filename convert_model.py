@@ -45,7 +45,7 @@ def quant_override(model):
         graph = model.graph
         for i in range(len(graph.node)):
             if "MatMul" == graph.node[i].op_type:
-                if ("MatMul" in graph.node[i].input[0] and ("Add" in graph.node[i].input[1])) or ("Reshape" in graph.node[i].input[0] and ("MatMul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1])):
+                if ("MatMul" in graph.node[i].input[0] and ("Add" in graph.node[i].input[1])) or ("Reshape" in graph.node[i].input[0] and ("MatMul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1] or "Add" in graph.node[i].input[1])):
                     for j in graph.node[i].input:
                         if not "Split" in j:
                             if "Constant" in j:
@@ -55,7 +55,7 @@ def quant_override(model):
                     for j in graph.node[i].output:
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
-            if "Mul" == graph.node[i].op_type and "Exp" in graph.node[i].input[0]:
+            if "Mul" == graph.node[i].op_type and ("Exp" in graph.node[i].input[0] or "state" in graph.node[i].input[1]):
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
