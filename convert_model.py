@@ -88,7 +88,7 @@ def quant_override(model):
                 json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
     else:
         onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-        encodings_dict = calc_quant_override(onnx_model)
+        encodings_dict = calc_quant_override(onnx_model, args)
         with open("onnx/" + args.MODEL_NAME.split("/")[-1] + "_quant_override.json", 'w') as encoding_json:
             json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
 
