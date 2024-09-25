@@ -15,7 +15,7 @@ htp_devices = {
     }
 }
 
-def dump_htp_config(soc_name: str, graph_names: list, output_path: str):
+def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn = False):
     if not soc_name in htp_devices.keys():
         raise ValueError(f"Invalid SoC name: {soc_name}")
     if graph_names is None or len(graph_names) == 0:
@@ -24,12 +24,12 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str):
         graph_names[i] = graph_names[i].replace("lib", "").replace("-", "_")
 
     config = {
-        "graphs": [{
-            "vtcm_mb": 8,
+        "graphs": {
+            "vtcm_mb": 0,
             "O": 3,
             "graph_names": graph_names,
             "fp16_relaxed_precision": 1,
-        }],
+        },
         "devices": [{
             "dsp_arch": htp_devices[soc_name]["dsp_arch"],
             "device_id": 0,
@@ -41,6 +41,8 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str):
             }]
         }]
     }
+    if not old_qnn:
+        config["graphs"] = [config["graphs"]]
 
     with open(output_path, "w") as f:
         json.dump(config, f, indent=4)
