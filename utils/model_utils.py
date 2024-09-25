@@ -100,7 +100,7 @@ def _load_model(onnxfile, load_external_data=False, model_cache={}):
 
 def split_onnx_by_names(onnxfile, modelname, *list_of_output_tensors, output_dir='.', onnxmodel=None):
     onnxmodel = _load_model(onnxfile, load_external_data=False) if onnxmodel is None else onnxmodel
-    splitter = OnnxSplitter(onnxmodel, verbose=True)
+    splitter = OnnxSplitter(onnxmodel, verbose=False)
     base_dir = os.path.dirname(onnxfile)
     using_external_data = OnnxSplitter.is_using_external_data(onnxmodel)
 
@@ -126,7 +126,7 @@ def split_onnx_by_names(onnxfile, modelname, *list_of_output_tensors, output_dir
         newonnxfile = f'{output_dir}/split_onnx/{new_basename}.onnx'
         print(f'Saving {newonnxfile}')
         save_model(submodel, newonnxfile, using_external_data)
-        return
+    return
 
 def _get_lm_head_sizes(onnxmodel):
     lm_head_weight = [i for i in onnxmodel.graph.initializer if 'lm_head' in i.name and 'weight' in i.name]
@@ -232,6 +232,6 @@ def split_onnx(onnxfile, modelname, num_splits, output_dir='./', split_embedding
             outputs += past_key_values[layer]
         names_to_split.append(','.join(outputs))
 
-    print('Names_to_split', names_to_split)
+    # print('Names_to_split', names_to_split)
     assert num_splits == len(names_to_split)+1, f"Failed to split into {num_splits} pieces!"
     return split_onnx_by_names(onnxfile, modelname, *names_to_split, output_dir=output_dir, onnxmodel=onnxmodel)
