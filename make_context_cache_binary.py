@@ -12,9 +12,13 @@ def main():
     if not qnn_sdk_root:
         print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
         exit(1)
+    
+    QNN_VERSION_MINOR = int(qnn_sdk_root.split('/')[-1].split('.')[1])
+    old_qnn = True if QNN_VERSION_MINOR < 22 else False
+    print(f"QNN_VERSION_MINOR: {QNN_VERSION_MINOR}")
 
     model_name = str(args.model_lib).split('/')[-1].replace('.so', '')
-    dump_htp_config(args.platform, [model_name], str(args.model_lib).replace('.so', '_htp_config.json'))
+    dump_htp_config(args.platform, [model_name], str(args.model_lib).replace('.so', '_htp_config.json'), old_qnn)
     dump_htp_link_config(str(args.model_lib).replace('.so', '_htp_link.json'), qnn_sdk_root)
     convert_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-context-binary-generator"
     convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
