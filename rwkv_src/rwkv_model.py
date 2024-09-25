@@ -194,7 +194,6 @@ class RWKV_RNN(torch.nn.Module):
                 self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
 
     def layer_norm(self, x, w):
-        # return F.instance_norm(x.view(1, 1, 1, -1), eps=1e-5).view(1, -1) * w.weight + w.bias
         return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
 
     def wkv(self, k, v, r, state2, time_first, time_decay):
@@ -207,14 +206,18 @@ class RWKV_RNN(torch.nn.Module):
         xk = (x * time_mix_k + state * (1 - time_mix_k))
         xr = (x * time_mix_r + state * (1 - time_mix_r))
 
-        r = xr @ rw.t()
-        k = xk @ kw.t()
+        # r = xr @ rw.t()
+        # k = xk @ kw.t()
+        N = self.args.n_embd
+        r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(-1, 8, 8)
+        k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(-1, N//8, 1, 8)).view(-1, 8, 8)
 
         r = torch.sigmoid(r)
         # square relu, primer paper
         k = torch.pow(torch.relu(k), 2)
-        v = k @ vw.t()
-        return r * v
+        # v = k @ vw.t()
+        v = F.conv2d(k.view(1, -1, 1, 1), vw.view(N, -1, 1, 1)).view(-1, 8, 8)
+        return (r * v).view(1, 1, N)
 
     def channel_mixing_v6(self, x, state, i:int, time_maa_k, time_maa_r, kw, vw, rw):
         sx = state - x
@@ -233,7 +236,6 @@ class RWKV_RNN(torch.nn.Module):
         # v = k @ vw.t()
         v = F.conv2d(k.view(1, -1, 1, 1), vw.view(N, -1, 1, 1)).view(-1, 8, 8)
         return (r * v).view(1, 1, N)
-        # return r * v
 
     def time_mixing_v5(self, x, state1, state2, i:int, time_mix_k, time_mix_v, time_mix_r, time_first, time_decay, kw, vw, rw, ow, ln_w, ln_b, calibrate=False):
         H = self.args.n_head
@@ -244,13 +246,13 @@ class RWKV_RNN(torch.nn.Module):
         xr = x * time_mix_r + state1 * (1 - time_mix_r)
 
         r = (xr @ rw.t()).view(H, 1, S)
-        k = (xk @ kw.t()).view(H, S, 1)
-        v = (xv @ vw.t()).view(H, 1, S) / 32
+        k = (xk @ (kw.t() / 4)).view(H, S, 1)
+        v = (xv @ (vw.t() / 8)).view(H, 1, S)
 
         x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
 
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
-        return x @ ow.t(), state2
+        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
 
     def time_mixing_v5_1(self, x, state1, state2, i:int, time_mix_k, time_mix_v, time_mix_r, time_mix_g, time_first, time_decay, kw, vw, rw, gw, ow, ln_w, ln_b, calibrate=False):
         H = self.args.n_head
@@ -261,20 +263,17 @@ class RWKV_RNN(torch.nn.Module):
         xr = x * time_mix_r + state1 * (1 - time_mix_r)
         xg = x * time_mix_g + state1 * (1 - time_mix_g)
 
+        N = H * S
         r = (xr @ rw.t()).view(H, 1, S)
-        k = (xk @ kw.t()).view(H, S, 1)
-        v = (xv @ vw.t()).view(H, 1, S)
-        g = xg @ gw.t()
+        k = (xk @ (kw.t() / 4)).view(H, S, 1)
+        v = (xv @ (vw.t() / 8)).view(H, 1, S)
+        g = F.conv2d(xg.view(1, N//8, 1, 8), gw.view(N, N//8, 1, 8)).view(1, 1, N)
         g = g * F.sigmoid(g)
-
-        # avoid fp16 overflow
-        if ("ABC" in self.args.MODEL_NAME):
-            v = v / 128
 
         x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
 
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b) * g
-        return x @ ow.t(), state2
+        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
 
     def time_mixing_v6(self, x, state1, state2, i:int, x_maa, w_maa, k_maa, v_maa, r_maa, g_maa, tm_w1, tm_w2, td_w1, td_w2, time_first, time_decay, kw, vw, rw, gw, ow, ln_w, ln_b, calibrate=False):
         H = self.args.n_head
@@ -306,10 +305,8 @@ class RWKV_RNN(torch.nn.Module):
 
         x, state2 = self.wkv_func(k, v, r, state2, time_first, w)
 
-        # x = (F.instance_norm(x.view(1, H, 1, S), eps=1e-5).view(1, 8, N//8) * ln_w.view(1, 8, N//8) + ln_b.view(1, 8, N//8))
         x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
         x = x * g
-        # return x @ ow.t(), state2
         return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
 
     def forward(self, in0, *states, calibrate=False):
