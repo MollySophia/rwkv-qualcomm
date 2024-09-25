@@ -14,12 +14,13 @@ def main():
     parser.add_argument('model', type=Path, help='Path to RWKV pth file')
     parser.add_argument('output', type=Path, help='Path to output folder')
     parser.add_argument('chunks', type=int, help='Number of chunks')
+    parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
     args = parser.parse_args()
 
     model_args = types.SimpleNamespace()
     model_args.USE_CUDA = torch.cuda.is_available()
     model_args.fp16 = True
-    model_args.USE_EMBEDDING = True
+    model_args.USE_EMBEDDING = False if args.ext_embedding else True
     model_args.RESCALE_LAYER = 0
     model_args.wkv_customop = False
 

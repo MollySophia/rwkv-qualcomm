@@ -12,6 +12,7 @@ parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
 parser.add_argument('--use_qnn_quant', action='store_true', help='Use QNN quantization')
 parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bitwidth')
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
+parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 args = parser.parse_args()
 
 USE_QNN_QUANT = args.use_qnn_quant
@@ -22,7 +23,7 @@ model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
 model_args.fp16 = False
 model_args.wkv_customop = False
-model_args.USE_EMBEDDING = True
+model_args.USE_EMBEDDING = False if args.ext_embedding else True
 
 model_args.MODEL_NAME = str(args.model)
 
@@ -95,7 +96,7 @@ def quant_override(model):
 if type(model) == list:
     args = model[0].args
     if not args.USE_EMBEDDING:
-        model[0].w.emb.weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
+        model[0].w.emb.weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk1of{len(model)}.emb")
     args = model[0].args
     fp16 = args.fp16
     states = []
@@ -157,7 +158,7 @@ else:
         inputs.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
     if model.INFERENCE_DEVICE is not torch.device('cpu'):
         inputs = [tensor.to(model.INFERENCE_DEVICE) for tensor in inputs]
-    input_names = ['id'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
+    input_names = ['in'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
     torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
