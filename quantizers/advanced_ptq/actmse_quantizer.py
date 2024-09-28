@@ -20,6 +20,7 @@ class ActMSEQuantizer(LLMQuantizer):
         self.input_symmetry = args.input_symmetry
         self.exceptions_file = args.exceptions_file.split("/")[-1].replace(".json", "")
         self.act_mse_loss_type = args.act_mse_loss_type
+        self.param_bw = args.parameter_bit_width
 
     def prepare_quantsim(self, dummy_input, args, train_dataloader, tokenizer):
         super().prepare_quantsim(dummy_input, args, train_dataloader, tokenizer)
@@ -33,7 +34,7 @@ class ActMSEQuantizer(LLMQuantizer):
         if args.do_actmse:
             fname = f"{self.model_name}_{self.act_mse_loss_type}_{self.exceptions_file}_{self.input_symmetry}_torch.encodings"
         else:
-            fname = f"{self.model_name}_{args.quant_scheme}_torch.encodings"
+            fname = f"{self.model_name}_{args.quant_scheme}_torch_w{self.param_bw}.encodings"
         outpath = os.path.join(self.export_path, fname)
         print("encodings saved at:")
         print(outpath)

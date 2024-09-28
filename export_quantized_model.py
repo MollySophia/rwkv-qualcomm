@@ -8,6 +8,7 @@ from transformers.tokenization_utils_base import BatchEncoding
 import types
 import torch
 import torch.nn as nn
+import numpy as np
 import onnx
 from aimet_torch.model_preparer import _prepare_traced_model
 
@@ -27,8 +28,7 @@ parser.add_argument('linear_param_encodings', type=Path, help='Path to linear pa
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--use_cuda', action='store_true', default=True, help='Use CUDA')
 parser.add_argument('--test_generate', action='store_true', default=False, help='Test generate')
-parser.add_argument('--export_onnx', action='store_true', default=False, help='Export onnx and encoding files')
-parser.add_argument('--num_splits', type=int, default=2, help='Number of splits')
+parser.add_argument('--num_chunks', type=int, default=2, help='Number of chunks')
 args_parser = parser.parse_args()
 
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
@@ -73,6 +73,10 @@ args.block_size = 1024
 args.seed = 1234
 ##############################
 
+qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
+if not qnn_sdk_root:
+    print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
+    exit(1)
 
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
 args.device = device
@@ -120,8 +124,7 @@ def test_generate(model, tokenizer,device='cuda'):
 
 if args_parser.test_generate:
     test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)
-
-if args_parser.export_onnx:
+else:
     input_names, output_names = get_input_output_names(model.config)
     quantizer.export_quantsim(dummy_input=dummy_input, input_names=input_names, output_names=output_names)
 
@@ -161,27 +164,19 @@ if args_parser.export_onnx:
         if "attention/sub_shift/Sub_output_0" in node.output[0]:
             match = re.search(pattern, node.output[0])
             number = match.group(1)
-            print("original:", node.input[0])
             node.input[0] = "layer" + str(number) + "_state0_in"
-            print("new:", node.input[0])
         elif "feed_forward/sub_shifted/Sub_output_0" in node.output[0]:
             match = re.search(pattern, node.output[0])
             number = match.group(1)
-            print("original:", node.input[0])
             node.input[0] = "layer" + str(number) + "_state2_in"
-            print("new:", node.input[0])
         elif "add_time_first/Add_output_0" in node.output[0]:
             match = re.search(pattern, node.output[0])
             number = match.group(1)
-            print("original:", node.input[1])
             node.input[1] = "layer" + str(number) + "_state1_in"
-            print("new:", node.input[1])
         elif "mul_time_decay/Mul_output_0" in node.output[0]:
             match = re.search(pattern, node.output[0])
             number = match.group(1)
-            print("original:", node.input[1])
             node.input[1] = "layer" + str(number) + "_state1_in"
-            print("new:", node.input[1])
 
     state_in_dims = {}
     for input in graph.input:
@@ -207,6 +202,25 @@ if args_parser.export_onnx:
             graph.output[idx].type.tensor_type.shape.dim[2].dim_value = 65536
 
     model.ir_version = 8
-    onnx.save_model(model, os.path.join(args.export_dir, "onnx", f"{args.model_name}_new.onnx"), save_as_external_data=True, all_tensors_to_one_file=True, size_threshold=1024, convert_attribute=False)
+    onnx.save_model(model, os.path.join(args.export_dir, "onnx", f"{args.model_name}.onnx"), save_as_external_data=True, all_tensors_to_one_file=True, size_threshold=1024, convert_attribute=False)
 
-    split_onnx(os.path.join(args.export_dir, "onnx", f"{args.model_name}_new.onnx"), args.model_name, args_parser.num_splits, args.export_dir, False)
+    split_onnx(os.path.join(args.export_dir, "onnx", f"{args.model_name}.onnx"), args.model_name, args_parser.num_chunks, args.export_dir, False)
+
+    layers_per_chunk = len(quantizer.quant_sim.model.rwkv.blocks) // args_parser.num_chunks
+    os.path.exists(os.path.join(args.export_dir, f"sample_inputs")) or os.mkdir(os.path.join(args.export_dir, f"sample_inputs"))
+    sample_input_path = os.path.join(args.export_dir, f"sample_inputs", args.model_name)
+    os.path.exists(sample_input_path) or os.mkdir(sample_input_path)
+    # assume the layers are evenly distributed
+    for i in range(args_parser.num_chunks):
+        input_list_line = " ".join([f"{args.export_dir}/sample_inputs/chunk_{i}/input_{j}.bin" for j in range(3*layers_per_chunk+1)])
+        os.path.exists(os.path.join(sample_input_path, f"chunk_{i}")) or os.mkdir(os.path.join(sample_input_path, f"chunk_{i}"))
+        with open(os.path.join(sample_input_path, f"input_list_chunk_{i}.txt"), 'w') as f:
+            f.write(input_list_line)
+        if i == 0:
+            np.zeros((1, 1), dtype=np.int32).tofile(os.path.join(sample_input_path, f"chunk_{i}", "input_0.bin"))
+        else:
+            np.zeros((1, 1, config.hidden_size), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", "input_0.bin"))
+        for j in range(layers_per_chunk):
+            np.zeros((1, 1, config.hidden_size), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+1}.bin"))
+            np.zeros((1, config.hidden_size//config.head_size, config.head_size, config.head_size), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+2}.bin"))
+            np.zeros((1, 1, config.hidden_size), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+3}.bin"))
