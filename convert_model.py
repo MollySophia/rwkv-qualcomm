@@ -104,8 +104,8 @@ if type(model) == list:
         states.append(torch.zeros(1, args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
         states.append(torch.zeros(args.n_head, args.head_size, args.head_size, dtype=torch.float16 if fp16 else torch.float32))
         states.append(torch.zeros(1, args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
-    if model[0].INFERENCE_DEVICE is not torch.device('cpu'):
-        states = [i.to(model[0].INFERENCE_DEVICE) for i in states]
+    if model[0].device is not torch.device('cpu'):
+        states = [i.to(model[0].device) for i in states]
 
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
@@ -114,8 +114,8 @@ if type(model) == list:
             in0 = torch.LongTensor([1]) if args.USE_EMBEDDING else model[0].w.emb.weight[0]
         else:
             in0 = torch.zeros(args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
-        if model[0].INFERENCE_DEVICE is not torch.device('cpu'):
-            in0 = in0.to(model[0].INFERENCE_DEVICE)
+        if model[0].device is not torch.device('cpu'):
+            in0 = in0.to(model[0].device)
         inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
@@ -156,8 +156,8 @@ else:
         inputs.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
         inputs.append(torch.zeros(model.args.n_head, model.args.head_size, model.args.head_size, dtype=torch.float16 if fp16 else torch.float32))
         inputs.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
-    if model.INFERENCE_DEVICE is not torch.device('cpu'):
-        inputs = [tensor.to(model.INFERENCE_DEVICE) for tensor in inputs]
+    if model.device is not torch.device('cpu'):
+        inputs = [tensor.to(model.device) for tensor in inputs]
     input_names = ['in'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
     torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)

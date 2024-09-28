@@ -11,27 +11,10 @@ from typing import List,Set,Dict
 import os
 from tqdm import tqdm
 import torch.utils.cpp_extension
-wkv_c_impl_src = """
-#include <torch/script.h>
-#include <tuple>
-
-static std::tuple<torch::Tensor, torch::Tensor> custom_wkv(
-    torch::Tensor k, torch::Tensor v, torch::Tensor r,
-    torch::Tensor state2, torch::Tensor time_first,
-    torch::Tensor time_decay) {
-    auto kv = torch::matmul(k, v);
-    auto wkv = torch::matmul(r, (time_first * kv + state2));
-    auto new_state2 = time_decay * state2 + kv;
-    return std::make_tuple(wkv, new_state2);
-}
-
-TORCH_LIBRARY(rwkv, m) {
-  m.def("custom_wkv", &custom_wkv);
-}
-"""
+from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 
 def sample_logits(out, temperature=1.0, top_p=0.8):
-    probs = F.softmax(out, dim=-1).cpu().numpy()
+    probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
     sorted_probs = np.sort(probs)[::-1]
     cumulative_probs = np.cumsum(sorted_probs)
     cutoff = float(sorted_probs[np.argmax(cumulative_probs > top_p)])
@@ -41,6 +24,28 @@ def sample_logits(out, temperature=1.0, top_p=0.8):
     probs = probs / np.sum(probs)
     out = np.random.choice(a=len(probs), p=probs)
     return out
+
+def check_rwkv_info(state_dict):
+    n_layer = 0
+    version = 5
+    n_head = 0
+    for k in state_dict.keys():
+        layer_id = int(k.split('.')[1]) if ('blocks.' in k) else 0
+        n_layer = max(n_layer, layer_id + 1)
+        if 'ln_x' in k:
+            version = max(5, version)
+        if 'gate.weight' in k:
+            version = max(5.1, version)
+        if int(version) == 5 and 'att.time_decay' in k:
+            n_head = state_dict[k].shape[0]
+            if len(state_dict[k].shape) > 1:
+                if state_dict[k].shape[1] > 1:
+                    version = max(5.2, version)
+        if 'time_maa' in k:
+            version = max(6, version)
+        if int(version) == 6 and 'time_faaaa' in k:
+            n_head = state_dict[k].shape[0]
+    return version, n_layer, n_head
 
 class RWKV_RNN(torch.nn.Module):
     def __init__(self, args, chunks=1, chunk_idx=0):
@@ -55,36 +60,8 @@ class RWKV_RNN(torch.nn.Module):
         self.args.vocab_size = w['emb.weight'].shape[0]
         self.args.n_att = w['blocks.0.att.key.weight'].shape[0]
         self.args.n_ffn = w['blocks.0.ffn.key.weight'].shape[0]
-        self.args.n_layer = 0
-        self.args.version = 5
-        REAL_TIME_FIRST = False
-
-        if self.args.wkv_customop:
-            try:
-                module = torch.utils.cpp_extension.load_inline(
-                    name='custom_wkv', cpp_sources=[wkv_c_impl_src])
-                self.wkv_func = torch.ops.rwkv.custom_wkv
-            except:
-                self.wkv_func = self.wkv
-        else:
-            self.wkv_func = self.wkv
-
-        for k in w.keys():
-            layer_id = int(k.split('.')[1]) if ('blocks.' in k) else 0
-            self.args.n_layer = max(self.args.n_layer, layer_id + 1)
-            if 'ln_x' in k:
-                self.args.version = max(5, self.args.version)
-            if 'gate.weight' in k:
-                self.args.version = max(5.1, self.args.version)
-            if int(self.args.version) == 5 and 'att.time_decay' in k:
-                self.args.n_head = w[k].shape[0]
-                if len(w[k].shape) > 1:
-                    if w[k].shape[1] > 1:
-                        self.args.version = max(5.2, self.args.version)
-            if 'time_maa' in k:
-                self.args.version = max(6, self.args.version)
-            if int(self.args.version) == 6 and 'time_faaaa' in k:
-                self.args.n_head = w[k].shape[0]
+        self.args.version, self.args.n_layer, self.args.n_head = check_rwkv_info(w)
+        self.args.head_size = self.args.n_embd // self.args.n_head
         
         if chunk_idx == 0:
             print("Model version:", self.args.version)
@@ -93,13 +70,12 @@ class RWKV_RNN(torch.nn.Module):
             print("vocab_size:", self.args.vocab_size)
             print("n_att:", self.args.n_att)
             print("n_ffn:", self.args.n_ffn)
-        self.args.head_size = w['blocks.0.ln1.weight'].shape[0] // self.args.n_head
 
-        REAL_TIME_FIRST = False
-        for x in list(w.keys()):
-            if '.time_faaaa' in x: REAL_TIME_FIRST = True
-        if REAL_TIME_FIRST:
-            w = {k.replace('.time_faaaa','.time_first') if '.time_faaaa' in k else k: v for k, v in w.items()}
+        # REAL_TIME_FIRST = False
+        # for x in list(w.keys()):
+        #     if '.time_faaaa' in x: REAL_TIME_FIRST = True
+        # if REAL_TIME_FIRST:
+        #     w = {k.replace('.time_faaaa','.time_first') if '.time_faaaa' in k else k: v for k, v in w.items()}
 
         layers_per_chunk = self.args.n_layer // chunks
         self.layer_begin = chunk_idx * layers_per_chunk
@@ -108,90 +84,117 @@ class RWKV_RNN(torch.nn.Module):
         self.chunks = chunks
         print(f"Chunk {chunk_idx}: layers {self.layer_begin} to {self.layer_end}")
 
-        self.gpu = False
-        self.INFERENCE_DEVICE = torch.device('cpu')
-        if self.args.USE_CUDA:
-            if torch.cuda.is_available():
-                self.INFERENCE_DEVICE = torch.device('cuda')
-            else:
-                self.args.USE_CUDA = False
-        if self.INFERENCE_DEVICE is not torch.device('cpu'):
-            self.gpu = True
-        w_new = {}
-        for k in w.keys():
-            if 'blocks' in k:
-                parts = k.split('.')
-                if int(parts[1]) < self.layer_begin or int(parts[1]) >= self.layer_end:
-                    continue
-            if self.args.fp16:
-                w[k] = w[k].half() # convert to f16 type
-            else:
-                w[k] = w[k].float() # convert to f32 type
-            if 'emb' in k or ('blocks.0.ln0' in k):
-                if chunk_idx > 0:
-                    continue
-                if not self.args.USE_EMBEDDING:
-                    w_new[k] = w[k]
-                    continue
-            if 'ln_out' in k or 'head' in k:
-                if chunk_idx < chunks - 1:
-                    continue
+        self.device = torch.device('cuda') if self.args.USE_CUDA and torch.cuda.is_available() else torch.device('cpu')
+        self.gpu = True if self.device is not torch.device('cpu') else False
 
-            w_new[k] = w[k].to(self.INFERENCE_DEVICE) if self.gpu else w[k]
-        del w
-        w = w_new
+        if self.args.USE_EMBEDDING:
+            emb_weight = w['emb.weight']
+            emb_weight = F.layer_norm(emb_weight.float(), emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten().float(), bias=w['blocks.0.ln0.bias'].flatten().float())
+            self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
 
-        for k in w.keys():
-            if '.time_' in k: w[k] = w[k].squeeze()
-            if '.time_decay' in k and '_w' not in k:
-                if int(self.args.version) == 5:
-                    w[k] = torch.exp(-torch.exp(w[k])).reshape(-1, 1, 1)
-                    if self.args.version == 5.2:
-                        w[k] = w[k].reshape(self.args.n_head, -1, 1)
-                elif int(self.args.version) == 6:
-                    w[k] = w[k].reshape(self.args.n_head, -1, 1)
-            if '.time_first' in k: 
-                if int(self.args.version) in [5, 6]:
-                    if REAL_TIME_FIRST:
-                        w[k] = w[k].reshape(-1, 1, 1)
-                    else:
-                        w[k] = torch.exp(w[k].float()).reshape(-1, 1, 1)
-                        if self.args.fp16:
-                            w[k] = w[k].half()
-                    if self.args.version in [5.2, 6.0]:
-                        w[k] = w[k].reshape(self.args.n_head, -1, 1)
-            if 'ln' in k: w[k] = w[k].reshape(1, -1)
-            if '.time_mix' in k or ('maa' in k and not 'w' in k): w[k] = w[k].reshape(1, -1)
+        if self.args.version == 6:
+            self.att = nn.ModuleList([Rwkv6SelfAttention(w, self.args.n_embd, self.args.head_size, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
+            self.ffn = nn.ModuleList([Rwkv6FeedForward(w, self.args.n_embd, self.args.head_size, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
         
-        self.w = types.SimpleNamespace() # set self.w from w
-        self.w.blocks = {}
-        for k in w.keys(): # example: "blocks.0.att.time_first" => self.w.blocks[0].att.time_first
-            parts = k.split('.')
-            last = parts.pop()
-            here = self.w
-            for p in parts:
-                if p.isdigit():
-                    p = int(p)
-                    if p not in here: here[p] = types.SimpleNamespace()
-                    here = here[p]
-                else:
-                    if not hasattr(here, p): setattr(here, p, types.SimpleNamespace())
-                    here = getattr(here, p)
-            setattr(here, last, w[k])
+        self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
+        self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
+        self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
+        self.head = nn.Linear(self.args.n_embd, self.args.vocab_size)
+        self.head.weight = nn.Parameter(w['head.weight'])
 
-        if self.chunk_idx == 0:
-            self.w.emb.weight = F.layer_norm(self.w.emb.weight.float(), (self.args.n_embd,), weight=self.w.blocks[0].ln0.weight.flatten().float(), bias=self.w.blocks[0].ln0.bias.flatten().float())
-            if self.args.fp16:
-                self.w.emb.weight = self.w.emb.weight.half()
-            if self.gpu:
-                self.w.emb.weight = self.w.emb.weight.to(self.INFERENCE_DEVICE)
-            if self.args.USE_EMBEDDING:
-                self.embedding = torch.nn.Embedding.from_pretrained(self.w.emb.weight, freeze=True)
+        if self.gpu:
+            self.to(self.device)
+        
+        if self.args.fp16:
+            self.half()
+        else:
+            self.float()
+        # w_new = {}
+        # for k in w.keys():
+        #     if 'blocks' in k:
+        #         parts = k.split('.')
+        #         if int(parts[1]) < self.layer_begin or int(parts[1]) >= self.layer_end:
+        #             continue
+        #     if self.args.fp16:
+        #         w[k] = w[k].half() # convert to f16 type
+        #     else:
+        #         w[k] = w[k].float() # convert to f32 type
+        #     if 'emb' in k or ('blocks.0.ln0' in k):
+        #         if chunk_idx > 0:
+        #             continue
+        #         if not self.args.USE_EMBEDDING:
+        #             w_new[k] = w[k]
+        #             continue
+        #     if 'ln_out' in k or 'head' in k:
+        #         if chunk_idx < chunks - 1:
+        #             continue
 
-        if self.args.RESCALE_LAYER > 0:
-            for i in range(self.layer_begin, self.layer_end):
-                self.w.blocks[i].att.output.weight = self.w.blocks[i].att.output.weight / (2 ** int(i // self.args.RESCALE_LAYER))
-                self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
+        #     w_new[k] = w[k].to(self.device) if self.gpu else w[k]
+        # del w
+        # w = w_new
+
+        # for k in w.keys():
+        #     if '.time_' in k: w[k] = w[k].squeeze()
+        #     if '.time_decay' in k and '_w' not in k:
+        #         if int(self.args.version) == 5:
+        #             w[k] = torch.exp(-torch.exp(w[k])).reshape(-1, 1, 1)
+        #             if self.args.version == 5.2:
+        #                 w[k] = w[k].reshape(self.args.n_head, -1, 1)
+        #         elif int(self.args.version) == 6:
+        #             w[k] = w[k].reshape(self.args.n_head, -1, 1)
+        #     if '.time_first' in k: 
+        #         if int(self.args.version) in [5, 6]:
+        #             if REAL_TIME_FIRST:
+        #                 w[k] = w[k].reshape(-1, 1, 1)
+        #             else:
+        #                 w[k] = torch.exp(w[k].float()).reshape(-1, 1, 1)
+        #                 if self.args.fp16:
+        #                     w[k] = w[k].half()
+        #             if self.args.version in [5.2, 6.0]:
+        #                 w[k] = w[k].reshape(self.args.n_head, -1, 1)
+        #     if 'ln' in k: w[k] = w[k].reshape(1, -1)
+        #     if '.time_mix' in k or ('maa' in k and not 'w' in k): w[k] = w[k].reshape(1, -1)
+        
+        # self.w = types.SimpleNamespace() # set self.w from w
+        # self.w.blocks = {}
+        # for k in w.keys(): # example: "blocks.0.att.time_first" => self.w.blocks[0].att.time_first
+        #     parts = k.split('.')
+        #     last = parts.pop()
+        #     here = self.w
+        #     for p in parts:
+        #         if p.isdigit():
+        #             p = int(p)
+        #             if p not in here: here[p] = types.SimpleNamespace()
+        #             here = here[p]
+        #         else:
+        #             if not hasattr(here, p): setattr(here, p, types.SimpleNamespace())
+        #             here = getattr(here, p)
+        #     setattr(here, last, w[k])
+
+        # if self.chunk_idx == 0:
+        #     self.w.emb.weight = F.layer_norm(self.w.emb.weight.float(), (self.args.n_embd,), weight=self.w.blocks[0].ln0.weight.flatten().float(), bias=self.w.blocks[0].ln0.bias.flatten().float())
+        #     if self.args.fp16:
+        #         self.w.emb.weight = self.w.emb.weight.half()
+        #     if self.gpu:
+        #         self.w.emb.weight = self.w.emb.weight.to(self.device)
+        #     if self.args.USE_EMBEDDING:
+        #         self.embedding = torch.nn.Embedding.from_pretrained(self.w.emb.weight, freeze=True)
+
+        # if self.args.RESCALE_LAYER > 0:
+        #     for i in range(self.layer_begin, self.layer_end):
+        #         self.w.blocks[i].att.output.weight = self.w.blocks[i].att.output.weight / (2 ** int(i // self.args.RESCALE_LAYER))
+        #         self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
+
+        # if self.args.wkv_customop:
+        #     try:
+        #         from wkv_custom import wkv_c_impl_src
+        #         module = torch.utils.cpp_extension.load_inline(
+        #             name='custom_wkv', cpp_sources=[wkv_c_impl_src])
+        #         self.wkv_func = torch.ops.rwkv.custom_wkv
+        #     except:
+        #         self.wkv_func = self.wkv
+        # else:
+        #     self.wkv_func = self.wkv
 
     def layer_norm(self, x, w):
         return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
@@ -363,37 +366,17 @@ class RWKV_RNN(torch.nn.Module):
                             x = x / 2
             elif int(self.args.version) == 6:
                 for i in range(self.layer_begin, self.layer_end):
-                    att = self.w.blocks[i].att
-                    # x_ln = self.att[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
-                    out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v6(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
-                        att.time_maa_x, att.time_maa_w, att.time_maa_k, att.time_maa_v, att.time_maa_r, att.time_maa_g, att.time_maa_w1, att.time_maa_w2,
-                        att.time_decay_w1, att.time_decay_w2, att.time_first, att.time_decay,
-                        att.key.weight, att.value.weight, att.receptance.weight, att.gate.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias)
-                    self.__dict__[f"state{3*i}"] = x_ln
-                    x = x + out
-                    ffn = self.w.blocks[i].ffn
-                    # x_ln = self.ffn[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
-                    x = x + self.channel_mixing_v6(x_ln, self.__dict__[f"state{3*i+2}"], i, 
-                        ffn.time_maa_k, ffn.time_maa_r, 
-                        ffn.key.weight, ffn.value.weight, ffn.receptance.weight)
-                    self.__dict__[f"state{3*i+2}"] = x_ln
+                    x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"] = self.att[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"])
+                    x, self.__dict__[f"state{3*i+2}"] = self.ffn[i-self.layer_begin](x, self.__dict__[f"state{3*i+2}"])
                     if self.args.RESCALE_LAYER > 0:
                         if (i+1) % self.args.RESCALE_LAYER == 0:
                             x = x / 2
             
             if self.chunk_idx == self.chunks - 1:
-                x = self.layer_norm(x, self.w.ln_out)
-                if "7B" in self.args.MODEL_NAME:
-                    a, b = torch.chunk(self.w.head.weight.t(), 2, dim=1)
-                    x = torch.cat([x @ a, x @ b], dim=1)
-                else:
-                    x = x @ self.w.head.weight.t()
-                x = x.view(self.args.vocab_size)
+                x = self.ln_out(x)
+                x = self.head(x)
             else:
-                x = x.view(self.args.n_embd)
+                x = x.view(1, 1, self.args.n_embd)
             return_list = [x]
             for i in range(self.layer_begin, self.layer_end):
                 return_list.append(self.__dict__[f"state{3*i}"])
@@ -421,7 +404,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
         args = model.args
         chunks = -1
     fp16 = args.fp16
-    INFERENCE_DEVICE = model[0].INFERENCE_DEVICE if chunks > 0 else model.INFERENCE_DEVICE
+    device = model[0].device if chunks > 0 else model.device
 
     states = []
     for i in range(args.n_layer):
@@ -433,8 +416,8 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
             states.append(torch.zeros(1, args.n_embd))
             states.append(torch.zeros(args.n_head, args.head_size, args.head_size))
             states.append(torch.zeros(1, args.n_embd))
-        if INFERENCE_DEVICE is not torch.device('cpu'):
-            states = [tensor.to(INFERENCE_DEVICE) for tensor in states]
+        if device is not torch.device('cpu'):
+            states = [tensor.to(device) for tensor in states]
 
     def encode(tokenizer, x):
         if 'Tokenizer' in str(type(tokenizer)) and not 'ABCTokenizer' in str(type(tokenizer)):
@@ -454,8 +437,8 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                     in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
                 else:
                     in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
-                if INFERENCE_DEVICE is not torch.device('cpu'):
-                    in0 = in0.to(INFERENCE_DEVICE)
+                if device is not torch.device('cpu'):
+                    in0 = in0.to(device)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
                     os.path.exists(f"{samples_output}/samples_chunk{i}") or os.mkdir(f"{samples_output}/samples_chunk{i}")
@@ -473,8 +456,8 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 in0 = torch.LongTensor([token])
             else:
                 in0 = model.w.emb.weight[token].view(1, 1, -1)
-            if INFERENCE_DEVICE is not torch.device('cpu'):
-                in0 = in0.to(INFERENCE_DEVICE)
+            if device is not torch.device('cpu'):
+                in0 = in0.to(device)
             inputs = [in0] + states
             if generate_samples:
                 os.path.exists(f"{samples_output}/samples") or os.mkdir(f"{samples_output}/samples")
@@ -518,8 +501,8 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                     in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
                 else:
                     in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
-                if INFERENCE_DEVICE is not torch.device('cpu'):
-                    in0 = in0.to(INFERENCE_DEVICE)
+                if device is not torch.device('cpu'):
+                    in0 = in0.to(device)
                 inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
                 if generate_samples:
                     os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
@@ -536,8 +519,8 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 in0 = torch.LongTensor([token])
             else:
                 in0 = model.w.emb.weight[token].view(1, 1, -1)
-            if INFERENCE_DEVICE is not torch.device('cpu'):
-                in0 = in0.to(INFERENCE_DEVICE)
+            if device is not torch.device('cpu'):
+                in0 = in0.to(device)
             inputs = [in0] + states
             if generate_samples:
                 os.path.exists(f"{samples_output}/samples/{iteration_count}") or os.mkdir(f"{samples_output}/samples/{iteration_count}")
