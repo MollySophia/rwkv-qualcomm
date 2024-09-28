@@ -82,8 +82,8 @@ class Rwkv6SelfAttention(nn.Module):
         self.add_g_state0           = op.Add()
 
         self.ln_1                   = nn.LayerNorm(hidden_size, eps=1e-5)
-        self.ln_1_weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.weight'])
-        self.ln_1_bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.bias'])
+        self.ln_1_w                 = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.weight'])
+        self.ln_1_b                 = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.bias'])
         self.mul_ln_1               = op.Multiply()
         self.add_ln_1               = op.Add()
         self.matmul_time_decay_w1   = nn.Linear(hidden_size, self.TIME_DECAY_EXTRA_DIM, bias=False)
@@ -113,8 +113,8 @@ class Rwkv6SelfAttention(nn.Module):
     def forward(self, x, state1, state2):
         last_x = x
         x = self.ln_1(x)
-        x = self.mul_ln_1(x, self.ln_1_weight)
-        x = self.add_ln_1(x, self.ln_1_bias)
+        x = self.mul_ln_1(x, self.ln_1_w)
+        x = self.add_ln_1(x, self.ln_1_b)
         state1_out = x
         sx = self.sub_shift(state1, x)
         xxx = self.add_time_maa(x, self.mul_time_maa(sx, self.time_maa_x))
@@ -183,8 +183,8 @@ class Rwkv6FeedForward(nn.Module):
             self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'])
 
         self.ln_2                   = nn.LayerNorm(hidden_size, eps=1e-5)
-        self.ln_2_weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.weight'])
-        self.ln_2_bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.bias'])
+        self.ln_2_w                 = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.weight'])
+        self.ln_2_b                 = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.bias'])
         self.mul_ln_2               = op.Multiply()
         self.add_ln_2               = op.Add()
 
@@ -202,8 +202,8 @@ class Rwkv6FeedForward(nn.Module):
     def forward(self, x, state):
         last_x = x
         x = self.ln_2(x)
-        x = self.mul_ln_2(x, self.ln_2_weight)
-        x = self.add_ln_2(x, self.ln_2_bias)
+        x = self.mul_ln_2(x, self.ln_2_w)
+        x = self.add_ln_2(x, self.ln_2_b)
 
         sx = self.sub_shifted(state, x)
         xk = self.add_time_maa_k(x, self.mul_time_maa_k(sx, self.time_maa_k))
