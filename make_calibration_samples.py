@@ -19,7 +19,7 @@ def main():
 
     model_args = types.SimpleNamespace()
     model_args.USE_CUDA = torch.cuda.is_available()
-    model_args.fp16 = True
+    model_args.fp16 = False
     model_args.USE_EMBEDDING = False if args.ext_embedding else True
     model_args.RESCALE_LAYER = 0
     model_args.wkv_customop = False

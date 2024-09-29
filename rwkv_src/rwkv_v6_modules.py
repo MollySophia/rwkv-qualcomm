@@ -28,7 +28,7 @@ class Rwkv6SelfAttention(nn.Module):
         self.time_decay_w1 = nn.Parameter(state_dict[prefix + 'time_decay_w1'])
         self.time_decay_w2 = nn.Parameter(state_dict[prefix + 'time_decay_w2'])
 
-        self.time_faaaa = nn.Parameter(state_dict[prefix + 'time_faaaa'].reshape(self.num_heads, -1, 1))
+        self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1))
 
         self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
         self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
@@ -43,7 +43,7 @@ class Rwkv6SelfAttention(nn.Module):
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'] / (2 ** int(layer_id // rescale_layer)))
         else:
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'])
-        self.ln_x = nn.InstanceNorm2d(self.num_heads)
+        self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5)
         self.ln_x_weight = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
         self.ln_x_bias = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
         self.mul_ln_x = op.Multiply()
@@ -108,7 +108,6 @@ class Rwkv6SelfAttention(nn.Module):
         self.exp0                   = op.Exponential()
         self.exp1                   = op.Exponential()
         self.neg                    = op.Neg()
-        self.time_first             = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1))
     
     def forward(self, x, state1, state2):
         last_x = x

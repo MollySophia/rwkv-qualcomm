@@ -12,6 +12,7 @@ import os
 from tqdm import tqdm
 import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
+from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
 
 def sample_logits(out, temperature=1.0, top_p=0.8):
     probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
@@ -71,12 +72,6 @@ class RWKV_RNN(torch.nn.Module):
             print("n_att:", self.args.n_att)
             print("n_ffn:", self.args.n_ffn)
 
-        # REAL_TIME_FIRST = False
-        # for x in list(w.keys()):
-        #     if '.time_faaaa' in x: REAL_TIME_FIRST = True
-        # if REAL_TIME_FIRST:
-        #     w = {k.replace('.time_faaaa','.time_first') if '.time_faaaa' in k else k: v for k, v in w.items()}
-
         layers_per_chunk = self.args.n_layer // chunks
         self.layer_begin = chunk_idx * layers_per_chunk
         self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
@@ -87,14 +82,20 @@ class RWKV_RNN(torch.nn.Module):
         self.device = torch.device('cuda') if self.args.USE_CUDA and torch.cuda.is_available() else torch.device('cpu')
         self.gpu = True if self.device is not torch.device('cpu') else False
 
+        for k in w.keys():
+            w[k] = w[k].float()
+
         if self.args.USE_EMBEDDING:
             emb_weight = w['emb.weight']
-            emb_weight = F.layer_norm(emb_weight.float(), emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten().float(), bias=w['blocks.0.ln0.bias'].flatten().float())
+            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
 
         if self.args.version == 6:
             self.att = nn.ModuleList([Rwkv6SelfAttention(w, self.args.n_embd, self.args.head_size, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
-            self.ffn = nn.ModuleList([Rwkv6FeedForward(w, self.args.n_embd, self.args.head_size, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
+            self.ffn = nn.ModuleList([Rwkv6FeedForward(w, self.args.n_embd, self.args.n_ffn, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
+        else:
+            self.att = nn.ModuleList([Rwkv5SelfAttention(w, self.args.n_embd, self.args.head_size, version=self.args.version, layer_id=i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
+            self.ffn = nn.ModuleList([Rwkv5FeedForward(w, self.args.n_embd, self.args.n_ffn, layer_id=i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
         
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
@@ -109,210 +110,8 @@ class RWKV_RNN(torch.nn.Module):
             self.half()
         else:
             self.float()
-        # w_new = {}
-        # for k in w.keys():
-        #     if 'blocks' in k:
-        #         parts = k.split('.')
-        #         if int(parts[1]) < self.layer_begin or int(parts[1]) >= self.layer_end:
-        #             continue
-        #     if self.args.fp16:
-        #         w[k] = w[k].half() # convert to f16 type
-        #     else:
-        #         w[k] = w[k].float() # convert to f32 type
-        #     if 'emb' in k or ('blocks.0.ln0' in k):
-        #         if chunk_idx > 0:
-        #             continue
-        #         if not self.args.USE_EMBEDDING:
-        #             w_new[k] = w[k]
-        #             continue
-        #     if 'ln_out' in k or 'head' in k:
-        #         if chunk_idx < chunks - 1:
-        #             continue
 
-        #     w_new[k] = w[k].to(self.device) if self.gpu else w[k]
-        # del w
-        # w = w_new
-
-        # for k in w.keys():
-        #     if '.time_' in k: w[k] = w[k].squeeze()
-        #     if '.time_decay' in k and '_w' not in k:
-        #         if int(self.args.version) == 5:
-        #             w[k] = torch.exp(-torch.exp(w[k])).reshape(-1, 1, 1)
-        #             if self.args.version == 5.2:
-        #                 w[k] = w[k].reshape(self.args.n_head, -1, 1)
-        #         elif int(self.args.version) == 6:
-        #             w[k] = w[k].reshape(self.args.n_head, -1, 1)
-        #     if '.time_first' in k: 
-        #         if int(self.args.version) in [5, 6]:
-        #             if REAL_TIME_FIRST:
-        #                 w[k] = w[k].reshape(-1, 1, 1)
-        #             else:
-        #                 w[k] = torch.exp(w[k].float()).reshape(-1, 1, 1)
-        #                 if self.args.fp16:
-        #                     w[k] = w[k].half()
-        #             if self.args.version in [5.2, 6.0]:
-        #                 w[k] = w[k].reshape(self.args.n_head, -1, 1)
-        #     if 'ln' in k: w[k] = w[k].reshape(1, -1)
-        #     if '.time_mix' in k or ('maa' in k and not 'w' in k): w[k] = w[k].reshape(1, -1)
-        
-        # self.w = types.SimpleNamespace() # set self.w from w
-        # self.w.blocks = {}
-        # for k in w.keys(): # example: "blocks.0.att.time_first" => self.w.blocks[0].att.time_first
-        #     parts = k.split('.')
-        #     last = parts.pop()
-        #     here = self.w
-        #     for p in parts:
-        #         if p.isdigit():
-        #             p = int(p)
-        #             if p not in here: here[p] = types.SimpleNamespace()
-        #             here = here[p]
-        #         else:
-        #             if not hasattr(here, p): setattr(here, p, types.SimpleNamespace())
-        #             here = getattr(here, p)
-        #     setattr(here, last, w[k])
-
-        # if self.chunk_idx == 0:
-        #     self.w.emb.weight = F.layer_norm(self.w.emb.weight.float(), (self.args.n_embd,), weight=self.w.blocks[0].ln0.weight.flatten().float(), bias=self.w.blocks[0].ln0.bias.flatten().float())
-        #     if self.args.fp16:
-        #         self.w.emb.weight = self.w.emb.weight.half()
-        #     if self.gpu:
-        #         self.w.emb.weight = self.w.emb.weight.to(self.device)
-        #     if self.args.USE_EMBEDDING:
-        #         self.embedding = torch.nn.Embedding.from_pretrained(self.w.emb.weight, freeze=True)
-
-        # if self.args.RESCALE_LAYER > 0:
-        #     for i in range(self.layer_begin, self.layer_end):
-        #         self.w.blocks[i].att.output.weight = self.w.blocks[i].att.output.weight / (2 ** int(i // self.args.RESCALE_LAYER))
-        #         self.w.blocks[i].ffn.value.weight = self.w.blocks[i].ffn.value.weight / (2 ** int(i // self.args.RESCALE_LAYER))
-
-        # if self.args.wkv_customop:
-        #     try:
-        #         from wkv_custom import wkv_c_impl_src
-        #         module = torch.utils.cpp_extension.load_inline(
-        #             name='custom_wkv', cpp_sources=[wkv_c_impl_src])
-        #         self.wkv_func = torch.ops.rwkv.custom_wkv
-        #     except:
-        #         self.wkv_func = self.wkv
-        # else:
-        #     self.wkv_func = self.wkv
-
-    def layer_norm(self, x, w):
-        return F.layer_norm(x, x.size()[-1:], weight=w.weight.flatten(), bias=w.bias.flatten())
-
-    def wkv(self, k, v, r, state2, time_first, time_decay):
-        kv = k @ v
-        wkv = r @ (time_first * kv + state2)
-        new_state2 = time_decay * state2 + kv
-        return wkv, new_state2
-
-    def channel_mixing_v5(self, x, state, i:int, time_mix_k, time_mix_r, kw, vw, rw):
-        xk = (x * time_mix_k + state * (1 - time_mix_k))
-        xr = (x * time_mix_r + state * (1 - time_mix_r))
-
-        # r = xr @ rw.t()
-        # k = xk @ kw.t()
-        N = self.args.n_embd
-        r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(-1, 8, 8)
-        k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(-1, N//8, 1, 8)).view(-1, 8, 8)
-
-        r = torch.sigmoid(r)
-        # square relu, primer paper
-        k = torch.pow(torch.relu(k), 2)
-        # v = k @ vw.t()
-        v = F.conv2d(k.view(1, -1, 1, 1), vw.view(N, -1, 1, 1)).view(-1, 8, 8)
-        return (r * v).view(1, 1, N)
-
-    def channel_mixing_v6(self, x, state, i:int, time_maa_k, time_maa_r, kw, vw, rw):
-        sx = state - x
-        xk = x + sx * time_maa_k
-        xr = x + sx * time_maa_r
-
-        # r = xr @ rw.t()
-        # k = xk @ kw.t()
-        N = self.args.n_embd
-        r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(-1, 8, 8)
-        k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(-1, N//8, 1, 8)).view(-1, 8, 8)
-
-        r = torch.sigmoid(r)
-        # square relu, primer paper
-        k = torch.pow(torch.relu(k), 2)
-        # v = k @ vw.t()
-        v = F.conv2d(k.view(1, -1, 1, 1), vw.view(N, -1, 1, 1)).view(-1, 8, 8)
-        return (r * v).view(1, 1, N)
-
-    def time_mixing_v5(self, x, state1, state2, i:int, time_mix_k, time_mix_v, time_mix_r, time_first, time_decay, kw, vw, rw, ow, ln_w, ln_b, calibrate=False):
-        H = self.args.n_head
-        S = self.args.head_size
-
-        xk = x * time_mix_k + state1 * (1 - time_mix_k)
-        xv = x * time_mix_v + state1 * (1 - time_mix_v)
-        xr = x * time_mix_r + state1 * (1 - time_mix_r)
-
-        r = (xr @ rw.t()).view(H, 1, S)
-        k = (xk @ (kw.t() / 4)).view(H, S, 1)
-        v = (xv @ (vw.t() / 8)).view(H, 1, S)
-
-        x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
-
-        x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
-        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
-
-    def time_mixing_v5_1(self, x, state1, state2, i:int, time_mix_k, time_mix_v, time_mix_r, time_mix_g, time_first, time_decay, kw, vw, rw, gw, ow, ln_w, ln_b, calibrate=False):
-        H = self.args.n_head
-        S = self.args.head_size
-
-        xk = x * time_mix_k + state1 * (1 - time_mix_k)
-        xv = x * time_mix_v + state1 * (1 - time_mix_v)
-        xr = x * time_mix_r + state1 * (1 - time_mix_r)
-        xg = x * time_mix_g + state1 * (1 - time_mix_g)
-
-        N = H * S
-        r = (xr @ rw.t()).view(H, 1, S)
-        k = (xk @ (kw.t() / 4)).view(H, S, 1)
-        v = (xv @ (vw.t() / 8)).view(H, 1, S)
-        g = F.conv2d(xg.view(1, N//8, 1, 8), gw.view(N, N//8, 1, 8)).view(1, 1, N)
-        g = g * F.sigmoid(g)
-
-        x, state2 = self.wkv_func(k, v, r, state2, time_first, time_decay)
-
-        x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b) * g
-        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
-
-    def time_mixing_v6(self, x, state1, state2, i:int, x_maa, w_maa, k_maa, v_maa, r_maa, g_maa, tm_w1, tm_w2, td_w1, td_w2, time_first, time_decay, kw, vw, rw, gw, ow, ln_w, ln_b, calibrate=False):
-        H = self.args.n_head
-        S = self.args.head_size
-
-        sx = state1 - x
-        xxx = x + sx * x_maa
-        xxx = torch.tanh((xxx @ tm_w1.t().view(5, -1, H*S).transpose(1, 2)))
-        xxx = torch.bmm(xxx, tm_w2)
-        maa = torch.cat([w_maa.view(1, 1, -1), k_maa.view(1, 1, -1), v_maa.view(1, 1, -1), r_maa.view(1, 1, -1), g_maa.view(1, 1, -1)], dim=0)
-        xxx = x + sx * (maa + xxx)
-        xw, xk, xv, xr, xg = torch.split(xxx, 1, dim=0)
-
-        N = H * S
-        # r = F.conv2d(xr.view(1, N//8, 1, 8), rw.view(N, N//8, 1, 8)).view(H, 1, S)
-        # k = F.conv2d(xk.view(1, N//8, 1, 8), kw.view(N, N//8, 1, 8) / 2).view(H, S, 1)
-        # v = F.conv2d(xv.view(1, N//8, 1, 8), vw.view(N, N//8, 1, 8) / 4).view(H, 1, S)
-        g = F.conv2d(xg.view(1, N//8, 1, 8), gw.view(N, N//8, 1, 8)).view(1, 1, N)
-        r = (xr @ rw.view(H, S, H*S).transpose(1, 2))
-        k = (xk @ (kw.view(H, S, H*S).transpose(1, 2) / 2)).view(H, S, 1)
-        v = (xv @ (vw.view(H, S, H*S).transpose(1, 2) / 4))
-        # g = xg @ gw.t()
-
-        g = g * F.sigmoid(g)
-
-        w = time_decay + (torch.tanh(xw @ td_w1) @ td_w2).view(H, S, 1)
-        w = torch.exp(-torch.exp(w.clip(-9.72, 2.27)))
-        # w = torch.exp(-torch.exp(w))
-
-        x, state2 = self.wkv_func(k, v, r, state2, time_first, w)
-
-        x = (F.instance_norm(x.view(1, H, 1, -1), eps=1e-5).view(1, -1) * ln_w + ln_b)
-        x = x * g
-        return F.conv2d(x.view(1, N//8, 1, 8), ow.view(N, N//8, 1, 8)).view(1, 1, N), state2
-
-    def forward(self, in0, *states, calibrate=False):
+    def forward(self, in0, *states):
         with torch.no_grad():
             for i in range(self.layer_begin, self.layer_end):
                 self.__dict__[f"state{3*i}"] = states[3*(i-self.layer_begin)]
@@ -322,56 +121,14 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.embedding(in0)
             else:
                 x = in0
-            if self.args.version == 5:
-                for i in range(self.layer_begin, self.layer_end):
-                    att = self.w.blocks[i].att
-                    # x_ln = self.att[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
-                    out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
-                        att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_first, att.time_decay, 
-                        att.key.weight, att.value.weight, att.receptance.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias)
-                    self.__dict__[f"state{3*i}"] = x_ln
-                    x = x + out
-                    ffn = self.w.blocks[i].ffn
-                    # x_ln = self.ffn[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
-                    x = x + self.channel_mixing_v5(x_ln, self.__dict__[f"state{3*i+2}"], i, 
-                        ffn.time_mix_k, ffn.time_mix_r, 
-                        ffn.key.weight, ffn.value.weight, ffn.receptance.weight)
-                    self.__dict__[f"state{3*i+2}"] = x_ln
-                    if self.args.RESCALE_LAYER > 0:
-                        if (i+1) % self.args.RESCALE_LAYER == 0:
-                            x = x / 2
-            elif self.args.version in [5.1, 5.2]:
-                for i in range(self.layer_begin, self.layer_end):
-                    att = self.w.blocks[i].att
-                    # x_ln = self.att[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln1)
-                    out, self.__dict__[f"state{3*i+1}"] = self.time_mixing_v5_1(x_ln, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], i, 
-                        att.time_mix_k, att.time_mix_v, att.time_mix_r, att.time_mix_g, att.time_first, att.time_decay, 
-                        att.key.weight, att.value.weight, att.receptance.weight, att.gate.weight, att.output.weight,
-                        att.ln_x.weight, att.ln_x.bias)
-                    self.__dict__[f"state{3*i}"] = x_ln
-                    x = x + out
-                    ffn = self.w.blocks[i].ffn
-                    # x_ln = self.ffn[i].layernorm(x)
-                    x_ln = self.layer_norm(x, self.w.blocks[i].ln2)
-                    x = x + self.channel_mixing_v5(x_ln, self.__dict__[f"state{3*i+2}"], i, 
-                        ffn.time_mix_k, ffn.time_mix_r, 
-                        ffn.key.weight, ffn.value.weight, ffn.receptance.weight)
-                    self.__dict__[f"state{3*i+2}"] = x_ln
-                    if self.args.RESCALE_LAYER > 0:
-                        if (i+1) % self.args.RESCALE_LAYER == 0:
-                            x = x / 2
-            elif int(self.args.version) == 6:
-                for i in range(self.layer_begin, self.layer_end):
-                    x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"] = self.att[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"])
-                    x, self.__dict__[f"state{3*i+2}"] = self.ffn[i-self.layer_begin](x, self.__dict__[f"state{3*i+2}"])
-                    if self.args.RESCALE_LAYER > 0:
-                        if (i+1) % self.args.RESCALE_LAYER == 0:
-                            x = x / 2
-            
+
+            for i in range(self.layer_begin, self.layer_end):
+                x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"] = self.att[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"])
+                x, self.__dict__[f"state{3*i+2}"] = self.ffn[i-self.layer_begin](x, self.__dict__[f"state{3*i+2}"])
+                if self.args.RESCALE_LAYER > 0:
+                    if (i+1) % self.args.RESCALE_LAYER == 0:
+                        x = x / 2
+
             if self.chunk_idx == self.chunks - 1:
                 x = self.ln_out(x)
                 x = self.head(x)
