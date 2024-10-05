@@ -48,6 +48,22 @@ def check_rwkv_info(state_dict):
             n_head = state_dict[k].shape[0]
     return version, n_layer, n_head
 
+class RWKV_Block(nn.Module):
+    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, rescale_layer=0, version=6.0):
+        super().__init__()
+        self.version = version
+        if self.version == 6:
+            self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer)
+            self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
+        else:
+            self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer)
+            self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
+
+    def forward(self, x, state0, state1, state2):
+        x, state0, state1 = self.att(x, state0, state1)
+        x, state2 = self.ffn(x, state2)
+        return x, state0, state1, state2
+
 class RWKV_RNN(torch.nn.Module):
     def __init__(self, args, chunks=1, chunk_idx=0):
         super().__init__()
@@ -90,17 +106,11 @@ class RWKV_RNN(torch.nn.Module):
             emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
 
-        if self.args.version == 6:
-            self.att = nn.ModuleList([Rwkv6SelfAttention(w, self.args.n_embd, self.args.head_size, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
-            self.ffn = nn.ModuleList([Rwkv6FeedForward(w, self.args.n_embd, self.args.n_ffn, i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
-        else:
-            self.att = nn.ModuleList([Rwkv5SelfAttention(w, self.args.n_embd, self.args.head_size, version=self.args.version, layer_id=i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
-            self.ffn = nn.ModuleList([Rwkv5FeedForward(w, self.args.n_embd, self.args.n_ffn, layer_id=i, rescale_layer=self.args.RESCALE_LAYER) for i in range(self.layer_begin, self.layer_end)])
-        
+        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
-        self.head = nn.Linear(self.args.n_embd, self.args.vocab_size)
+        self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
         self.head.weight = nn.Parameter(w['head.weight'])
 
         if self.gpu:
@@ -123,8 +133,8 @@ class RWKV_RNN(torch.nn.Module):
                 x = in0
 
             for i in range(self.layer_begin, self.layer_end):
-                x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"] = self.att[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"])
-                x, self.__dict__[f"state{3*i+2}"] = self.ffn[i-self.layer_begin](x, self.__dict__[f"state{3*i+2}"])
+                x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], self.__dict__[f"state{3*i+2}"] = \
+                    self.blocks[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], self.__dict__[f"state{3*i+2}"])
                 if self.args.RESCALE_LAYER > 0:
                     if (i+1) % self.args.RESCALE_LAYER == 0:
                         x = x / 2
