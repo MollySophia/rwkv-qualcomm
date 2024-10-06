@@ -111,7 +111,8 @@ int main(int argc, char** argv) {
 
   StatusCode status;
 
-  Tokenizer tokenizer(tokenizer_path);
+  trie_tokenizer tokenizer;
+  tokenizer.load(tokenizer_path);
 
   if (model_path.find(".so") != std::string::npos) {
     std::cout << "Loading model lib from " << model_path << std::endl;
@@ -132,23 +133,14 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
-  int vocab_size = tokenizer.vocab_size();
-  if (vocab_size == 65529)
-    vocab_size = 65536;
-  std::cout << "Tokenizer vocab size: " << vocab_size << std::endl;
-
   std::vector<size_t> shape;
   QnnRwkvGetOutputShape(backend, QnnRwkvGetOutputNum(backend) - 1, shape);
   int64_t elemcount = 1;
   for (auto dim : shape) {
     elemcount *= dim;
   }
-  if (elemcount != vocab_size) {
-    std::cerr << "Output shape mismatch: " << shape[0] << " != " << vocab_size << std::endl;
-    return EXIT_FAILURE;
-  }
 
-  std::vector<float> logits(vocab_size);
+  std::vector<float> logits(elemcount);
 
   // QnnRwkvResetStates(backend);
 

@@ -42,7 +42,7 @@ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-
 ### 3. Run inference on the device
 - Build the demo code: ``make -C librwkv-qualcomm``
 - Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
-- Push the tokenizer model to the device: ``adb push assets/rwkv_vocab_v20230424.bin /data/local/tmp/``
+- Push the tokenizer model to the device: ``adb push assets/brwkv_vocab_v20230424.txt /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
 ```/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtp.so
 /opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
@@ -58,7 +58,7 @@ adb shell
 $ cd /data/local/tmp
 $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/local/tmp
 $ # Specify the path to the first model chunk. The second chunk will be loaded automatically.
-$ ./rwkv-qualcomm-demo rwkv_vocab_v20230424.bin RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
+$ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 ```
 - Example output:
 ```
@@ -67,7 +67,6 @@ Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 Buffer size: 1043223288
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin
 Buffer size: 910193528
-Tokenizer vocab size: 65536
 
 我们发现，这个函数的输入是一个字符串，输出是一个字符串，这是因为这个函数使用了一个递归的方法，将输入的字符串作为输入，并且使用了一个if语句来判断是否是回文字符串。
 在这个递归函数中，我们使用了两个指针来指向字符串的开始和结束位置，然后将当前位置的字符和前一个指针所指向的字符相加，并将结果存储在一个变量中。如果当前位置的字符不是回文字符串，那么我们就需要将当前位置的字符转化为回文字符串，然后将结果加到指针所指向的字符串的结果中。如果当前位置的字符是回文字符串，那么将当前位置的字符和前一个指针所指向的字符相加，然后将结果存储在另一个指针所指向的字符串的结果中，循环直到指针所指向的字符串的结束位置为止。
