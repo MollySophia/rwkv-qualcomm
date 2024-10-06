@@ -37,7 +37,7 @@ class Rwkv6SelfAttention(nn.Module):
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'] / (2 ** int(layer_id // rescale_layer)))
         else:
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'])
-        # self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5, affine=False)
+        self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5, affine=False)
         self.ln_x_weight = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
         self.ln_x_bias = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
         self.mul_ln_x = op.Multiply()
@@ -65,7 +65,6 @@ class Rwkv6SelfAttention(nn.Module):
         self.matmul_kv              = op.MatMul()
         self.mul_time_first         = op.Multiply()
         self.add_time_first         = op.Add()
-        self.mul_scale_kv           = op.Multiply()
         self.matmul_rkv             = op.MatMul()
         self.mul_time_decay         = op.Multiply()
         self.add_time_decay1        = op.Add()
@@ -105,11 +104,10 @@ class Rwkv6SelfAttention(nn.Module):
         # wkv
         kv = self.matmul_kv(key, value)
         wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
-        wkv = self.matmul_rkv(receptance, wkv).view(1, self.num_heads, self.head_size)
+        wkv = self.matmul_rkv(receptance, wkv).view(1, self.num_heads, 1, self.head_size)
         state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
 
-        # x = self.ln_x(wkv).view(1, 1, self.hidden_size)
-        x = F.group_norm(wkv, num_groups=self.num_heads, eps=1e-5).view(1, self.hidden_size)
+        x = self.ln_x(wkv).view(1, 1, self.hidden_size)
 
         x = self.mul_ln_x(x, self.ln_x_weight)
         x = self.add_ln_x(x, self.ln_x_bias)
