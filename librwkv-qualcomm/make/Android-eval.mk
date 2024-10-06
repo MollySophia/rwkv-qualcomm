@@ -15,7 +15,7 @@ PACKAGE_C_INCLUDES += -I $(LOCAL_PATH)/../include/flatbuffers
 #========================== Define OpPackage Library Build Variables =============================================
 include $(CLEAR_VARS)
 LOCAL_C_INCLUDES               := $(PACKAGE_C_INCLUDES)
-MY_SRC_FILES                   := $(wildcard $(LOCAL_PATH)/../src/main.cpp)
+MY_SRC_FILES                   := $(wildcard $(LOCAL_PATH)/../src/eval_text.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/tokenizer.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/librwkv-qualcomm-app.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/librwkv-qualcomm.cpp)
@@ -24,7 +24,7 @@ MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/PAL/src/linux/
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/PAL/src/common/*.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/Utils/*.cpp)
 MY_SRC_FILES                   += $(wildcard $(LOCAL_PATH)/../src/WrapperUtils/*.cpp)
-LOCAL_MODULE                   := rwkv-qualcomm-demo
+LOCAL_MODULE                   := rwkv-qualcomm-eval
 LOCAL_SRC_FILES                := $(subst make/,,$(MY_SRC_FILES))
 LOCAL_LDLIBS                   := -lGLESv2 -lEGL -llog
 include $(BUILD_EXECUTABLE)
