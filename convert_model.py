@@ -45,29 +45,15 @@ def quant_override(model):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         for i in range(len(graph.node)):
-            if "MatMul" == graph.node[i].op_type:
-                if ("MatMul" in graph.node[i].input[0] and ("Add" in graph.node[i].input[1])) or ("Reshape" in graph.node[i].input[0] and ("MatMul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1] or "Add" in graph.node[i].input[1])):
-                    for j in graph.node[i].input:
-                        if not "Split" in j:
-                            if "Constant" in j:
-                                encodings_dict['param_encodings'][j] = [{"bitwidth": WEIGHTS_BITWIDTH, "dtype": "int"}]
-                            else:
-                                encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-                    for j in graph.node[i].output:
+            if "matmul_kv" in graph.node[i].name \
+                or "mul_time_decay" in graph.node[i].name \
+                or "add_time_first" in graph.node[i].name \
+                or "ln" in graph.node[i].name:
+                for j in graph.node[i].input:
+                    if not ("Constant" in j or "Split" in j):
                         encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-
-            if "Mul" == graph.node[i].op_type and ("Exp" in graph.node[i].input[0] or "state" in graph.node[i].input[1]):
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-
-            if "Add" == graph.node[i].op_type:
-                if ("Mul" in graph.node[i].input[1] or "Reshape" in graph.node[i].input[1]) and ("Add" in graph.node[i].input[0]):
-                    encodings_dict['activation_encodings'][graph.node[i].input[0]] = [{"bitwidth": 32, "dtype": "float"}]
-                    for j in graph.node[i].output:
-                        encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-                if "Mul_" in graph.node[i].input[0] and "MatMul" in graph.node[i].input[1]:
-                    for j in graph.node[i].output:
-                        encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
         for i in range(len(graph.input)):
             if i == 0 and args.USE_EMBEDDING and graph.input[i].type.tensor_type.elem_type != 1:
@@ -111,12 +97,12 @@ if type(model) == list:
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
         if i == 0:
-            in0 = torch.LongTensor([1]) if args.USE_EMBEDDING else model[0].w.emb.weight[0]
+            in0 = torch.LongTensor([[1]]) if args.USE_EMBEDDING else model[0].w.emb.weight[0]
         else:
-            in0 = torch.zeros(args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
+            in0 = torch.zeros(1, 1, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
         if model[0].device is not torch.device('cpu'):
             in0 = in0.to(model[0].device)
-        inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
+        inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
         input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
@@ -128,7 +114,7 @@ if type(model) == list:
             from torch.onnx import register_custom_op_symbolic
             register_custom_op_symbolic('rwkv::custom_wkv', onnx_custom_wkv, 9)
 
-        torch.onnx.export(model[i], tuple(inputs), dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
+        torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
         print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
     
     quant_override(model)
@@ -137,7 +123,7 @@ if type(model) == list:
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model[i].layer_begin, model[i].layer_end)])
+        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)])
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
         print(converter_cmd)
@@ -151,22 +137,24 @@ else:
         model.w.emb.weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
     args = model.args
     fp16 = args.fp16
-    inputs = [torch.LongTensor([1])] if args.USE_EMBEDDING else [model.w.emb.weight[0]]
+    in0 = [torch.LongTensor([[1]])] if args.USE_EMBEDDING else [model.w.emb.weight[0]]
+    states = []
     for i in range(model.args.n_layer):
-        inputs.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
-        inputs.append(torch.zeros(model.args.n_head, model.args.head_size, model.args.head_size, dtype=torch.float16 if fp16 else torch.float32))
-        inputs.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
+        states.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
+        states.append(torch.zeros(model.args.n_head, model.args.head_size, model.args.head_size, dtype=torch.float16 if fp16 else torch.float32))
+        states.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
     if model.device is not torch.device('cpu'):
-        inputs = [tensor.to(model.device) for tensor in inputs]
+        states = [tensor.to(model.device) for tensor in states]
+    inputs = {'in0': in0, 'state': states}
     input_names = ['in'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
-    torch.onnx.export(model, tuple(inputs), "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
+    torch.onnx.export(model, inputs, "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
 
     quant_override(model)
 
     print("Converting to QNN model...")
-    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{3*j+1}_in" NONTRIVIAL' for j in range(model.args.n_layer)])
+    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model.args.n_layer)])
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
     print(converter_cmd)

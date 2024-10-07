@@ -82,32 +82,54 @@ class Rwkv6SelfAttention(nn.Module):
     def forward(self, x, state1, state2):
         last_x = x
         x = self.ln_1(x)
-        state1_out = x
-        sx = self.sub_shift(state1, x)
+        batch_size, seq_length, _ = x.size()
+        assert batch_size == 1
+        if seq_length == 1:
+            state1_out = x
+            sx = self.sub_shift(state1, x)
+        else:
+            past = torch.cat([state1.unsqueeze(1), x[:, :-1, :]], dim=1)
+            sx = self.sub_shift(past, x)
+            state1_out = x[:, -1, :]
+
         xxx = self.add_time_maa(x, self.mul_time_maa(sx, self.time_maa_x))
-        xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
+        if seq_length == 1:
+            xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
+        else:
+            xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
         xxx = torch.bmm(xxx, self.time_maa_w2)
         xxx = self.mul_time_maa(sx, self.add_time_maa(xxx, self.time_maa))
         xxx = self.add_x(x, xxx)
         mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
 
-        receptance = self.receptance(mr).view(self.num_heads, 1, self.head_size)
-        key = self.key(mk).view(self.num_heads, self.head_size, 1)
-        value = self.value(mv).view(self.num_heads, 1, self.head_size)
+        receptance = self.receptance(mr).view(self.num_heads * seq_length, 1, self.head_size)
+        key = self.key(mk).view(self.num_heads * seq_length, self.head_size, 1)
+        value = self.value(mv).view(self.num_heads * seq_length, 1, self.head_size)
         gate = self.silu0(self.gate(mg))
 
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
         time_decay = self.matmul_time_decay_w2(mw)
-        time_decay = self.add_time_decay0(self.time_decay, time_decay.view(self.num_heads, self.head_size, 1))
+        time_decay = self.add_time_decay0(self.time_decay, time_decay.view(seq_length, self.num_heads, self.head_size, 1))
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
         kv = self.matmul_kv(key, value)
-        wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
-        wkv = self.matmul_rkv(receptance, wkv).view(1, self.num_heads, 1, self.head_size)
-        state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
+        if seq_length == 1:
+            wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
+            wkv = self.matmul_rkv(receptance, wkv).view(1, self.num_heads, 1, self.head_size)
+            state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
+        else:
+            kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
+            receptance = receptance.view(seq_length, self.num_heads, 1, self.head_size)
+            time_decay = time_decay.view(seq_length, self.num_heads, self.head_size, 1)
+            wkv = torch.zeros(seq_length, self.num_heads, 1, self.head_size, device=x.device)
+            for i in range(seq_length):
+                tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
+                wkv[i, :, :, :] = self.matmul_rkv(receptance[i, :, :, :], tmp)
+                state2 = self.add_time_decay1(kv[i, :, :, :], self.mul_time_decay(state2, time_decay[i, :, :, :]))
+            state2_out = state2
 
-        x = self.ln_x(wkv).view(1, 1, self.hidden_size)
+        x = self.ln_x(wkv).view(batch_size, seq_length, self.hidden_size)
 
         x = self.mul_ln_x(x, self.ln_x_weight)
         x = self.add_ln_x(x, self.ln_x_bias)
@@ -155,8 +177,16 @@ class Rwkv6FeedForward(nn.Module):
     def forward(self, x, state):
         last_x = x
         x = self.ln_2(x)
+        batch_size, seq_length, _ = x.size()
+        assert batch_size == 1
+        if seq_length == 1:
+            state_out = x
+            sx = self.sub_shifted(state, x)
+        else:
+            past = torch.cat([state.unsqueeze(1), x[:, :-1, :]], dim=1)
+            sx = self.sub_shifted(past, x)
+            state_out = x[:, -1, :]
 
-        sx = self.sub_shifted(state, x)
         xk = self.add_time_maa_k(x, self.mul_time_maa_k(sx, self.time_maa_k))
         xr = self.add_time_maa_r(x, self.mul_time_maa_r(sx, self.time_maa_r))
 
@@ -164,4 +194,4 @@ class Rwkv6FeedForward(nn.Module):
         value = self.value(key)
         receptance = self.sigmoid(self.receptance(xr))
 
-        return self.add_feed_forward(self.mul_rv(receptance, value), last_x), x
+        return self.add_feed_forward(self.mul_rv(receptance, value), last_x), state_out

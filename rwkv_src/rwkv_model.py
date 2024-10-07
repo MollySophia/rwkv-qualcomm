@@ -49,9 +49,10 @@ def check_rwkv_info(state_dict):
     return version, n_layer, n_head
 
 class RWKV_Block(nn.Module):
-    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, rescale_layer=0, version=6.0):
+    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0):
         super().__init__()
         self.version = version
+        self.layer_offset = layer_id - layer_begin
         if self.version == 6:
             self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer)
             self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
@@ -59,10 +60,10 @@ class RWKV_Block(nn.Module):
             self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer)
             self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
 
-    def forward(self, x, state0, state1, state2):
-        x, state0, state1 = self.att(x, state0, state1)
-        x, state2 = self.ffn(x, state2)
-        return x, state0, state1, state2
+    def forward(self, x, state):
+        x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
+        x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+        return x, state
 
 class RWKV_RNN(torch.nn.Module):
     def __init__(self, args, chunks=1, chunk_idx=0):
@@ -106,7 +107,7 @@ class RWKV_RNN(torch.nn.Module):
             emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
 
-        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version) for i in range(self.layer_begin, self.layer_end)])
+        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
@@ -121,20 +122,19 @@ class RWKV_RNN(torch.nn.Module):
         else:
             self.float()
 
-    def forward(self, in0, *states):
+    def forward(self, in0, state: List[torch.Tensor]):
         with torch.no_grad():
-            for i in range(self.layer_begin, self.layer_end):
-                self.__dict__[f"state{3*i}"] = states[3*(i-self.layer_begin)]
-                self.__dict__[f"state{3*i+1}"] = states[3*(i-self.layer_begin)+1]
-                self.__dict__[f"state{3*i+2}"] = states[3*(i-self.layer_begin)+2]
             if self.args.USE_EMBEDDING and self.chunk_idx == 0:
                 x = self.embedding(in0)
             else:
                 x = in0
+            try:
+                batch_size, seq_length, _ = x.size()
+            except:
+                batch_size, seq_length = 1, 1
 
             for i in range(self.layer_begin, self.layer_end):
-                x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], self.__dict__[f"state{3*i+2}"] = \
-                    self.blocks[i-self.layer_begin](x, self.__dict__[f"state{3*i}"], self.__dict__[f"state{3*i+1}"], self.__dict__[f"state{3*i+2}"])
+                x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:
                     if (i+1) % self.args.RESCALE_LAYER == 0:
                         x = x / 2
@@ -143,13 +143,9 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.ln_out(x)
                 x = self.head(x)
             else:
-                x = x.view(1, 1, self.args.n_embd)
-            return_list = [x]
-            for i in range(self.layer_begin, self.layer_end):
-                return_list.append(self.__dict__[f"state{3*i}"])
-                return_list.append(self.__dict__[f"state{3*i+1}"])
-                return_list.append(self.__dict__[f"state{3*i+2}"])
-            return return_list
+                x = x.view(batch_size, seq_length, self.args.n_embd)
+
+            return x, state
 
 iteration_count = 0
 def run_prompt(model, context, length=150, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
@@ -177,11 +173,11 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
     for i in range(args.n_layer):
         if fp16:
             states.append(torch.zeros(1, args.n_embd, dtype=torch.float16))
-            states.append(torch.zeros(args.n_head, args.head_size, args.head_size, dtype=torch.float16))
+            states.append(torch.zeros(1, args.n_head, args.head_size, args.head_size, dtype=torch.float16))
             states.append(torch.zeros(1, args.n_embd, dtype=torch.float16))
         else:
             states.append(torch.zeros(1, args.n_embd))
-            states.append(torch.zeros(args.n_head, args.head_size, args.head_size))
+            states.append(torch.zeros(1, args.n_head, args.head_size, args.head_size))
             states.append(torch.zeros(1, args.n_embd))
         if device is not torch.device('cpu'):
             states = [tensor.to(device) for tensor in states]
@@ -201,40 +197,42 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
         if chunks > 0:
             for i in range(chunks):
                 if args.USE_EMBEDDING:
-                    in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
+                    in0 = torch.LongTensor([[token]]) if i == 0 else logits
                 else:
-                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
+                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else logits
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
-                inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
+                inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
                 if generate_samples:
                     os.path.exists(f"{samples_output}/samples_chunk{i}") or os.mkdir(f"{samples_output}/samples_chunk{i}")
                     os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
-                    for j in range(len(inputs)):
-                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin")
-                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
-                inputs = model[i].forward(*inputs)
+                    in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_0.bin")
+                    for j in range(len(inputs['state'])):
+                        inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
+                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                outputs = model[i].forward(**inputs)
+                logits = outputs[0]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
-                    states[j] = inputs[j - 3*model[i].layer_begin + 1]
+                    states[j] = outputs[1][j - 3*model[i].layer_begin]
             if generate_samples:
                 iteration_count += 1
         else:
             if args.USE_EMBEDDING:
-                in0 = torch.LongTensor([token])
+                in0 = torch.LongTensor([[token]])
             else:
                 in0 = model.w.emb.weight[token].view(1, 1, -1)
             if device is not torch.device('cpu'):
                 in0 = in0.to(device)
-            inputs = [in0] + states
+            inputs = {'in0': in0, 'state': states}
             if generate_samples:
                 os.path.exists(f"{samples_output}/samples") or os.mkdir(f"{samples_output}/samples")
                 os.path.exists(f"{samples_output}/samples/{iteration_count}") or os.mkdir(f"{samples_output}/samples/{iteration_count}")
-                for j in range(len(inputs)):
-                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j}.bin")
-                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
+                in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_0.bin")
+                for j in range(len(inputs['state'])):
+                    inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j+1}.bin")
+                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 iteration_count += 1
-            inputs = model.forward(*inputs)
-            states = inputs[1:]           
+            logits, states = model.forward(**inputs)
 
     all_tokens = []
     occurrence = {}
@@ -242,10 +240,10 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
     for i in range(length):
         if 'MIDI' in args.MODEL_NAME:
             for n in occurrence:
-                inputs[0][n] -= (0 + occurrence[n] * 0.5)
-            inputs[0][0] += (i - 2000) / 500
-            inputs[0][127] -= 1
-        token = sample_logits(inputs[0], TEMPERATURE, TOP_P)
+                logits[n] -= (0 + occurrence[n] * 0.5)
+            logits[0] += (i - 2000) / 500
+            logits[127] -= 1
+        token = sample_logits(logits, TEMPERATURE, TOP_P)
         if 'MIDI' in args.MODEL_NAME:
             for n in occurrence: occurrence[n] *= 0.997 #### decay repetition penalty
             if token >= 128 or token == 127:
@@ -265,38 +263,40 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
         if chunks > 0:
             for i in range(chunks):
                 if args.USE_EMBEDDING:
-                    in0 = torch.LongTensor([token]) if i == 0 else inputs[0]
+                    in0 = torch.LongTensor([[token]]) if i == 0 else logits
                 else:
-                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else inputs[0]
+                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else logits
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
-                inputs = [in0] + [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
+                inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
                 if generate_samples:
                     os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
-                    for j in range(len(inputs)):
-                        inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin")
-                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
-                inputs = model[i].forward(*inputs)
+                    in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_0.bin")
+                    for j in range(len(inputs['state'])):
+                        inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
+                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                outputs = model[i].forward(**inputs)
+                logits = outputs[0]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
-                    states[j] = inputs[j - 3*model[i].layer_begin + 1]
+                    states[j] = outputs[1][j - 3*model[i].layer_begin]
             if generate_samples:
                 iteration_count += 1
         else:
             if args.USE_EMBEDDING:
-                in0 = torch.LongTensor([token])
+                in0 = torch.LongTensor([[token]])
             else:
                 in0 = model.w.emb.weight[token].view(1, 1, -1)
             if device is not torch.device('cpu'):
                 in0 = in0.to(device)
-            inputs = [in0] + states
+            inputs = {'in0': in0, 'state': states}
             if generate_samples:
                 os.path.exists(f"{samples_output}/samples/{iteration_count}") or os.mkdir(f"{samples_output}/samples/{iteration_count}")
-                for j in range(len(inputs)):
-                    inputs[j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j}.bin")
-                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs))]) + "\n")
+                in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_0.bin")
+                for j in range(len(inputs['state'])):
+                    inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j+1}.bin")
+                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 iteration_count += 1
-            inputs = model.forward(*inputs)
-            states = inputs[1:]
+            logits, states = model.forward(**inputs)
 
     print('\n')
     if generate_samples:
