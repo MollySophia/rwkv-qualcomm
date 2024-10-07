@@ -9,6 +9,7 @@ from aimet_torch.qc_quantize_op import QcQuantizeWrapper
 import aimet_common.libpymo as libpymo
 
 from quantizers.base_quantizer import LLMQuantizer
+from utils.model_utils import get_dummy_state_kvcache
 
 class ActMSEQuantizer(LLMQuantizer):
     def __init__(self, model, args, model_config):
@@ -32,7 +33,7 @@ class ActMSEQuantizer(LLMQuantizer):
     def export_param_encodings(self, args):
         # make options
         if args.do_actmse:
-            fname = f"{self.model_name}_{self.act_mse_loss_type}_{self.exceptions_file}_{self.input_symmetry}_torch.encodings"
+            fname = f"{self.model_name}_{self.act_mse_loss_type}_{self.exceptions_file}_{self.input_symmetry}_torch_w{self.param_bw}.encodings"
         else:
             fname = f"{self.model_name}_{args.quant_scheme}_torch_w{self.param_bw}.encodings"
         outpath = os.path.join(self.export_path, fname)
@@ -58,16 +59,19 @@ class ActMSEQuantizer(LLMQuantizer):
             cache = {"i":0, "state": None}
             block_inputs = torch.zeros(
                 (
-                    args.num_calibration_batches,
+                    # args.num_calibration_batches,
+                    1,
                     args.per_device_calib_batch_size,
                     args.block_size,
-                    model.config.hidden_size,
+                    model.args.n_embd,
                 ), device=model.device,
             )
             blocks[0] = InputCatcher(blocks[0], cache, block_inputs)
             for batch in batch_data:
                 try:
-                    model(**batch)
+                    state = get_dummy_state_kvcache(1, model.args, model.device)
+                    input = {'in0': batch['input_ids'], 'state': state}
+                    _, state = model(**input)
                 except ValueError:
                     pass
             blocks[0] = blocks[0].module
@@ -181,9 +185,9 @@ class ActMSEQuantizer(LLMQuantizer):
     def get_sequential_layers(self):
         # rwkv v6
         layers = [
-            ["attention.key"], ["attention.value"], ["attention.receptance"], ["attention.gate"], 
-            ["attention.output"],
-            ["feed_forward.key"], ["feed_forward.receptance"], ["feed_forward.value"],
+            ["att.key"], ["att.value"], ["att.receptance"], ["att.gate"], 
+            ["att.output"],
+            ["ffn.key"], ["ffn.receptance"], ["ffn.value"],
         ]
         return layers
 
@@ -328,8 +332,8 @@ class ActMSEQuantizer(LLMQuantizer):
 
 
     def get_blocks(self):
-        fp_blocks = self.model.rwkv.blocks
-        qt_blocks = self.quant_sim.model.rwkv.blocks
+        fp_blocks = self.model.blocks
+        qt_blocks = self.quant_sim.model.blocks
 
         return fp_blocks, qt_blocks
 
@@ -341,10 +345,10 @@ class InputCatcher(nn.Module):
         self.cache = cache
         self.block_inputs = block_inputs
 
-    def forward(self, inp, **kwargs):
+    def forward(self, inp, state):
         self.block_inputs[self.cache["i"]] = inp
         self.cache["i"] += 1
-        self.cache["state"] = kwargs["state"]
+        self.cache["state"] = state
         # only pass the inputs until here
         raise ValueError
 

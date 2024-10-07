@@ -7,21 +7,18 @@ import onnx
 import re
 from .split_onnx import OnnxSplitter, save_model
 
-model2config_lut = {
-    'Rwkv6ForCausalLM': ('num_hidden_layers', 'num_attention_heads', 'attention_hidden_size'),
-}
-
 def extract_info_from_model_cfg(model_cfg):
-    return [getattr(model_cfg, key) for key in model2config_lut[model_cfg.architectures[0]]]
+    return model_cfg.n_layer, model_cfg.n_head, model_cfg.n_embd
 
 def get_dummy_state_kvcache(batch_size, model_cfg, device):
     def _cache(shape):
         return torch.zeros(shape).to(device=device)
 
     num_layers, num_heads, embed_dim = extract_info_from_model_cfg(model_cfg)
+    head_size = embed_dim // num_heads
 
     state_0 = (batch_size, embed_dim)
-    state_1 = (batch_size, embed_dim//num_heads, num_heads, num_heads)
+    state_1 = (batch_size, num_heads, head_size, head_size)
     state_2 = (batch_size, embed_dim)
  
     state = []
@@ -31,13 +28,7 @@ def get_dummy_state_kvcache(batch_size, model_cfg, device):
 
 def get_dummy_input_for_rwkv_causal_llm(batch_size, input_length, device, model_cfg=None):
     input_ids = torch.LongTensor([[0]*input_length for _ in range(batch_size)]).to(device)
-    
-    inputs = {
-        'input_ids': input_ids,
-        'attention_mask': input_ids,
-        'inputs_embeds': input_ids.float(),
-        'state': get_dummy_state_kvcache(batch_size, model_cfg, device),
-    }
+    inputs = {'in0': input_ids, 'state': get_dummy_state_kvcache(batch_size, model_cfg, device)}
     return inputs
 
 @contextlib.contextmanager
@@ -131,7 +122,9 @@ def split_onnx_by_names(onnxfile, modelname, *list_of_output_tensors, output_dir
 def _get_lm_head_sizes(onnxmodel):
     lm_head_weight = [i for i in onnxmodel.graph.initializer if 'lm_head' in i.name and 'weight' in i.name]
     if not lm_head_weight: #RWKV
-        lm_head_weight = [i for i in onnxmodel.graph.initializer if 'head' in i.name and 'weight' in i.name]
+        lm_head_node = [i for i in onnxmodel.graph.node if 'head' in i.name]
+        lm_head_weight_name = lm_head_node[0].input[1]
+        lm_head_weight = [i for i in onnxmodel.graph.initializer if lm_head_weight_name in i.name]
     if len(lm_head_weight[0].dims) == 2:
         embedding_size, vocab_size = lm_head_weight[0].dims
     else:
@@ -139,26 +132,8 @@ def _get_lm_head_sizes(onnxmodel):
     return embedding_size, vocab_size
 
 def get_per_layer_name_formats(onnxnodes):
-    if all(i in onnxnodes for i in ('transformer.h.0.ln_1', 'transformer.ln_f')):
-        block_input, attn_output, ln_f = 'transformer.h.{}.ln_1', 'transformer.h.{}.ln_2', 'transformer.ln_f'
-    elif all(i in onnxnodes for i in ('model.layers.0.input_layernorm', 'model.norm')):
-        # these are for the legacy export of LLaMa model
-        block_input, attn_output, ln_f = 'model.layers.{}.input_layernorm', 'model.layers.{}.post_attention_layernorm', 'model.norm'
-    elif all(i in onnxnodes for i in ('model_layers_0_input_layernorm_Pow', 'model_norm_Pow')):
-        block_input, attn_output, ln_f = 'model_layers_{}_input_layernorm_Pow', 'model_layers_{}_post_attention_layernorm_Pow', 'model_norm_Pow'
-    elif all(i in onnxnodes for i in ('model.layers.0.input_layernorm.cast', 'model.norm.cast')):
-        # aimet onnx saver?
-        block_input, attn_output, ln_f = 'model.layers.{}.input_layernorm.cast', 'model.layers.{}.post_attention_layernorm.cast', 'model.norm.cast'
-    elif all(i in onnxnodes for i in ('/model/layers.0/input_layernorm/cast/Cast', '/model/norm/cast/Cast')):
-        # torch onnx export
-        block_input, attn_output, ln_f = '/model/layers.{}/input_layernorm/cast/Cast', '/model/layers.{}/post_attention_layernorm/cast/Cast', '/model/norm/cast/Cast'
-    elif all(i in onnxnodes for i in ('/model_layers_0_input_layernorm_Cast/Cast', '/model_norm_Cast/Cast')):
-        block_input, attn_output, ln_f = '/model_layers_{}_input_layernorm_Cast/Cast', '/model_layers_{}_post_attention_layernorm_Cast/Cast', '/model_norm_Cast/Cast'
-       # torch onnx export Aimet1.30 debug
-    elif all(i in onnxnodes for i in ('/model_layers_0_input_layernorm_Pow/Pow', '/model_norm_Pow/Pow')):
-        block_input, attn_output, ln_f = '/model_layers_{}_input_layernorm_Pow/Pow', '/model_layers_{}_post_attention_layernorm_Pow/Pow', '/model_norm_Pow/Pow'
-    elif all(i in onnxnodes for i in ('rwkv.blocks.0.ln1', 'rwkv.blocks.0.add_feed_forward')):
-        block_input, attn_output, ln_f = 'rwkv.blocks.{}.ln1', 'rwkv.blocks.{}.add_feed_forward', 'rwkv.ln_out'
+    if all(i in onnxnodes for i in ('/blocks.0/att/ln_1/LayerNormalization', '/blocks.0/ffn/add_feed_forward/Add')):
+        block_input, attn_output, ln_f = '/blocks.{}/att/ln_1/LayerNormalization', '/blocks.{}/ffn/add_feed_forward/Add', '/ln_out/LayerNormalization'
     else:
         raise RuntimeError(f"Unexpected ONNX model, couldn't get the per-layer names")
     return block_input, attn_output, ln_f

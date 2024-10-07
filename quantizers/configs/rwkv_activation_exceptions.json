@@ -13,12 +13,14 @@
         "input_exceptions": [
           {
             "input_index": "0",
+            "bitwidth": "32",
             "enabled": false
           }
         ],
         "output_exceptions": [
           {
             "output_index": "0",
+            "bitwidth": "32",
             "enabled": false
           }
         ]
@@ -26,14 +28,17 @@
     },
     {
       "module_name": "Embedding",
-      "exception_stage": "pre-calibration",
+      "exception_stage": "post-calibration",
       "exceptions": {
-        "param_exceptions": {
-          "asymmetric": "True",
-          "bitwidth": "16"
-        },
+        "param_exceptions": "None",
         "input_exceptions": "None",
-        "output_exceptions": "None"
+        "output_exceptions": [
+          {
+            "output_index": "0",
+            "bitwidth": "16",
+            "encoding_overrides": "same_as_param"
+          }
+        ]
       }
     },
     {
@@ -75,34 +80,6 @@
           }
         ]
       }
-    },
-    {
-      "module_name": "Cast",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": "None",
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "Dropout",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": "None",
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
     }
   ],
   "name_list":[
@@ -118,102 +95,6 @@
       }
     },
     {
-      "module_name": "matmul_time_maa_w1",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_maa_w2_0",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_maa_w2_1",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_maa_w2_2",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_maa_w2_3",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_maa_w2_4",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": "None",
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
       "module_name": "mul_time_decay",
       "exception_stage": "pre-calibration",
       "exceptions": {
@@ -226,78 +107,6 @@
           },
           {
             "input_index": "1",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ],
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "add_time_decay1",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": "None",
-        "input_exceptions": [
-          {
-            "input_index": "0",
-            "bitwidth": "32",
-            "enabled": false
-          },
-          {
-            "input_index": "1",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ],
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_decay_w1",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": [
-          {
-            "input_index": "0",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ],
-        "output_exceptions": [
-          {
-            "output_index": "0",
-            "bitwidth": "32",
-            "enabled": false
-          }
-        ]
-      }
-    },
-    {
-      "module_name": "matmul_time_decay_w2",
-      "exception_stage": "pre-calibration",
-      "exceptions": {
-        "param_exceptions": {
-          "bitwidth": "32"
-        },
-        "input_exceptions": [
-          {
-            "input_index": "0",
             "bitwidth": "32",
             "enabled": false
           }
