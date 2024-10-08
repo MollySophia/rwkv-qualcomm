@@ -27,6 +27,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
+parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--use_cuda', action='store_true', default=True, help='Use CUDA')
 parser.add_argument('--test_generate', action='store_true', default=False, help='Test generate')
@@ -228,7 +229,7 @@ else:
         cmd += ["--bias_bitwidth", "32"]
         cmd += ["--float_bitwidth", "32"]
         cmd += ["--quantization_overrides", onnx_path.replace('.onnx', '.encodings')]
-        cmd += ["--input_list", os.path.join(sample_input_path, f"input_list_chunk_{i}.txt")]
+        cmd += ["--input_list", os.path.join(args_parser.calib_data_path, f"input_list_chunk{i}.txt")]
 
         for j in range(i*layers_per_chunk, (i+1)*layers_per_chunk):
             for k in range(3):
