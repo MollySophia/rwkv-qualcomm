@@ -30,8 +30,8 @@ import utils.model_utils as utils
 from importlib.metadata import version as impLib_version
 from packaging import version
 
-from aimet_torch import onnx_utils
-onnx_utils.EXPORT_TO_ONNX_DIRECT = True
+# from aimet_torch import onnx_utils
+# onnx_utils.EXPORT_TO_ONNX_DIRECT = True
 
 # Exception handling in case fastforward is not enabled in AIMET build
 try:
@@ -598,7 +598,7 @@ class LLMQuantizer:
         print("in export_quantsim")
         tic = time.time()
         # cpu_dummy_input = tuple([i.cpu() for i in dummy_input])
-        cpu_dummy_input = utils.to_cpu(dummy_input) 
+        cpu_dummy_input = utils.to_cpu(dummy_input)
         model_device = self.quant_sim.model.device
         self.quant_sim.model.to(device='cpu')
 

@@ -134,6 +134,8 @@ def _get_lm_head_sizes(onnxmodel):
 def get_per_layer_name_formats(onnxnodes):
     if all(i in onnxnodes for i in ('/blocks.0/att/ln_1/LayerNormalization', '/blocks.0/ffn/add_feed_forward/Add')):
         block_input, attn_output, ln_f = '/blocks.{}/att/ln_1/LayerNormalization', '/blocks.{}/ffn/add_feed_forward/Add', '/ln_out/LayerNormalization'
+    elif all(i in onnxnodes for i in ('blocks.0.att.ln_1', 'blocks.0.ffn.add_feed_forward')):
+        block_input, attn_output, ln_f = 'blocks.{}.att.ln_1', 'blocks.{}.ffn.add_feed_forward', 'ln_out'
     else:
         raise RuntimeError(f"Unexpected ONNX model, couldn't get the per-layer names")
     return block_input, attn_output, ln_f

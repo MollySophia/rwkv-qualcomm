@@ -37,9 +37,12 @@ class Rwkv6SelfAttention(nn.Module):
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'] / (2 ** int(layer_id // rescale_layer)))
         else:
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'])
-        self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5, affine=False)
-        self.ln_x_weight = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
-        self.ln_x_bias = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
+        # self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5, affine=False)
+        self.ln_x = nn.LayerNorm(self.head_size, eps=1e-5)
+        self.ln_x.weight = nn.Parameter(torch.ones(self.head_size))
+        self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size))
+        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
+        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
         self.mul_ln_x = op.Multiply()
         self.add_ln_x = op.Add()
 
@@ -131,8 +134,8 @@ class Rwkv6SelfAttention(nn.Module):
 
         x = self.ln_x(wkv).view(batch_size, seq_length, self.hidden_size)
 
-        x = self.mul_ln_x(x, self.ln_x_weight)
-        x = self.add_ln_x(x, self.ln_x_bias)
+        x = self.mul_ln_x(x, self.ln_x_w)
+        x = self.add_ln_x(x, self.ln_x_b)
         x = self.mul_attention(x, gate)
         x = self.output(x)
 
