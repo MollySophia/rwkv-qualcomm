@@ -59,8 +59,7 @@ class ActMSEQuantizer(LLMQuantizer):
             cache = {"i":0, "state": None}
             block_inputs = torch.zeros(
                 (
-                    # args.num_calibration_batches,
-                    1,
+                    args.num_calibration_batches,
                     args.per_device_calib_batch_size,
                     args.block_size,
                     model.args.n_embd,
