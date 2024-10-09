@@ -209,7 +209,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                     in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_0.bin")
                     for j in range(len(inputs['state'])):
                         inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
-                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                    input_list_lines[i].append(" ".join([f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 outputs = model[i].forward(**inputs)
                 logits = outputs[0]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
@@ -230,7 +230,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_0.bin")
                 for j in range(len(inputs['state'])):
                     inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j+1}.bin")
-                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                input_list_lines.append(" ".join([f"{samples_output}/samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 iteration_count += 1
             logits, states = model.forward(**inputs)
 
@@ -274,7 +274,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                     in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_0.bin")
                     for j in range(len(inputs['state'])):
                         inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
-                    input_list_lines[i].append(" ".join([f"samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                    input_list_lines[i].append(" ".join([f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 outputs = model[i].forward(**inputs)
                 logits = outputs[0]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
@@ -294,7 +294,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_0.bin")
                 for j in range(len(inputs['state'])):
                     inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples/{iteration_count}/input_{j+1}.bin")
-                input_list_lines.append(" ".join([f"samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                input_list_lines.append(" ".join([f"{samples_output}/samples/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
                 iteration_count += 1
             logits, states = model.forward(**inputs)
 

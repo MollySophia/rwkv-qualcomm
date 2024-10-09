@@ -13,26 +13,27 @@ parser.add_argument('--use_qnn_quant', action='store_true', help='Use QNN quanti
 parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bitwidth')
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
-args = parser.parse_args()
+parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
+parser_args = parser.parse_args()
 
-USE_QNN_QUANT = args.use_qnn_quant
-ACT_BITWIDTH = args.act_bitwidth
-WEIGHTS_BITWIDTH = args.weights_bitwidth
+USE_QNN_QUANT = parser_args.use_qnn_quant
+ACT_BITWIDTH = parser_args.act_bitwidth
+WEIGHTS_BITWIDTH = parser_args.weights_bitwidth
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
 model_args.fp16 = False
 model_args.wkv_customop = False
-model_args.USE_EMBEDDING = False if args.ext_embedding else True
+model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 
-model_args.MODEL_NAME = str(args.model)
+model_args.MODEL_NAME = str(parser_args.model)
 
 if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or USE_QNN_QUANT == True:
     model_args.RESCALE_LAYER = 0
 else:
     model_args.RESCALE_LAYER = 6
 
-model = make_chunks(args.chunks, model_args) if args.chunks > 1 else RWKV_RNN(model_args)
+model = make_chunks(parser_args.chunks, model_args) if parser_args.chunks > 1 else RWKV_RNN(model_args)
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
@@ -125,7 +126,7 @@ if type(model) == list:
         os.path.exists(dirname) or os.mkdir(dirname)
         converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)])
         if USE_QNN_QUANT:
-            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list input_list_chunk{i}.txt"
+            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         print(converter_cmd)
         os.system(converter_cmd)
         print("Compiling QNN model library...")
@@ -156,7 +157,7 @@ else:
     print("Converting to QNN model...")
     converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model.args.n_layer)])
     if USE_QNN_QUANT:
-        converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list input_list.txt"
+        converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")

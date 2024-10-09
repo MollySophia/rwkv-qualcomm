@@ -23,6 +23,7 @@ import re
 import subprocess
 import json
 from pathlib import Path
+import copy
 
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
@@ -35,6 +36,20 @@ parser.add_argument('--num_chunks', type=int, default=2, help='Number of chunks'
 args_parser = parser.parse_args()
 
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
+
+# currently only using 4bit for ffn linear modules
+# TODO: add more
+if args_parser.linear_param_encodings:
+    with open(args_parser.linear_param_encodings, "r") as f:
+        encodings = json.load(f)
+    encodings_new = copy.deepcopy(encodings)
+    for k, v in encodings['param_encodings'].items():
+        if 'time_' in k or 'att' in k:
+            del encodings_new['param_encodings'][k]
+    with open(str(args_parser.linear_param_encodings).replace('.encodings', '_processed.encodings'), "w") as f:
+        json.dump(encodings_new, f, indent=4)
+    del encodings_new
+    del encodings
 
 args = types.SimpleNamespace()
 ##############################
@@ -50,7 +65,7 @@ args.model_name = str(args_parser.model).replace(".pth", "").split("/")[-1]
 args.input_symmetry = "symqt"
 args.exceptions_file = "quantizers/configs/rwkv_activation_exceptions.json"
 args.act_mse_loss_type = "mse"
-args.parameter_encoding_file = str(args_parser.linear_param_encodings) if args_parser.linear_param_encodings else None
+args.parameter_encoding_file = str(args_parser.linear_param_encodings).replace('.encodings', '_processed.encodings') if args_parser.linear_param_encodings else None
 args.encoding_path = None
 args.do_actmse = False
 args.disable_act_quantizers = False
@@ -127,7 +142,6 @@ def test_generate(model, tokenizer,device='cuda'):
         output = model(*input)
         state = output[1:]
 
-
 if args_parser.test_generate:
     test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)
 else:
@@ -148,29 +162,6 @@ else:
         graph.input[i].name = "layer" + str((i-1)//3) + "_state0_in"
         graph.input[i+1].name = "layer" + str((i-1)//3) + "_state1_in"
         graph.input[i+2].name = "layer" + str((i-1)//3) + "_state2_in"
-
-    # state_in_dims = {}
-    # for input in graph.input:
-    #     if "state0" in input.name:
-    #         state_in_dims["state0"] = input.type.tensor_type.shape
-    #     elif "state1" in input.name:
-    #         state_in_dims["state1"] = input.type.tensor_type.shape
-    #     elif "state2" in input.name:
-    #         state_in_dims["state2"] = input.type.tensor_type.shape
-    # for idx, output in enumerate(graph.output):
-    #     if "state0" in output.name:
-    #         for i, dim in enumerate(state_in_dims["state0"].dim):
-    #             graph.output[idx].type.tensor_type.shape.dim[i].dim_value = dim.dim_value
-    #     elif "state1" in output.name:
-    #         for i, dim in enumerate(state_in_dims["state1"].dim):
-    #             graph.output[idx].type.tensor_type.shape.dim[i].dim_value = dim.dim_value
-    #     elif "state2" in output.name:
-    #         for i, dim in enumerate(state_in_dims["state2"].dim):
-    #             graph.output[idx].type.tensor_type.shape.dim[i].dim_value = dim.dim_value
-    #     elif "logits" in output.name:
-    #         graph.output[idx].type.tensor_type.shape.dim[0].dim_value = 1
-    #         graph.output[idx].type.tensor_type.shape.dim[1].dim_value = 1
-    #         graph.output[idx].type.tensor_type.shape.dim[2].dim_value = 65536
 
     onnx.save_model(model, onnx_path, save_as_external_data=True, all_tensors_to_one_file=True, size_threshold=1024, convert_attribute=False)
 
