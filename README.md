@@ -20,8 +20,8 @@
 ## Usage
 ### 1. Convert model weights to QNN model library file.
 Refer to: 
-- [Old QNN-only method](./docs/Legacy_convert.md)
-- [AIMET method](./docs/Aimet_convert.md)
+- [Old QNN-only method](./docs/Legacy_convert.md): This method is good for fp16 and a16w8 models.
+- [AIMET method](./docs/Aimet_convert.md): This is for experimental a16w4 models. The precision is yet to be improved.
 
 ### 2. Generate HTP context cache
 - `make_context_cache_binary.py`: usage: make_context_cache_binary.py [-h] model_lib output_path {SM8650,SM8550,SC8380}
@@ -33,6 +33,7 @@ $ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-Worl
 - The output would be in ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin`` and ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin``.
 
 ### 3. Run inference on the device
+#### 3.1. Running on Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 - Build the demo code: ``make -C librwkv-qualcomm``
 - Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
 - Push the tokenizer model to the device: ``adb push assets/brwkv_vocab_v20230424.txt /data/local/tmp/``
@@ -53,7 +54,10 @@ $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/local/tmp
 $ # Specify the path to the first model chunk. The second chunk will be loaded automatically.
 $ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 ```
-- Example output:
+#### 3.2. Running on Qualcomm Snapdragon X Elite laptops
+- *To be added*
+
+#### Example output:
 ```
 Loading model context binary from RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
@@ -78,8 +82,9 @@ Average tokens per second: 21.8546
 ## TODO
 - [x] Add demo code for running inference on the device.
 - [x] Add support for INT16/INT8 quantized inference.
-- [ ] Add document for running on Snapdragon X Elite laptops
-- [ ] Add support for AIMET and A16W4 quantization
+- [ ] (WIP) Add support for AIMET and A16W4 quantization.
+- [ ] Add document for running on Snapdragon X Elite laptops.
+- [ ] Sequential prefilling on device.
 - [ ] Package a library for easy use and integration.
 
 ## Questions
