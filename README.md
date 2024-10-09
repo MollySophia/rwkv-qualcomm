@@ -3,40 +3,33 @@
 - Inference RWKV using QNN SDK, with Qualcomm CPU, GPU or HTP (Hexagon Tensor Processor) as the backend.
 - Support for whole-model float16 inference (since Qualcomm HTP cannot do float32 math).
 - Support for activation INT16 and weights INT8 quantized inference (with some key operations running with float16).
+- (Experimental) Support for activation INT16 and partial weights INT4 quantized inference. (Precision is yet to be improved)
 
 ## Prerequisites
 - Download and install the QNN SDK from the [Qualcomm Developer Network](https://developer.qualcomm.com/software/qualcomm-ai-engine-direct-sdk).
 - Setup the QNN SDK environment by following the instructions in Qualcomm's [documents](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/introduction.html).
 - Setup the $QNN_SDK_ROOT environment variable to point to the QNN SDK installation directory. It should by default be installed at /opt/qcom/aistack/qnn/{version}.
+- (Optional) Install the [AIMET](https://github.com/quic/aimet) toolkit for aimet quantization methods: https://quic.github.io/aimet-pages/releases/latest/install/index.html#quick-install
 - This project has been verified with:
     - QNN SDK 2.26.0
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
-    - torch==2.3.1 (although QNN SDK is verified to work with torch==1.13.0, it's okay to use latest version of torch since we are only using torch for model conversion and onnx exporting)
+    - torch==2.2.2 (although QNN SDK is verified to work with torch==1.13.0, it's okay to use latest version of torch since we are only using torch for model conversion and onnx exporting) (2.2.2 is recommended by AIMET toolkit)
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
 ## Usage
 ### 1. Convert model weights to QNN model library file.
-#### Converting a FP16 model
-- `convert_model.py`: usage: convert_model.py [-h] [--chunks CHUNKS] [--use_qnn_quant] [--act_bitwidth ACT_BITWIDTH] [--weights_bitwidth WEIGHTS_BITWIDTH] [--ext_embedding] model
-- Convert the model: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 4`
-
-#### Converting an A16W8 model
-- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
-- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./ 2`
-- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant`
-- The act_bitwidth and weights_bitwidth are default to 16 and 8 respectively.
-- Note: Please keep the `chunks` parameter the same in both scripts.
-
-The outputs will be in ``lib/`` directory. The model library contains weights, as well as the functions to prepare the graph. This can either be called on device using libraries in ``lib/aarch64-android/``, or be prepared on the x86 host machine using ``lib/x86_64-linux-clang/`` to generate an HTP context cache. Qualcomm HTP has a limitation on the size of the model library file, so the model will be split into multiple chunks.
+Refer to: 
+- [Old QNN-only method](./docs/Legacy_convert.md)
+- [AIMET method](./docs/Aimet_convert.md)
 
 ### 2. Generate HTP context cache
 - `make_context_cache_binary.py`: usage: make_context_cache_binary.py [-h] model_lib output_path {SM8650,SM8550,SC8380}
 - Example:
 ```
 $ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.so output/ SM8650
-python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.so output/ SM8650
 ```
+- The script will automatically process each of the chunks together.
 - The output would be in ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin`` and ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin``.
 
 ### 3. Run inference on the device
