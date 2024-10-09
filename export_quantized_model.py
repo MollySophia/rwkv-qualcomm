@@ -37,14 +37,16 @@ args_parser = parser.parse_args()
 
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
 
-# currently only using 4bit for ffn linear modules
-# TODO: add more
+# TODO: add more while keeping the precision
+quant_list = ["att.gate",
+              "att.receptance"
+              ]
 if args_parser.linear_param_encodings:
     with open(args_parser.linear_param_encodings, "r") as f:
         encodings = json.load(f)
     encodings_new = copy.deepcopy(encodings)
     for k, v in encodings['param_encodings'].items():
-        if 'time_' in k or 'att' in k:
+        if not any([x in k for x in quant_list]):
             del encodings_new['param_encodings'][k]
     with open(str(args_parser.linear_param_encodings).replace('.encodings', '_processed.encodings'), "w") as f:
         json.dump(encodings_new, f, indent=4)
