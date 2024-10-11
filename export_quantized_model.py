@@ -39,7 +39,8 @@ device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_availabl
 
 # TODO: add more while keeping the precision
 quant_list = ["att.gate",
-              "att.receptance"
+              "att.receptance",
+              "att.output"
               ]
 if args_parser.linear_param_encodings:
     with open(args_parser.linear_param_encodings, "r") as f:
@@ -213,7 +214,7 @@ else:
             np.zeros((1, 1, model_args.n_embd), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+1}.bin"))
             np.zeros((model_args.n_head, model_args.head_size, model_args.head_size), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+2}.bin"))
             np.zeros((1, 1, model_args.n_embd), dtype=np.float32).tofile(os.path.join(sample_input_path, f"chunk_{i}", f"input_{3*j+3}.bin"))
-        
+
     for i in range(args_parser.num_chunks):
         onnx_file = os.path.join(args.export_dir, "split_onnx", f"{args.model_name}_chunk{i+1}of{args_parser.num_chunks}.onnx")
         cmd = [f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter"]
@@ -223,6 +224,7 @@ else:
         cmd += ["--float_bitwidth", "32"]
         cmd += ["--quantization_overrides", onnx_path.replace('.onnx', '.encodings')]
         cmd += ["--input_list", os.path.join(args_parser.calib_data_path, f"input_list_chunk{i}.txt")]
+        cmd += ["--use_per_channel_quantization", "--use_per_row_quantization"]
 
         for j in range(i*layers_per_chunk, (i+1)*layers_per_chunk):
             for k in range(3):

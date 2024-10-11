@@ -121,6 +121,14 @@
         "min": 0.0,
         "max": 1.0
       }
+    },
+    "Linear":
+    {
+      "per_channel_quantization": "True"
+    },
+    "MatMul":
+    {
+      "per_channel_quantization": "True"
     }
   },
 

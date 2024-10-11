@@ -475,7 +475,7 @@ class LLMQuantizer:
                     outputs = self.compute_kv_output_logits(model, max_length, past_output_offset, input_ids,
                                                             position_ids, rope, _adjust_inputs)
                 else:
-                    num_loops = 20
+                    num_loops = 100
                     batch_size = input_ids.shape[0]
                     num_input_tokens = 1
 
