@@ -17,8 +17,10 @@ from transformers import TopKLogitsWarper, set_seed
 import aimet_common.libpymo as libpymo
 from aimet_common.defs import QuantScheme
 from aimet_common.utils import save_json_yaml
-# from aimet_torch.pro.quantsim import QuantizationSimModel
-from aimet_torch.quantsim import QuantizationSimModel
+try:
+    from aimet_torch.pro.quantsim import QuantizationSimModel
+except:
+    from aimet_torch.quantsim import QuantizationSimModel
 from aimet_torch.quantsim import load_encodings_to_sim, _get_encoding_by_quantizer
 from aimet_torch.onnx_utils import OnnxExportApiArgs
 from aimet_torch.qc_quantize_op import QcQuantizeWrapper, QcQuantizeOpMode
@@ -207,9 +209,9 @@ class LLMQuantizer:
             self.save_checkpoint(self.quant_sim, self.save_sim_checkpoint)
 
         # debug
-        quant_sim_str = self.quant_sim.__str__()
-        with open('quant_sim.txt', 'w') as f:
-            f.write(quant_sim_str)
+        # quant_sim_str = self.quant_sim.__str__()
+        # with open('quant_sim.txt', 'w') as f:
+        #     f.write(quant_sim_str)
         
         # state_dict will be loaded nectar.registry.make_model while make_trainer is being called
         self.load_encodings(self.encoding_file)
@@ -475,7 +477,7 @@ class LLMQuantizer:
                     outputs = self.compute_kv_output_logits(model, max_length, past_output_offset, input_ids,
                                                             position_ids, rope, _adjust_inputs)
                 else:
-                    num_loops = 100
+                    num_loops = 20
                     batch_size = input_ids.shape[0]
                     num_input_tokens = 1
 

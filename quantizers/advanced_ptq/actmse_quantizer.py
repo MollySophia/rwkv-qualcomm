@@ -70,7 +70,7 @@ class ActMSEQuantizer(LLMQuantizer):
                 try:
                     state = get_dummy_state_kvcache(1, model.args, model.device)
                     input = {'in0': batch['input_ids'], 'state': state}
-                    _, state = model(**input)
+                    model(**input)
                 except ValueError:
                     pass
             blocks[0] = blocks[0].module
@@ -139,6 +139,8 @@ class ActMSEQuantizer(LLMQuantizer):
                     else:
                         raise ValueError
 
+                    qt_modules[name].param_quantizers["weight"]._is_encoding_frozen = True
+
                     """
                     # test
                     out_1 = F.linear(x, qt_modules[name].weight, qt_modules[name].bias)
@@ -184,7 +186,9 @@ class ActMSEQuantizer(LLMQuantizer):
     def get_sequential_layers(self):
         # rwkv v6
         layers = [
-            ["att.key"], ["att.value"], ["att.receptance"], ["att.gate"], 
+            ['att.matmul_time_decay_w1'], ['att.matmul_time_decay_w2'],
+            ["att.key"], ["att.value"], 
+            ["att.receptance"], ["att.gate"], 
             ["att.output"],
             ["ffn.key"], ["ffn.receptance"], ["ffn.value"],
         ]
@@ -196,8 +200,8 @@ class ActMSEQuantizer(LLMQuantizer):
             # asym case
             for i in range(n):
                 # candidate pairs
-                max_cand = torch.tensor(_max / n * (i+1))
-                min_cand = torch.tensor(_min / n * (i+1))
+                max_cand = _max.clone().detach() / n * (i+1)
+                min_cand = _min.clone().detach() / n * (i+1)
                 candidates.append((max_cand, min_cand))
 
                 """
@@ -210,7 +214,7 @@ class ActMSEQuantizer(LLMQuantizer):
         else:
             # symmetric case
             for i in range(n):
-                max_cand = torch.tensor(_max / n * (i+1))
+                max_cand = _max.clone().detach() / n * (i+1)
                 min_cand = -max_cand
                 candidates.append((max_cand, min_cand))
         return candidates
