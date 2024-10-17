@@ -38,6 +38,17 @@
         "input_exceptions": "None",
         "output_exceptions": "None"
       }
+    },
+    {
+      "module_name": "matmul_time_maa_w1",
+      "exception_stage": "pre-calibration",
+      "exceptions": {
+        "param_exceptions": {
+          "bitwidth": "8"
+        },
+        "input_exceptions": "None",
+        "output_exceptions": "None"
+      }
     }
   ]
 }

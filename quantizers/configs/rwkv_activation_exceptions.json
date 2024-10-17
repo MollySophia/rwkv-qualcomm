@@ -28,6 +28,20 @@
     },
     {
       "module_name": "Embedding",
+      "exception_stage": "pre-calibration",
+      "exceptions": {
+        "param_exceptions": "None",
+        "input_exceptions": "None",
+        "output_exceptions": [
+          {
+            "output_index": "0",
+            "bitwidth": "16"
+          }
+        ]
+      }
+    },
+    {
+      "module_name": "Embedding",
       "exception_stage": "post-calibration",
       "exceptions": {
         "param_exceptions": "None",

@@ -68,6 +68,13 @@ class MatMul(torch.nn.Module):
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return torch.matmul(x, y)
 
+class Bmm(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return torch.bmm(x, y)
+
 class Split(torch.nn.Module):
     def __init__(self):
         super().__init__()

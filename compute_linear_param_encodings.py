@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(description='Compute param encodings for linear
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--weights_bitwidth', type=int, default=4, help='Weights bitwidth')
 parser.add_argument('--use_cuda', action='store_true', default=True, help='Use CUDA')
-parser.add_argument('--test_generate', action='store_true', default=False, help='Test generate')
+parser.add_argument('--strategy', type=str, choices=['symqt', 'symfp', 'asym'], default='asym', help='Quantization strategy')
 args_parser = parser.parse_args()
 
 args = types.SimpleNamespace()
@@ -31,7 +31,7 @@ args.num_cands = 20
 args.export_dir = "quant_export"
 args.output_dir = "quant_export"
 args.model_name = str(args_parser.model).replace(".pth", "").split("/")[-1]
-args.input_symmetry = "symqt"
+args.input_symmetry = args_parser.strategy
 args.exceptions_file = "quantizers/configs/rwkv_gptq_exceptions.json"
 args.act_mse_loss_type = "mse"
 args.parameter_encoding_file = None
@@ -84,18 +84,3 @@ dataset_builder.make_dataset(tokenizer=tokenizer, args=args, column_name="text",
 quantizer = ActMSEQuantizer(model, args, model.args)
 quantizer.orig_model = model
 quantizer.prepare_quantsim(dummy_input, args, dataset_builder.train_dataloader, tokenizer)
-
-def test_generate(model, tokenizer,device='cuda'):
-    config = model.config
-    print("Generating inference using QuantSim model")
-    prompt = "User: 请为我写一首诗\n\nAssistant:"
-    input_ids = tokenizer (prompt, return_tensors='pt')
-    input_ids.to(device)
-    model.to(device)
-    if isinstance(input_ids, BatchEncoding):
-        attention_mask = input_ids['attention_mask']
-        input_ids = input_ids['input_ids']
-    output = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=800, do_sample=True, repetition_penalty=1.1, top_p=1, top_k=128, temperature=1)
-    print (tokenizer.batch_decode(output, skip_special_tokens=True)[0].split(prompt)[-1])
-if args_parser.test_generate:
-    test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)

@@ -52,6 +52,7 @@ class Rwkv6SelfAttention(nn.Module):
         self.matmul_time_maa_w1     = nn.Linear(hidden_size, self.TIME_MIX_EXTRA_DIM*5, bias=False)
         self.matmul_time_maa_w1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w1'].t())
         self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
+        self.matmul_time_maa_w2     = op.Bmm()
         self.add_time_maa           = op.Add()
         self.mul_time_maa           = op.Multiply()
         self.add_x                  = op.Add()
@@ -100,7 +101,7 @@ class Rwkv6SelfAttention(nn.Module):
             xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
         else:
             xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
-        xxx = torch.bmm(xxx, self.time_maa_w2)
+        xxx = self.matmul_time_maa_w2(xxx, self.time_maa_w2)
         xxx = self.mul_time_maa(sx, self.add_time_maa(xxx, self.time_maa))
         xxx = self.add_x(x, xxx)
         mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)

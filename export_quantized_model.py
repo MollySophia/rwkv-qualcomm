@@ -1,17 +1,10 @@
 # from rwkv_src.modeling_rwkv6 import Rwkv6ForCausalLM
 from rwkv_src.rwkv_model import RWKV_RNN, sample_logits
-from transformers import (
-    AutoConfig, AutoModelForCausalLM,
-    AutoTokenizer,
-    modeling_utils
-)
-from transformers.tokenization_utils_base import BatchEncoding
+from transformers import AutoTokenizer
 import types
 import torch
-import torch.nn as nn
 import numpy as np
 import onnx
-from aimet_torch.model_preparer import _prepare_traced_model
 
 from utils.model_utils import get_dummy_input_for_rwkv_causal_llm, get_input_output_names, split_onnx, get_dummy_state_kvcache
 from quantizers.base_quantizer import LLMQuantizer
@@ -28,7 +21,7 @@ import copy
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
-parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
+parser.add_argument('--calib_data_path', type=Path, default=None, help='Path to calibration data')
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--use_cuda', action='store_true', default=True, help='Use CUDA')
 parser.add_argument('--test_generate', action='store_true', default=False, help='Test generate')
@@ -38,9 +31,9 @@ args_parser = parser.parse_args()
 device = torch.device("cuda") if args_parser.use_cuda and torch.cuda.is_available() else torch.device("cpu")
 
 # TODO: add more while keeping the precision
-quant_list = ["att.gate",
-              "att.receptance",
-              "att.output"
+quant_list = [
+              "att.output",
+              "ffn",
               ]
 if args_parser.linear_param_encodings:
     with open(args_parser.linear_param_encodings, "r") as f:
@@ -130,20 +123,17 @@ def test_generate(model, tokenizer,device='cuda'):
     print(prompt, end='')
     input_ids = tokenizer(prompt, return_tensors='pt')
     model = model.to(device)
-    state = get_dummy_state_kvcache(1, model.args, device)
-    output = None
-    for id in input_ids['input_ids'][0]:
-        input = [torch.LongTensor([[id]]).to(device)] + state
-        output = model(*input)
-        state = output[1:]
+    states = get_dummy_state_kvcache(1, model.args, device)
+    inputs = {'in0': input_ids['input_ids'].to(device), 'state': states}
+    logits, states = model(**inputs)
+    logits = logits[:, -1, :]
     for i in range(100):
-        token = sample_logits(output[0].flatten().cpu())
+        token = sample_logits(logits.flatten().cpu())
         if token == 0:
             break
         print(tokenizer.decode(token), end='', flush=True)
-        input = [torch.LongTensor([[token]]).to(device)] + state
-        output = model(*input)
-        state = output[1:]
+        inputs = {'in0': torch.LongTensor([[token]]).to(device), 'state': states}
+        logits, states = model(**inputs)
 
 if args_parser.test_generate:
     test_generate(quantizer.quant_sim.model, tokenizer=tokenizer,device=args.device)
@@ -173,23 +163,29 @@ else:
     with open(onnx_path.replace('.onnx', '.encodings'), "+r") as f:
         encodings = json.load(f)
 
-    graph = model.graph
-    for i in range(len(graph.node)):
-        if "matmul_kv" in graph.node[i].name \
-            or "mul_time_decay" in graph.node[i].name \
-            or "add_time_first" in graph.node[i].name:
-            for j in graph.node[i].input:
-                if not ("Constant" in j or "Split" in j):
+    if args_parser.calib_data_path is not None:
+        graph = model.graph
+        for i in range(len(graph.node)):
+            if "matmul_kv" in graph.node[i].name \
+                or "mul_time_decay" in graph.node[i].name \
+                or "add_time_first" in graph.node[i].name:
+                for j in graph.node[i].input:
+                    if not ("Constant" in j or "Split" in j):
+                        encodings['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                for j in graph.node[i].output:
                     encodings['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-            for j in graph.node[i].output:
-                encodings['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
 
-    for i in range(len(graph.input)):
-        if i == 0 and graph.input[i].type.tensor_type.elem_type != 1:
-            continue
-        encodings['activation_encodings'][graph.input[i].name] = [{"bitwidth": 32, "dtype": "float"}]
-    for i in range(len(graph.output)):
-        encodings['activation_encodings'][graph.output[i].name] = [{"bitwidth": 32, "dtype": "float"}]
+        for i in range(len(graph.input)):
+            if i == 0 and graph.input[i].type.tensor_type.elem_type != 1:
+                continue
+            encodings['activation_encodings'][graph.input[i].name] = [{"bitwidth": 32, "dtype": "float"}]
+        for i in range(len(graph.output)):
+            encodings['activation_encodings'][graph.output[i].name] = [{"bitwidth": 32, "dtype": "float"}]
+
+    keys = copy.copy(list(encodings['activation_encodings'].keys()))
+    for k in keys:
+        if "state" in k and "in" in k:
+            encodings['activation_encodings'][k.replace("_in", "_out")] = copy.deepcopy(encodings['activation_encodings'][k])
 
     with open(onnx_path.replace('.onnx', '.encodings'), "w") as f:
         json.dump(encodings, f, indent=4)
@@ -223,8 +219,10 @@ else:
         cmd += ["--bias_bitwidth", "32"]
         cmd += ["--float_bitwidth", "32"]
         cmd += ["--quantization_overrides", onnx_path.replace('.onnx', '.encodings')]
-        cmd += ["--input_list", os.path.join(args_parser.calib_data_path, f"input_list_chunk{i}.txt")]
-        cmd += ["--use_per_channel_quantization", "--use_per_row_quantization"]
+        if args_parser.calib_data_path is not None:
+            cmd += ["--input_list", os.path.join(args_parser.calib_data_path, f"input_list_chunk{i}.txt")]
+        else:
+            cmd += ["--input_list", os.path.join(sample_input_path, f"input_list_chunk_{i}.txt")]
 
         for j in range(i*layers_per_chunk, (i+1)*layers_per_chunk):
             for k in range(3):
