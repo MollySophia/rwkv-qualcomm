@@ -20,7 +20,7 @@
 ## Usage
 ### 1. Convert model weights to QNN model library file.
 Refer to: 
-- [Old QNN-only method](./docs/Legacy_convert.md): This method is good for fp16 and a16w8 models.
+- [QNN-only method](./docs/Legacy_convert.md): This method is good enough for fp16 and a16w8 models.
 - [AIMET method](./docs/Aimet_convert.md): This is for experimental a16w4 models. The precision is yet to be improved.
 
 ### 2. Generate HTP context cache
@@ -55,7 +55,7 @@ $ # Specify the path to the first model chunk. The second chunk will be loaded a
 $ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 ```
 #### 3.2. Running on Qualcomm Snapdragon X Elite laptops
-- *To be added*
+- *TODO*
 
 #### Example output:
 ```
@@ -72,24 +72,23 @@ Average time per token: 0.0457569s
 Average tokens per second: 21.8546
 ```
 
-## Tested models
+## Performance
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
-- RWKV-RWKV-x060-World-1B6-v2.1-20240328-ctx4096, a16w8: ```Average tokens per second: 23.5765```
-- RWKV-RWKV-x060-World-1B6-v2.1-20240328-ctx4096, fp16: ```Average tokens per second: 13.0575```
+| Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
+| --- | --- | --- | --- |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| TODO |
+| RWKV v6 1.6B | a16w8 | 26.0707| TODO |
+| RWKV v6 1.6B | fp16 | 15.0434| TODO |
+| RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 17.3968 | TODO |
+
+#### Obsolete data:
 - RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
 - RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
 ## TODO
 - [x] Add demo code for running inference on the device.
-- [x] Add support for INT16/INT8 quantized inference.
-- [ ] (WIP) Add support for AIMET and A16W4 quantization.
+- [x] Add support for A16W8 quantized inference.
+- [x] Add support for A16W4 quantized inference with AIMET quantization.
 - [ ] Add document for running on Snapdragon X Elite laptops.
 - [ ] Sequential prefilling on device.
 - [ ] Package a library for easy use and integration.
-
-## Questions
-Q: How to solve the problem of outputing NaNs when inferencing RWKV's all operations with FP16?
-
-A: The NaNs are from several operations:
-- In wkv, the "k @ v" operation sometimes gets insanely large values, excedding the range of FP16, and becomes NaNs. This can be solved by applying a scale when calculating wkv. This doesn't affect the final result, since the wkv output value gets into the GroupNorm layer. Currently the scale is applied on ``k`` and ``v``. E.g: scale = 1/8, then ``k = k / 2``, ``v = v / 4``. By applying this, the output of ``k @ v`` won't be so large; the output of ``wkv`` is also scaled so that groupnorm has a smaller input too; the ``state`` for wkv is also scaled.
-- LayerNorm layers: The hidden states between layers can get very large values, excedding the range of FP16, and becomes NaNs in following operations. This can be solved by rescaling the hidden states by half every 6 layers.
