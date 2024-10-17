@@ -8,6 +8,10 @@ int trie_tokenizer::load(const std::string vocab_file) {
     return 0;
 }
 
+bool trie_tokenizer::inited() const {
+    return _tokenizer->inited();
+}
+
 std::vector<int> trie_tokenizer::Encode(std::string_view str) const {
     auto ids = _tokenizer->encode(std::string(str));
     return ids;

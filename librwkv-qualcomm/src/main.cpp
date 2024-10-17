@@ -26,7 +26,7 @@ std::vector<float> softmax(std::vector<float> in) {
     return out;
 }
 
-int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
+static int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
     temperature = std::max(temperature, 0.1f);
     temperature = std::min(temperature, 5.f);
     if (top_k >= size)
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
   std::map<int, float> occurences;
   std::chrono::duration<double> duration_invoke;
   int token_num = 0;
-  std::string prompt = "\n我们发现";
+  std::string prompt = "User: 请为我写一首诗。\n\nAssistant:";
   srand((unsigned)time(NULL));
 
   const float presence_penalty = 0.4;
@@ -157,7 +157,6 @@ int main(int argc, char** argv) {
   std::vector<int> prompt_ids = tokenizer.Encode(prompt);
   for (auto token_id : prompt_ids) {
     std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
-    QnnRwkvCopyStatesInPlace(backend);
     if (QnnRwkvExecute(backend, token_id) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
@@ -174,7 +173,6 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 300; i++) {
     std::cout << tokenizer.Decode(token);
     std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
-    QnnRwkvCopyStatesInPlace(backend);
     if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;

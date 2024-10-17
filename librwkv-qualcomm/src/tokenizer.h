@@ -28,6 +28,7 @@ public:
     std::vector<int> Encode(std::string_view str) const;
     std::string Decode(const std::vector<int> &ids) const;
     std::string Decode(int id) const;
+    bool inited() const;
 private:
     TRIE_TOKENIZER * _tokenizer;
 };
