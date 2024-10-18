@@ -76,8 +76,8 @@ Average tokens per second: 21.8546
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
-| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| TODO |
-| RWKV v6 1.6B | a16w8 | 26.0707| TODO |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| 4.65837,66.7378% |
+| RWKV v6 1.6B | a16w8 | 26.0707| 4.59243,67.3006% |
 | RWKV v6 1.6B | fp16 | 15.0434| TODO |
 | RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 17.3968 | TODO |
 
