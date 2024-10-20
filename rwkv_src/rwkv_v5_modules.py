@@ -3,7 +3,7 @@ import torch.nn as nn
 import rwkv_src.elemwise_ops as op
 
 class Rwkv5SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, version=5.2, layer_id=0, rescale_layer=0):
+    def __init__(self, state_dict, hidden_size, head_size, version=5.2, layer_id=0, rescale_layer=0, use_conv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
@@ -142,7 +142,7 @@ class Rwkv5SelfAttention(nn.Module):
         return last_x + x, state1_out, state2_out
 
 class Rwkv5FeedForward(nn.Module):
-    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0, use_conv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id

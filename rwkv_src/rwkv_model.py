@@ -49,16 +49,16 @@ def check_rwkv_info(state_dict):
     return version, n_layer, n_head
 
 class RWKV_Block(nn.Module):
-    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0):
+    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0, use_conv=False):
         super().__init__()
         self.version = version
         self.layer_offset = layer_id - layer_begin
         if self.version == 6:
-            self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer)
-            self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
+            self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, use_conv=use_conv)
+            self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer, use_conv=use_conv)
         else:
-            self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer)
-            self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
+            self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer, use_conv=use_conv)
+            self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer, use_conv=use_conv)
 
     def forward(self, x, state):
         x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
@@ -80,6 +80,11 @@ class RWKV_RNN(torch.nn.Module):
         self.args.n_ffn = w['blocks.0.ffn.key.weight'].shape[0]
         self.args.version, self.args.n_layer, self.args.n_head = check_rwkv_info(w)
         self.args.head_size = self.args.n_embd // self.args.n_head
+
+        try:
+            self.args.use_conv = args.use_conv
+        except:
+            self.args.use_conv = False
         
         if chunk_idx == 0:
             print("Model version:", self.args.version)
@@ -107,7 +112,7 @@ class RWKV_RNN(torch.nn.Module):
             emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
 
-        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version) for i in range(self.layer_begin, self.layer_end)])
+        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, use_conv=self.args.use_conv) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])

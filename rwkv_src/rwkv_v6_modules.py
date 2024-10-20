@@ -4,13 +4,15 @@ import torch.nn.functional as F
 import rwkv_src.elemwise_ops as op
 
 class Rwkv6SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, use_conv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
         self.num_heads = hidden_size // head_size
         self.head_size = head_size
         self.hidden_size = hidden_size
+
+        self.use_conv = use_conv
 
         self.TIME_MIX_EXTRA_DIM = 64 if hidden_size == 4096 else 32
         self.TIME_DECAY_EXTRA_DIM = 128 if hidden_size == 4096 else 64
@@ -22,16 +24,32 @@ class Rwkv6SelfAttention(nn.Module):
         self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].reshape(self.num_heads, self.head_size, 1))
         self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1))
 
-        self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
-        self.key = nn.Linear(hidden_size, hidden_size, bias=False)
-        state_dict[prefix + 'key.weight'] = state_dict[prefix + 'key.weight'] / 2
-        self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'])
-        self.value = nn.Linear(hidden_size, hidden_size, bias=False)
-        state_dict[prefix + 'value.weight'] = state_dict[prefix + 'value.weight'] / 4
-        self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'])
-        self.gate = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'])
+        if use_conv:
+            self.receptance = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
+            self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'].view(hidden_size, hidden_size, 1, 1))
+            self.key = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
+            self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(hidden_size, hidden_size, 1, 1) / 2)
+            self.value = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
+            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, hidden_size, 1, 1) / 4)
+            self.gate = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
+            self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'].view(hidden_size, hidden_size, 1, 1))
+        else:
+            self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
+            self.key = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'] / 2)
+            self.value = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'] / 4)
+            self.gate = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'])
+
+        self.matmul_time_maa_w1     = nn.Linear(hidden_size, self.TIME_MIX_EXTRA_DIM*5, bias=False)
+        self.matmul_time_maa_w1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w1'].t())
+        self.matmul_time_decay_w1   = nn.Linear(hidden_size, self.TIME_DECAY_EXTRA_DIM, bias=False)
+        self.matmul_time_decay_w1.weight = nn.Parameter(state_dict[prefix + 'time_decay_w1'].t())
+        self.matmul_time_decay_w2   = nn.Linear(self.TIME_DECAY_EXTRA_DIM, hidden_size, bias=False)
+        self.matmul_time_decay_w2.weight = nn.Parameter(state_dict[prefix + 'time_decay_w2'].t())
+
         self.output = nn.Linear(hidden_size, hidden_size, bias=False)
         if rescale_layer > 0:
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'] / (2 ** int(layer_id // rescale_layer)))
@@ -49,8 +67,6 @@ class Rwkv6SelfAttention(nn.Module):
         self.sub_shift              = op.Subtract()
         self.mul_time_maa           = op.Multiply()
         self.add_time_maa           = op.Add()
-        self.matmul_time_maa_w1     = nn.Linear(hidden_size, self.TIME_MIX_EXTRA_DIM*5, bias=False)
-        self.matmul_time_maa_w1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w1'].t())
         self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
         self.matmul_time_maa_w2     = op.Bmm()
         self.add_time_maa           = op.Add()
@@ -60,10 +76,6 @@ class Rwkv6SelfAttention(nn.Module):
         self.ln_1                   = nn.LayerNorm(hidden_size, eps=1e-5)
         self.ln_1.weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.weight'])
         self.ln_1.bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.bias'])
-        self.matmul_time_decay_w1   = nn.Linear(hidden_size, self.TIME_DECAY_EXTRA_DIM, bias=False)
-        self.matmul_time_decay_w1.weight = nn.Parameter(state_dict[prefix + 'time_decay_w1'].t())
-        self.matmul_time_decay_w2   = nn.Linear(self.TIME_DECAY_EXTRA_DIM, hidden_size, bias=False)
-        self.matmul_time_decay_w2.weight = nn.Parameter(state_dict[prefix + 'time_decay_w2'].t())
         self.add_time_decay0        = op.Add()
 
         self.matmul_kv              = op.MatMul()
@@ -106,10 +118,21 @@ class Rwkv6SelfAttention(nn.Module):
         xxx = self.add_x(x, xxx)
         mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
 
-        receptance = self.receptance(mr).view(self.num_heads * seq_length, 1, self.head_size)
-        key = self.key(mk).view(self.num_heads * seq_length, self.head_size, 1)
-        value = self.value(mv).view(self.num_heads * seq_length, 1, self.head_size)
-        gate = self.silu0(self.gate(mg))
+        if self.use_conv:
+            mr = mr.view(batch_size, -1, 1, self.hidden_size).transpose(1, 3)
+            mk = mk.view(batch_size, -1, 1, self.hidden_size).transpose(1, 3)
+            mv = mv.view(batch_size, -1, 1, self.hidden_size).transpose(1, 3)
+            mg = mg.view(batch_size, -1, 1, self.hidden_size).transpose(1, 3)
+
+            receptance = self.receptance(mr).transpose(1, 3).reshape(self.num_heads * seq_length, 1, self.head_size)
+            key = self.key(mk).transpose(1, 3).reshape(self.num_heads * seq_length, self.head_size, 1)
+            value = self.value(mv).transpose(1, 3).reshape(self.num_heads * seq_length, 1, self.head_size)
+            gate = self.silu0(self.gate(mg).transpose(1, 3)).reshape(1, seq_length, self.hidden_size)
+        else:
+            receptance = self.receptance(mr).view(self.num_heads * seq_length, 1, self.head_size)
+            key = self.key(mk).view(self.num_heads * seq_length, self.head_size, 1)
+            value = self.value(mv).view(self.num_heads * seq_length, 1, self.head_size)
+            gate = self.silu0(self.gate(mg))
 
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
         time_decay = self.matmul_time_decay_w2(mw)
@@ -143,7 +166,7 @@ class Rwkv6SelfAttention(nn.Module):
         return self.add_attention(last_x, x), state1_out, state2_out
 
 class Rwkv6FeedForward(nn.Module):
-    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0, use_conv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id
