@@ -71,7 +71,7 @@ def quant_override(model):
 if type(model) == list:
     args = model[0].args
     if not args.USE_EMBEDDING:
-        model[0].w.emb.weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk1of{len(model)}.emb")
+        model[0].emb_weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk1of{len(model)}.emb")
     args = model[0].args
     fp16 = args.fp16
     states = []
@@ -86,7 +86,7 @@ if type(model) == list:
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
         if i == 0:
-            in0 = torch.LongTensor([[1]]) if args.USE_EMBEDDING else model[0].w.emb.weight[0]
+            in0 = torch.LongTensor([[1]]) if args.USE_EMBEDDING else model[0].emb_weight[0].view(1, 1, -1)
         else:
             in0 = torch.zeros(1, 1, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
         if model[0].device is not torch.device('cpu'):
@@ -149,10 +149,10 @@ if type(model) == list:
 else:
     args = model.args
     if not args.USE_EMBEDDING:
-        model.w.emb.weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
+        model.emb_weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
     args = model.args
     fp16 = args.fp16
-    in0 = [torch.LongTensor([[1]])] if args.USE_EMBEDDING else [model.w.emb.weight[0]]
+    in0 = [torch.LongTensor([[1]])] if args.USE_EMBEDDING else [model.emb_weight[0].view(1, 1, -1)]
     states = []
     for i in range(model.args.n_layer):
         states.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
