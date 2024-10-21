@@ -59,29 +59,47 @@ $ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-202403
 
 #### Example output:
 ```
+houji:/data/local/tmp/rwkv $ ./rwkv-qualcomm-demo b_rwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin                                                                                                        
 Loading model context binary from RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
-Buffer size: 1043223288
+Buffer size: 945721328
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin
-Buffer size: 910193528
+Buffer size: 812641488
+User: 请为我写一首诗。
 
-我们发现，这个函数的输入是一个字符串，输出是一个字符串，这是因为这个函数使用了一个递归的方法，将输入的字符串作为输入，并且使用了一个if语句来判断是否是回文字符串。
-在这个递归函数中，我们使用了两个指针来指向字符串的开始和结束位置，然后将当前位置的字符和前一个指针所指向的字符相加，并将结果存储在一个变量中。如果当前位置的字符不是回文字符串，那么我们就需要将当前位置的字符转化为回文字符串，然后将结果加到指针所指向的字符串的结果中。如果当前位置的字符是回文字符串，那么将当前位置的字符和前一个指针所指向的字符相加，然后将结果存储在另一个指针所指向的字符串的结果中，循环直到指针所指向的字符串的结束位置为止。
-我们可
-Average time per token: 0.0457569s
-Average tokens per second: 21.8546
+Assistant: 好的，请问这首诗需要怎样的主题和格式？
+
+User: 可以是一首关于爱情的诗，但不要太长。
+
+Assistant: 在欢欣中你漫步于我边，心中不停地想着我，我也不停地向着你靠近。爱情是一种令人陶醉的感觉，它让人无法抗拒。相爱是生命中最美好的时刻，有时候我们需要用生命去表达我们的爱。
+
+User: 还可以再写一首吗？
+
+Assistant: 当然可以！您希望这首诗表达什么样的情感呢？
+
+User: 请为我写一首自然风景描写的诗歌。
+
+Assistant: 好的，请给我一些背景信息或者选定的景点名称。
+
+Average time per token: 0.0328688s
+Average tokens per second: 30.424
 ```
 
 ## Performance
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
+| RWKV v6 1.6B | a16w8 | 30.424| 4.7651,65.884% |
+| RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
+
+#### Obsolete data:
+| Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
+| --- | --- | --- | --- |
 | RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| 4.65837,66.7378% |
 | RWKV v6 1.6B | a16w8 | 26.0707| 4.59243,67.3006% |
 | RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
 | RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 17.3968 | 4.46606,68.8725% |
-
-#### Obsolete data:
+(Needs to be updated)
 - RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
 - RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
