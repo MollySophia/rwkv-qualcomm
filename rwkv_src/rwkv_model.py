@@ -107,10 +107,12 @@ class RWKV_RNN(torch.nn.Module):
         for k in w.keys():
             w[k] = w[k].float()
 
+        emb_weight = w['emb.weight']
+        emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
         if self.args.USE_EMBEDDING:
-            emb_weight = w['emb.weight']
-            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
+        else:
+            self.emb_weight = emb_weight
 
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, use_conv=self.args.use_conv) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
@@ -204,7 +206,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 if args.USE_EMBEDDING:
                     in0 = torch.LongTensor([[token]]) if i == 0 else logits
                 else:
-                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else logits
+                    in0 = model[0].emb_weight[token].view(1, 1, -1) if i == 0 else logits
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
                 inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
@@ -225,7 +227,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
             if args.USE_EMBEDDING:
                 in0 = torch.LongTensor([[token]])
             else:
-                in0 = model.w.emb.weight[token].view(1, 1, -1)
+                in0 = model.emb_weight[token].view(1, 1, -1)
             if device is not torch.device('cpu'):
                 in0 = in0.to(device)
             inputs = {'in0': in0, 'state': states}
