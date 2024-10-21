@@ -439,16 +439,17 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       returnStatus = StatusCode::FAILURE;
     }
 
-    QnnHtpContext_CustomConfig_t customConfig;
-    customConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
-    customConfig.ioMemEstimation = true;
-    QnnContext_Config_t* cfgs[] = {(QnnContext_Config_t*)&customConfig, NULL};
+    // QnnHtpContext_CustomConfig_t customConfig;
+    // customConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
+    // customConfig.ioMemEstimation = true;
+    // QnnContext_Config_t* cfgs[] = {(QnnContext_Config_t*)&customConfig, NULL};
 
     if (StatusCode::SUCCESS == returnStatus &&
         m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary(
             m_backendHandle,
             m_deviceHandle,
-            (const QnnContext_Config_t**)cfgs,
+            // (const QnnContext_Config_t**)cfgs,
+            (const QnnContext_Config_t**)m_contextConfig,
             static_cast<void*>(buffer[i].get()),
             bufferSizes[i],
             &m_context[i],
