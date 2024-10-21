@@ -46,22 +46,10 @@ def quant_override(model):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         for i in range(len(graph.node)):
-            if "matmul_kv" in graph.node[i].name \
-                or "mul_time_decay" in graph.node[i].name \
-                or "add_time_first" in graph.node[i].name \
-                or "ln" in graph.node[i].name:
-                for j in graph.node[i].input:
-                    if not ("Constant" in j or "Split" in j):
-                        encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+            if "mul_time_decay" in graph.node[i].name \
+                or "add_time_first" in graph.node[i].name:
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
-
-        for i in range(len(graph.input)):
-            if i == 0 and args.USE_EMBEDDING and graph.input[i].type.tensor_type.elem_type != 1:
-                continue
-            encodings_dict['activation_encodings'][graph.input[i].name] = [{"bitwidth": 32, "dtype": "float"}]
-        for i in range(len(graph.output)):
-            encodings_dict['activation_encodings'][graph.output[i].name] = [{"bitwidth": 32, "dtype": "float"}]
 
         return encodings_dict
 
@@ -129,6 +117,32 @@ if type(model) == list:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         print(converter_cmd)
         os.system(converter_cmd)
+        # Set state{id}_in to have the same encoding as state{id}_out
+        with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "r") as f:
+            cpp_lines = f.readlines()
+        
+        for state_id in range(3*model[i].layer_begin, 3*model[i].layer_end):
+            for j in range(len(cpp_lines)):
+                if f'.name= "state{state_id}_out",' in cpp_lines[j]:
+                    addTensor_line_idx = j
+                    break
+            for j in range(addTensor_line_idx, addTensor_line_idx + 100):
+                if 'scaleOffsetEncoding' in cpp_lines[j]:
+                    state_out_encoding = cpp_lines[j]
+                    break
+
+            for j in range(len(cpp_lines)):
+                if f'"state{state_id}_in"' in cpp_lines[j] and 'model.addTensor' in cpp_lines[j]:
+                    addTensor_line_idx = j
+                    break
+            for j in range(addTensor_line_idx, addTensor_line_idx + 100):
+                if 'scaleOffsetEncoding' in cpp_lines[j]:
+                    cpp_lines[j] = state_out_encoding
+                    break
+
+        with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "w") as f:
+            f.writelines(cpp_lines)
+
         print("Compiling QNN model library...")
         compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
         os.system(compiling_cmd)
