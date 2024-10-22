@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
     for (auto dim : shape) {
         elemcount *= dim;
     }
+    std::cout << "Output elemcount:" << elemcount << std::endl;
 
     std::vector<float> output(elemcount);
 
@@ -110,7 +111,6 @@ int main(int argc, char **argv) {
         bool correct = true;
         float logits_val = 0;
         for (auto token_id : prompt_ids) {
-            QnnRwkvCopyStatesInPlace(backend);
             if (QnnRwkvExecute(backend, token_id) != StatusCode::SUCCESS) {
                 std::cerr << "QnnRwkvExecute failed" << std::endl;
                 return EXIT_FAILURE;
@@ -127,7 +127,6 @@ int main(int argc, char **argv) {
             }
             std::cout << tokenizer.Decode(output_id);
 
-            QnnRwkvCopyStatesInPlace(backend);
             if (QnnRwkvExecute(backend, target_ids[i]) != StatusCode::SUCCESS) {
                 std::cerr << "QnnRwkvExecute failed" << std::endl;
                 return EXIT_FAILURE;
