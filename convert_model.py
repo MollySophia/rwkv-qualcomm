@@ -10,6 +10,7 @@ parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
 parser.add_argument('--use_qnn_quant', action='store_true', help='Use QNN quantization')
+parser.add_argument('--qnn_float_width', type=int, default=16, help='QNN float width')
 parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bitwidth')
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
@@ -45,11 +46,20 @@ def quant_override(model):
     def calc_quant_override(model, args):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
+        float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
         for i in range(len(graph.node)):
-            if "mul_time_decay" in graph.node[i].name \
-                or "add_time_first" in graph.node[i].name:
+            if "matmul_kv" in graph.node[i].name \
+                or "mul_time_decay" in graph.node[i].name \
+                or "add_time_decay1" in graph.node[i].name \
+                or "att_tanh1" in graph.node[i].name:
                 for j in graph.node[i].output:
-                    encodings_dict['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                    encodings_dict['activation_encodings'][j] = float_override
+            if "add_time_first" in graph.node[i].name:
+                for j in graph.node[i].input:
+                    if "state" in j:
+                        encodings_dict['activation_encodings'][j] = float_override
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = float_override
 
         return encodings_dict
 
@@ -112,7 +122,8 @@ if type(model) == list:
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)])
+        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)])
+        converter_cmd += ' --input_layout "in" NONTRIVIAL'
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         print(converter_cmd)
@@ -169,7 +180,7 @@ else:
     quant_override(model)
 
     print("Converting to QNN model...")
-    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw 32 " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model.args.n_layer)])
+    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{j}_in" NONTRIVIAL' for j in range(3*model.args.n_layer)])
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
     print(converter_cmd)
