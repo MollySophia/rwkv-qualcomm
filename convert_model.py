@@ -4,6 +4,8 @@ import os
 import torch
 import numpy as np
 import argparse
+import json
+import copy
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Convert model')
@@ -15,7 +17,24 @@ parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bit
 parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
+parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
+parser.add_argument('--att_w8', action='store_true', default=False, help='Override a16w8 for att, keep a16w4 for ffn')
 parser_args = parser.parse_args()
+
+# TODO: add more while keeping the precision
+if parser_args.linear_param_encodings:
+    if parser_args.att_w8:
+        quant_list = ["att.output", "ffn"]
+    else:
+        quant_list = ["att", "ffn"]
+
+    with open(parser_args.linear_param_encodings, "r") as f:
+        encodings = json.load(f)
+    linear_encodings_new = copy.deepcopy(encodings)
+    for k, v in encodings['param_encodings'].items():
+        if not any([x in k for x in quant_list]):
+            del linear_encodings_new['param_encodings'][k]
+    del encodings
 
 USE_QNN_QUANT = parser_args.use_qnn_quant
 ACT_BITWIDTH = parser_args.act_bitwidth
@@ -43,7 +62,7 @@ if not qnn_sdk_root:
 os.path.exists("onnx") or os.mkdir("onnx")
 
 def quant_override(model):
-    def calc_quant_override(model, args):
+    def calc_quant_override(model, layer_begin):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
@@ -61,6 +80,18 @@ def quant_override(model):
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
 
+        if parser_args.linear_param_encodings:
+            for k, v in linear_encodings_new['param_encodings'].items():
+                if not "ln" in k:
+                    k = k.replace(".", "/").replace("/weight", "").replace("blocks/", "/blocks.")
+                    encoding_block_id = int(k.split(".")[-1].split("/")[0])
+                    if encoding_block_id >= layer_begin:
+                        for i in range(len(graph.node)):
+                            if k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id - layer_begin}") in graph.node[i].name:
+                                print("Setting encoding for", k)
+                                print("onnx weight name:", graph.node[i].input[1])
+                                encodings_dict["param_encodings"][graph.node[i].input[1]] = v
+
         return encodings_dict
 
     args = model[0].args if type(model) == list else model.args
@@ -69,12 +100,12 @@ def quant_override(model):
     if type(model) == list:
         for i in range(len(model)):
             onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
-            encodings_dict = calc_quant_override(onnx_model, args)
+            encodings_dict = calc_quant_override(onnx_model, model[i].layer_begin)
             with open("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + "quant_override.json", 'w') as encoding_json:
                 json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
     else:
         onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-        encodings_dict = calc_quant_override(onnx_model, args)
+        encodings_dict = calc_quant_override(onnx_model, 0)
         with open("onnx/" + args.MODEL_NAME.split("/")[-1] + "_quant_override.json", 'w') as encoding_json:
             json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
 
