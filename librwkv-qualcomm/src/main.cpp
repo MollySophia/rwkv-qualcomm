@@ -10,22 +10,6 @@
 #include "librwkv-qualcomm.h"
 #include "tokenizer.h"
 
-std::vector<float> softmax(std::vector<float> in) {
-    std::vector<float> out(in);
-    int length = in.size();
-    float max_in = *std::max_element(in.begin(), in.end()), sum = 0;
-
-    for (int i = 0; i < length; i++) {
-        out[i] = std::exp(in[i] - max_in);
-        sum += out[i];
-    }
-
-    for (int i = 0; i < length; i++)
-        out[i] /= sum;
-
-    return out;
-}
-
 static int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
     temperature = std::max(temperature, 0.1f);
     temperature = std::min(temperature, 5.f);
