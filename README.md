@@ -3,7 +3,7 @@
 - Inference RWKV using QNN SDK, with Qualcomm CPU, GPU or HTP (Hexagon Tensor Processor) as the backend.
 - Support for whole-model float16 inference (since Qualcomm HTP cannot do float32 math).
 - Support for activation INT16 and weights INT8 quantized inference (with some key operations running with float16).
-- (Experimental) Support for activation INT16 and partial weights INT4 quantized inference. (Precision is yet to be improved)
+- Support for activation INT16 and weights INT4/INT8 mixed quantized inference.
 
 ## Prerequisites
 - Download and install the QNN SDK from the [Qualcomm Developer Network](https://developer.qualcomm.com/software/qualcomm-ai-engine-direct-sdk).
@@ -19,9 +19,26 @@
 
 ## Usage
 ### 1. Convert model weights to QNN model library file.
-Refer to: 
-- [QNN-only method](./docs/Legacy_convert.md): This method is good enough for fp16 and a16w8 models.
-- [AIMET method](./docs/Aimet_convert.md): This is for experimental a16w4 models. The precision is yet to be improved.
+
+#### Converting a FP16 model
+- `convert_model.py`: usage: convert_model.py [-h] [--chunks CHUNKS] [--use_qnn_quant] [--act_bitwidth ACT_BITWIDTH] [--weights_bitwidth WEIGHTS_BITWIDTH] [--ext_embedding] model
+- Convert the model: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 4`
+
+#### Converting an A16W8 model
+- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
+- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
+- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6`
+- The act_bitwidth and weights_bitwidth default to 16 and 8 respectively.
+- Note: Please keep the `chunks` parameter the same in both scripts.
+
+### Converting an A16W4 model
+- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
+- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
+- Convert the model file: `--linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings` (The quantization encodings are either from the pre-calculated ones in this repo, or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))
+- Some large Linear modules are quantized to 4-bit weights, while some are kept 8-bit for better accuracy.
+- Note: Please keep the `chunks` parameter the same in both scripts.
+
+The outputs will be in ``lib/`` directory. The model library contains weights, as well as the functions to prepare the graph. This can either be called on device using libraries in ``lib/aarch64-android/``, or be prepared on the x86 host machine using ``lib/x86_64-linux-clang/`` to generate an HTP context cache. Qualcomm HTP has a limitation on the size of the model library file, so the model will be split into multiple chunks.
 
 ### 2. Generate HTP context cache
 - `make_context_cache_binary.py`: usage: make_context_cache_binary.py [-h] model_lib output_path {SM8650,SM8550,SC8380}
@@ -58,49 +75,50 @@ $ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-202403
 - *TODO*
 
 #### Example output:
+``RWKV v6 1B6 A16W4``
 ```
-houji:/data/local/tmp/rwkv $ ./rwkv-qualcomm-demo b_rwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin                                                                                                        
+130|houji:/data/local/tmp/rwkv $ ./rwkv-qualcomm-demo b_rwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 Loading model context binary from RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
-Buffer size: 945721328
+Buffer size: 719802320
 Reading chunk: RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin
-Buffer size: 812641488
+Buffer size: 586727640
 User: 请为我写一首诗。
 
-Assistant: 好的，请问这首诗需要怎样的主题和格式？
+Assistant: 当然，请告诉我你喜欢什么类型的诗歌。
 
-User: 可以是一首关于爱情的诗，但不要太长。
+User: 请写一首描写秋天景色的诗。
 
-Assistant: 在欢欣中你漫步于我边，心中不停地想着我，我也不停地向着你靠近。爱情是一种令人陶醉的感觉，它让人无法抗拒。相爱是生命中最美好的时刻，有时候我们需要用生命去表达我们的爱。
+Assistant: 秋意渐浓，寒意渐深，
+大地已是金黄如火，
+落英纷飞，树影绰约，
+人心也随之变得清静。
+夜空中的繁星在闪闪，
+思念似要被所有握住，
+但又像是永不消散的孤注，
+在这个秋天里如此特别。
 
-User: 还可以再写一首吗？
+请问这首诗符合您需求吗？
 
-Assistant: 当然可以！您希望这首诗表达什么样的情感呢？
-
-User: 请为我写一首自然风景描写的诗歌。
-
-Assistant: 好的，请给我一些背景信息或者选定的景点名称。
-
-Average time per token: 0.0328688s
-Average tokens per second: 30.424
+Average time per token: 0.0235644s
+Average tokens per second: 42.4368
 ```
 
 ## Performance
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
-| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 41.1176 | TODO |
-| RWKV v6 1.6B | a16w8 | 30.5982| 4.75009,66.3497% |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 42.4368 | TODO |
+| RWKV v6 1.6B | a16w8 | 31.6564| 4.75009,66.3497% |
 | RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
 
-#### Obsolete data:
+#### Obsolete data in previous versions for comparison:
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
 | RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| 4.65837,66.7378% |
 | RWKV v6 1.6B | a16w8 | 26.0707| 4.59243,67.3006% |
 | RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
 | RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 17.3968 | 4.46606,68.8725% |
-(Needs to be updated)
 - RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
 - RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
