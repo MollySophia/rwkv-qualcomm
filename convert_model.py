@@ -18,16 +18,11 @@ parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bit
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
-parser.add_argument('--att_w8', action='store_true', default=False, help='Override a16w8 for att, keep a16w4 for ffn')
 parser_args = parser.parse_args()
 
 # TODO: add more while keeping the precision
 if parser_args.linear_param_encodings:
-    if parser_args.att_w8:
-        quant_list = ["att.output", "ffn"]
-    else:
-        quant_list = ["att", "ffn"]
-
+    quant_list = ["att.output", "ffn"]
     with open(parser_args.linear_param_encodings, "r") as f:
         encodings = json.load(f)
     linear_encodings_new = copy.deepcopy(encodings)
@@ -66,19 +61,35 @@ def quant_override(model):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
+        act_int_override = [{"bitwidth": 16, "dtype": "int"}]
         for i in range(len(graph.node)):
             if "matmul_kv" in graph.node[i].name \
                 or "mul_time_decay" in graph.node[i].name \
                 or "add_time_decay1" in graph.node[i].name \
-                or "att_tanh1" in graph.node[i].name:
+                or "ln" in graph.node[i].name:
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
+                if "ln" in graph.node[i].name:
+                    for j in graph.node[i].input:
+                        encodings_dict['activation_encodings'][j] = float_override
             if "add_time_first" in graph.node[i].name:
                 for j in graph.node[i].input:
                     if "state" in j:
                         encodings_dict['activation_encodings'][j] = float_override
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
+
+            # a16w8 head
+            if "head" in graph.node[i].name:
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = act_int_override
+
+        for i in range(len(graph.input)):
+            if (graph.input[i].type.tensor_type.elem_type == 1):
+                encodings_dict['activation_encodings'][graph.input[i].name] = float_override
+        for i in range(len(graph.output)):
+            if not graph.output[i].name in encodings_dict['activation_encodings']:
+                encodings_dict['activation_encodings'][graph.output[i].name] = float_override
 
         if parser_args.linear_param_encodings:
             for k, v in linear_encodings_new['param_encodings'].items():
@@ -160,30 +171,30 @@ if type(model) == list:
         print(converter_cmd)
         os.system(converter_cmd)
         # Set state{id}_in to have the same encoding as state{id}_out
-        with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "r") as f:
-            cpp_lines = f.readlines()
+        # with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "r") as f:
+        #     cpp_lines = f.readlines()
         
-        for state_id in range(3*model[i].layer_begin, 3*model[i].layer_end):
-            for j in range(len(cpp_lines)):
-                if f'.name= "state{state_id}_out",' in cpp_lines[j]:
-                    addTensor_line_idx = j
-                    break
-            for j in range(addTensor_line_idx, addTensor_line_idx + 100):
-                if 'scaleOffsetEncoding' in cpp_lines[j]:
-                    state_out_encoding = cpp_lines[j]
-                    break
+        # for state_id in range(3*model[i].layer_begin, 3*model[i].layer_end):
+        #     for j in range(len(cpp_lines)):
+        #         if f'.name= "state{state_id}_out",' in cpp_lines[j]:
+        #             addTensor_line_idx = j
+        #             break
+        #     for j in range(addTensor_line_idx, addTensor_line_idx + 100):
+        #         if 'scaleOffsetEncoding' in cpp_lines[j]:
+        #             state_out_encoding = cpp_lines[j]
+        #             break
 
-            for j in range(len(cpp_lines)):
-                if f'"state{state_id}_in"' in cpp_lines[j] and 'model.addTensor' in cpp_lines[j]:
-                    addTensor_line_idx = j
-                    break
-            for j in range(addTensor_line_idx, addTensor_line_idx + 100):
-                if 'scaleOffsetEncoding' in cpp_lines[j]:
-                    cpp_lines[j] = state_out_encoding
-                    break
+        #     for j in range(len(cpp_lines)):
+        #         if f'"state{state_id}_in"' in cpp_lines[j] and 'model.addTensor' in cpp_lines[j]:
+        #             addTensor_line_idx = j
+        #             break
+        #     for j in range(addTensor_line_idx, addTensor_line_idx + 100):
+        #         if 'scaleOffsetEncoding' in cpp_lines[j]:
+        #             cpp_lines[j] = state_out_encoding
+        #             break
 
-        with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "w") as f:
-            f.writelines(cpp_lines)
+        # with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "w") as f:
+        #     f.writelines(cpp_lines)
 
         print("Compiling QNN model library...")
         compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
