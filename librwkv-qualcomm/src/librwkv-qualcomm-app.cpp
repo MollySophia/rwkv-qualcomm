@@ -873,6 +873,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
       setQnnTensorClientBuf(&m_inputTensors[graph_id][0], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]));
       setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1], tmp);
     }
+    std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
     auto executeStatus =
         m_qnnFunctionPointers.qnnInterface.graphExecute(graphInfo.graph,
                                                         m_inputTensors[graph_id],
@@ -881,6 +882,12 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
                                                         graphInfo.numOutputTensors,
                                                         m_profileBackendHandle,
                                                         nullptr);
+    std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
+    if (!graph_id)
+      m_lastInferenceTime = std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
+    else
+      m_lastInferenceTime += std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
+
     if (QNN_GRAPH_NO_ERROR != executeStatus) {
       returnStatus = StatusCode::FAILURE;
     }

@@ -440,6 +440,14 @@ StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token) {
     return StatusCode::SUCCESS;
 }
 
+double QnnRwkvGetLastInferenceTime(QnnRwkvBackend_t backend) {
+    if (!backend) {
+        return -1;
+    }
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    return app->m_lastInferenceTime.count();
+}
+
 StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     if (!app->m_inferenced)

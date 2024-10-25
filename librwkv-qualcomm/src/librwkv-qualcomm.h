@@ -36,6 +36,8 @@ StatusCode QnnRwkvGetOutputShape(QnnRwkvBackend_t backend, int outputIdx, std::v
 
 StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
 
+double QnnRwkvGetLastInferenceTime(QnnRwkvBackend_t backend);
+
 StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
 
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);

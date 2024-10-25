@@ -129,6 +129,8 @@ class QnnRwkvApp {
   Qnn_LogHandle_t m_logHandle         = nullptr;
   Qnn_BackendHandle_t m_backendHandle = nullptr;
   Qnn_DeviceHandle_t m_deviceHandle   = nullptr;
+
+  std::chrono::duration<double> m_lastInferenceTime;
 };
 }  // namespace rwkv_app
 }  // namespace tools

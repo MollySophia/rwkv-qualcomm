@@ -126,59 +126,57 @@ int main(int argc, char** argv) {
 
   std::vector<float> logits(elemcount);
 
-  // QnnRwkvResetStates(backend);
-
   std::map<int, float> occurences;
-  std::chrono::duration<double> duration_invoke;
-  int token_num = 0;
+  std::vector<double> inference_durations;
   std::string prompt = "User: 请为我写一首诗。\n\nAssistant:";
   srand((unsigned)time(NULL));
 
   const float presence_penalty = 0.4;
   const float freq_penalty = 0.4;
   const float penalty_decay = 0.996;
+  const float temperature = 0.7;
+  const int top_k = 128;
+  const float top_p = 0.9;
 
   std::vector<int> prompt_ids = tokenizer.Encode(prompt);
   for (auto token_id : prompt_ids) {
-    std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
     if (QnnRwkvExecute(backend, token_id) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
     }
-    std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
-    duration_invoke += std::chrono::duration_cast<std::chrono::duration<double>>(infer_end - infer_start);
-    token_num++;
+    inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
   }
 
   QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, logits.data(), logits.size());
 
-  int token = sample_logits(logits.data(), logits.size(), 0.7, 128, 0.9);
+  int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
   std::cout << prompt;
   for (int i = 0; i < 300; i++) {
     std::cout << tokenizer.Decode(token);
-    std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
     if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
     }
     QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, logits.data(), logits.size());
-    std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
-    duration_invoke += std::chrono::duration_cast<std::chrono::duration<double>>(infer_end - infer_start);
-    token_num++;
+    inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
     for (auto &x : occurences) {
       logits[x.first] -=
           freq_penalty * x.second + presence_penalty;
       x.second *= penalty_decay;
     }
 
-    token = sample_logits(logits.data(), logits.size(), 0.7, 128, 0.9);
+    token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
 
     occurences[token]++;
   }
   std::cout << std::endl;
 
-  std::cout << "Average time per token: " << duration_invoke.count() / token_num << "s" << std::endl;
-  std::cout << "Average tokens per second: " << token_num / duration_invoke.count() << std::endl;
+  double duration_invoke = 0;
+  for (auto duration : inference_durations) {
+    duration_invoke += duration;
+  }
+  std::cout << "Average time per token: " << duration_invoke / inference_durations.size() << "s" << std::endl;
+  std::cout << "Average tokens per second: " << inference_durations.size() / duration_invoke << std::endl;
 
   return EXIT_SUCCESS;
 }
