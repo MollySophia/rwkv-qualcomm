@@ -14,11 +14,15 @@ import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
 
-def sample_logits(out, temperature=1.0, top_p=0.8):
+def sample_logits(out, temperature=1.0, top_p=0.8, top_k=128):
     probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
+    if top_k == 0:
+        return np.argmax(probs)
     sorted_probs = np.sort(probs)[::-1]
     cumulative_probs = np.cumsum(sorted_probs)
     cutoff = float(sorted_probs[np.argmax(cumulative_probs > top_p)])
+    probs[probs < cutoff] = 0
+    cutoff = sorted_probs[top_k]
     probs[probs < cutoff] = 0
     if temperature != 1.0:
         probs = torch.tensor(probs).pow(1.0 / temperature).numpy()
@@ -155,7 +159,7 @@ class RWKV_RNN(torch.nn.Module):
             return x, state
 
 iteration_count = 0
-def run_prompt(model, context, length=150, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8):
+def run_prompt(model, context, length=150, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8, TOP_K=128):
     global iteration_count
     if iteration_count == 0 and generate_samples:
         not os.path.exists(os.path.join(samples_output, "input_list.txt")) or os.remove(os.path.join(samples_output, "input_list.txt"))
@@ -250,7 +254,7 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 logits[n] -= (0 + occurrence[n] * 0.5)
             logits[0] += (i - 2000) / 500
             logits[127] -= 1
-        token = sample_logits(logits, TEMPERATURE, TOP_P)
+        token = sample_logits(logits, TEMPERATURE, TOP_P, TOP_K)
         if 'MIDI' in args.MODEL_NAME:
             for n in occurrence: occurrence[n] *= 0.997 #### decay repetition penalty
             if token >= 128 or token == 127:
