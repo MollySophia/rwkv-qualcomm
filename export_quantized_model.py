@@ -165,27 +165,29 @@ else:
 
     if args_parser.calib_data_path is not None:
         graph = model.graph
+        float_override = [{"bitwidth": 16, "dtype": "float"}]
+        act_int_override = [{"bitwidth": 16, "dtype": "int"}]
         for i in range(len(graph.node)):
             if "matmul_kv" in graph.node[i].name \
                 or "mul_time_decay" in graph.node[i].name \
-                or "add_time_first" in graph.node[i].name:
-                for j in graph.node[i].input:
-                    if not ("Constant" in j or "Split" in j):
-                        encodings['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                or "add_time_decay1" in graph.node[i].name \
+                or "ln" in graph.node[i].name:
                 for j in graph.node[i].output:
-                    encodings['activation_encodings'][j] = [{"bitwidth": 32, "dtype": "float"}]
+                    encodings['activation_encodings'][j] = float_override
+                if "ln" in graph.node[i].name:
+                    for j in graph.node[i].input:
+                        encodings['activation_encodings'][j] = float_override
+            if "add_time_first" in graph.node[i].name:
+                for j in graph.node[i].input:
+                    if "state" in j:
+                        encodings['activation_encodings'][j] = float_override
+                for j in graph.node[i].output:
+                    encodings['activation_encodings'][j] = float_override
 
-        for i in range(len(graph.input)):
-            if i == 0 and graph.input[i].type.tensor_type.elem_type != 1:
-                continue
-            encodings['activation_encodings'][graph.input[i].name] = [{"bitwidth": 32, "dtype": "float"}]
-        for i in range(len(graph.output)):
-            encodings['activation_encodings'][graph.output[i].name] = [{"bitwidth": 32, "dtype": "float"}]
-
-    keys = copy.copy(list(encodings['activation_encodings'].keys()))
-    for k in keys:
-        if "state" in k and "in" in k:
-            encodings['activation_encodings'][k.replace("_in", "_out")] = copy.deepcopy(encodings['activation_encodings'][k])
+            # a16w8 head
+            if "head" in graph.node[i].name:
+                for j in graph.node[i].output:
+                    encodings['activation_encodings'][j] = act_int_override
 
     with open(onnx_path.replace('.onnx', '.encodings'), "w") as f:
         json.dump(encodings, f, indent=4)
@@ -216,7 +218,7 @@ else:
         cmd = [f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter"]
         cmd += ["-i", onnx_file]
         cmd += ["--act_bitwidth", "16"]
-        cmd += ["--bias_bitwidth", "32"]
+        cmd += ["--bias_bitwidth", "8"]
         cmd += ["--float_bitwidth", "32"]
         cmd += ["--quantization_overrides", onnx_path.replace('.onnx', '.encodings')]
         if args_parser.calib_data_path is not None:
