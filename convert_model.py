@@ -155,12 +155,13 @@ if type(model) == list:
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
         if args.wkv_customop:
-            def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay, scale):
-                out1, out2 = g.op("rwkv::custom_wkv", k, v, r, state2, time_first, time_decay, scale, outputs=2)
-                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([args.n_head, 1, args.head_size])),\
+            op_name = "rwkv::wkv_chunk" if parser_args.prefill_model else "rwkv::wkv"
+            def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay):
+                out1, out2 = g.op(op_name, k, v, r, state2, time_first, time_decay, outputs=2)
+                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([seq_length, args.n_head, 1, args.head_size])),\
                  out2.setType(k.type().with_dtype(torch.float32).with_sizes([args.n_head, args.head_size, args.head_size]))
             from torch.onnx import register_custom_op_symbolic
-            register_custom_op_symbolic('rwkv::custom_wkv', onnx_custom_wkv, 9)
+            register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
 
         torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
         print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")

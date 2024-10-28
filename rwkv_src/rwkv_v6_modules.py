@@ -4,15 +4,14 @@ import torch.nn.functional as F
 import rwkv_src.elemwise_ops as op
 
 class Rwkv6SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, use_conv=False):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
         self.num_heads = hidden_size // head_size
         self.head_size = head_size
         self.hidden_size = hidden_size
-
-        self.use_conv = use_conv
+        self.custom_wkv = custom_wkv
 
         self.TIME_MIX_EXTRA_DIM = 64 if hidden_size == 4096 else 32
         self.TIME_DECAY_EXTRA_DIM = 128 if hidden_size == 4096 else 64
@@ -24,24 +23,14 @@ class Rwkv6SelfAttention(nn.Module):
         self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].view(self.num_heads, 1, self.head_size))
         self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, 1, self.head_size))
 
-        if use_conv:
-            self.receptance = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
-            self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'].view(hidden_size, hidden_size, 1, 1))
-            self.key = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
-            self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(hidden_size, hidden_size, 1, 1) / 2)
-            self.value = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
-            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, hidden_size, 1, 1) / 4)
-            self.gate = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
-            self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'].view(hidden_size, hidden_size, 1, 1))
-        else:
-            self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
-            self.key = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'] / 2)
-            self.value = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'] / 4)
-            self.gate = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'])
+        self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
+        self.key = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'] / 2)
+        self.value = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'] / 4)
+        self.gate = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.gate.weight = nn.Parameter(state_dict[prefix + 'gate.weight'])
 
         self.matmul_time_maa_w1     = nn.Linear(hidden_size, self.TIME_MIX_EXTRA_DIM*5, bias=False)
         self.matmul_time_maa_w1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w1'].t())
@@ -94,6 +83,14 @@ class Rwkv6SelfAttention(nn.Module):
         self.exp1                   = op.Exponential()
         self.neg                    = op.Neg()
         self.add_attention          = op.Add()
+
+        if custom_wkv:
+            # dummy customop for adding the onnx nodes
+            from rwkv_src.wkv_custom import wkv_c_impl_src
+            module = torch.utils.cpp_extension.load_inline(
+                    name='extension', cpp_sources=[wkv_c_impl_src])
+            self.wkv_func = torch.ops.rwkv.wkv
+            self.wkv_chunk_func = torch.ops.rwkv.wkv_chunk
     
     def forward(self, x, state1, state2):
         last_x = x
@@ -129,23 +126,29 @@ class Rwkv6SelfAttention(nn.Module):
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
-        # kv = self.matmul_kv(key, value)
-        kv = self.matmul_kv(value, key)
-        if seq_length == 1:
-            wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
-            wkv = self.matmul_rkv(wkv, receptance).view(self.num_heads, 1, self.head_size)
-            state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
+        if self.custom_wkv and self.wkv_func is not None and self.wkv_chunk_func is not None:
+            if seq_length == 1:
+                wkv, state2_out = self.wkv_func(key, value, receptance, state2, self.time_first, time_decay)
+            else:
+                wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, self.time_first, time_decay)
         else:
-            kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
-            receptance = receptance.view(seq_length, self.num_heads, self.head_size, 1)
-            time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
-            wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device)
-            for i in range(seq_length):
-                tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
-                wkv[i, :, :, :] = self.matmul_rkv(tmp, receptance[i, :, :, :])
-                state2 = self.add_time_decay1(kv[i, :, :, :], self.mul_time_decay(state2, time_decay[i, :, :, :]))
-            state2_out = state2
-            wkv = wkv.view(seq_length, self.num_heads, 1, self.head_size)
+            # kv = self.matmul_kv(key, value)
+            kv = self.matmul_kv(value, key)
+            if seq_length == 1:
+                wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
+                wkv = self.matmul_rkv(wkv, receptance).view(self.num_heads, 1, self.head_size)
+                state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
+            else:
+                kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
+                receptance = receptance.view(seq_length, self.num_heads, self.head_size, 1)
+                time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
+                wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device)
+                for i in range(seq_length):
+                    tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
+                    wkv[i, :, :, :] = self.matmul_rkv(tmp, receptance[i, :, :, :])
+                    state2 = self.add_time_decay1(kv[i, :, :, :], self.mul_time_decay(state2, time_decay[i, :, :, :]))
+                state2_out = state2
+                wkv = wkv.view(seq_length, self.num_heads, 1, self.head_size)
 
         x = self.ln_x(wkv).view(batch_size, seq_length, self.hidden_size)
 
@@ -157,7 +160,7 @@ class Rwkv6SelfAttention(nn.Module):
         return self.add_attention(last_x, x), state1_out, state2_out
 
 class Rwkv6FeedForward(nn.Module):
-    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0, use_conv=False):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, rescale_layer=0):
         super().__init__()
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id

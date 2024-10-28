@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpDefCollection
+     PackageName="RwkvWkvOpPackage"
+     Domain="aisw"
+     Version="1.0"
+>
+    <OpDefList>
+
+        <OpDef>
+            <Name>wkv</Name>
+            <Description>
+                <Content>
+                </Content>
+            </Description>
+
+            <Reference Source=""
+                        Url=""/>
+
+            <Input>
+                <Name>k</Name>
+                <Description>
+                    <Content>k</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>v</Name>
+                <Description>
+                    <Content>v</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>r</Name>
+                <Description>
+                    <Content>r</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>state_in</Name>
+                <Description>
+                    <Content>state_in</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>td</Name>
+                <Description>
+                    <Content>td</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Output>
+                <Name>output</Name>
+                <Description>
+                    <Content>output</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <Output>
+                <Name>state_out</Name>
+                <Description>
+                    <Content>state_out</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <Parameter>
+                <Name>tf</Name>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Parameter>
+
+            <!--This Op is implemented on these Backends-->
+            <SupportedBackend>HTP</SupportedBackend>
+        </OpDef>
+
+    </OpDefList>
+
+</OpDefCollection>
