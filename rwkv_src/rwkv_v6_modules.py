@@ -21,8 +21,8 @@ class Rwkv6SelfAttention(nn.Module):
         maa = torch.cat([state_dict[prefix + f'time_maa_{i}'].view(1, 1, -1) for i in ['w', 'k', 'v', 'r', 'g']], dim=0)
         self.time_maa = nn.Parameter(maa)
 
-        self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].reshape(self.num_heads, self.head_size, 1))
-        self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1))
+        self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].view(self.num_heads, 1, self.head_size))
+        self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, 1, self.head_size))
 
         if use_conv:
             self.receptance = nn.Conv2d(hidden_size, hidden_size, 1, bias=False)
@@ -125,14 +125,14 @@ class Rwkv6SelfAttention(nn.Module):
 
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
         time_decay = self.matmul_time_decay_w2(mw)
-        time_decay = self.add_time_decay0(self.time_decay.permute(0, 2, 1), time_decay.view(seq_length, self.num_heads, 1, self.head_size))
+        time_decay = self.add_time_decay0(self.time_decay, time_decay.view(seq_length, self.num_heads, 1, self.head_size))
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
         # kv = self.matmul_kv(key, value)
         kv = self.matmul_kv(value, key)
         if seq_length == 1:
-            wkv = self.add_time_first(self.mul_time_first(kv, self.time_first.permute(0, 2, 1)), state2)
+            wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
             wkv = self.matmul_rkv(wkv, receptance).view(self.num_heads, 1, self.head_size)
             state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
         else:
@@ -141,7 +141,7 @@ class Rwkv6SelfAttention(nn.Module):
             time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
             wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device)
             for i in range(seq_length):
-                tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first.permute(0, 2, 1)), state2)
+                tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
                 wkv[i, :, :, :] = self.matmul_rkv(tmp, receptance[i, :, :, :])
                 state2 = self.add_time_decay1(kv[i, :, :, :], self.mul_time_decay(state2, time_decay[i, :, :, :]))
             state2_out = state2

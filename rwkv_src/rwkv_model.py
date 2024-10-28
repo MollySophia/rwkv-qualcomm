@@ -159,7 +159,7 @@ class RWKV_RNN(torch.nn.Module):
             return x, state
 
 iteration_count = 0
-def run_prompt(model, context, length=150, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8, TOP_K=128):
+def run_prompt(model, context, length=150, seq_length=1, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8, TOP_K=128):
     global iteration_count
     if iteration_count == 0 and generate_samples:
         not os.path.exists(os.path.join(samples_output, "input_list.txt")) or os.remove(os.path.join(samples_output, "input_list.txt"))
@@ -203,14 +203,20 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
         if generate_samples:
             input_list_lines = [[] for i in range(chunks)]
 
-    iterator = encode(tokenizer, context) if length != 0 else tqdm(encode(tokenizer, context))
+    prompt_ids = encode(tokenizer, context)
+    if length != 0:
+        iterator = [prompt_ids[i:i+seq_length] for i in range(0, len(prompt_ids), seq_length)]
+    else:
+        prompt_ids = prompt_ids[:(len(prompt_ids)//seq_length * seq_length)]
+        prompt_ids = [prompt_ids[i:i+seq_length] for i in range(0, len(prompt_ids), seq_length)]
+        iterator = tqdm(prompt_ids)
     for token in iterator:
         if chunks > 0:
             for i in range(chunks):
                 if args.USE_EMBEDDING:
-                    in0 = torch.LongTensor([[token]]) if i == 0 else logits
+                    in0 = torch.LongTensor([token]) if i == 0 else logits
                 else:
-                    in0 = model[0].emb_weight[token].view(1, 1, -1) if i == 0 else logits
+                    in0 = model[0].emb_weight[token].view(1, seq_length, -1) if i == 0 else logits
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
                 inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
@@ -229,9 +235,9 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
                 iteration_count += 1
         else:
             if args.USE_EMBEDDING:
-                in0 = torch.LongTensor([[token]])
+                in0 = torch.LongTensor([token])
             else:
-                in0 = model.emb_weight[token].view(1, 1, -1)
+                in0 = model.emb_weight[token].view(1, seq_length, -1)
             if device is not torch.device('cpu'):
                 in0 = in0.to(device)
             inputs = {'in0': in0, 'state': states}
@@ -313,10 +319,10 @@ def run_prompt(model, context, length=150, generate_samples=False, samples_outpu
     if generate_samples:
         if chunks > 0:
             for i in range(chunks):
-                with open(f"{samples_output}/input_list_chunk{i}.txt", "w") as f:
+                with open(f"{samples_output}/input_list_chunk{i}.txt", "a") as f:
                     f.writelines(input_list_lines[i])
         else:
-            with open(f"{samples_output}/input_list.txt", "w") as f:
+            with open(f"{samples_output}/input_list.txt", "a") as f:
                 f.writelines(input_list_lines)
 
 def make_chunks(chunks, args):

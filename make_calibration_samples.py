@@ -15,7 +15,10 @@ def main():
     parser.add_argument('output', type=Path, help='Path to output folder')
     parser.add_argument('chunks', type=int, help='Number of chunks')
     parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
+    parser.add_argument('--prefill', action='store_true', default=False, help='Prefill model')
     args = parser.parse_args()
+
+    seq_length = 32 if args.prefill else 1
 
     model_args = types.SimpleNamespace()
     model_args.USE_CUDA = torch.cuda.is_available()
@@ -32,7 +35,8 @@ def main():
 
     dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
     print("dataset len:", len(dataset['text']))
-    run_prompt(model, ''.join(dataset['text'][:20]), tokenizer=tokenizer, length=0, generate_samples=True, samples_output=str(args.output))
+    for i in range(20):
+        run_prompt(model, dataset['text'][i], tokenizer=tokenizer, length=0, seq_length=seq_length, generate_samples=True, samples_output=str(args.output))
 
 if __name__ == '__main__':
     main()

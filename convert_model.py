@@ -18,7 +18,10 @@ parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bit
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
+parser.add_argument('--prefill_model', action='store_true', help='Convert model for sequential prefill')
 parser_args = parser.parse_args()
+
+seq_length = 32 if parser_args.prefill_model else 1
 
 # TODO: add more while keeping the precision
 if parser_args.linear_param_encodings:
@@ -49,6 +52,9 @@ else:
     model_args.RESCALE_LAYER = 6
 
 model = make_chunks(parser_args.chunks, model_args) if parser_args.chunks > 1 else RWKV_RNN(model_args)
+
+if parser_args.prefill_model:
+    model_args.MODEL_NAME = model_args.MODEL_NAME + "_prefill"
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
@@ -137,10 +143,11 @@ if type(model) == list:
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        if i == 0:
-            in0 = torch.LongTensor([[1]]) if args.USE_EMBEDDING else model[0].emb_weight[0].view(1, 1, -1)
+        if i == 0 and args.USE_EMBEDDING:
+            in0 = torch.LongTensor([[1]*seq_length])
         else:
-            in0 = torch.zeros(1, 1, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
+            in0 = torch.zeros(1, seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
+
         if model[0].device is not torch.device('cpu'):
             in0 = in0.to(model[0].device)
         inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
@@ -205,7 +212,7 @@ else:
         model.emb_weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
     args = model.args
     fp16 = args.fp16
-    in0 = [torch.LongTensor([[1]])] if args.USE_EMBEDDING else [model.emb_weight[0].view(1, 1, -1)]
+    in0 = [torch.LongTensor([[1]*seq_length])] if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)]
     states = []
     for i in range(model.args.n_layer):
         states.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
