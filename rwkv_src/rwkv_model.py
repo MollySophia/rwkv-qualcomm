@@ -120,13 +120,13 @@ class RWKV_RNN(torch.nn.Module):
         self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
         self.head.weight = nn.Parameter(w['head.weight'])
 
-        if self.gpu:
-            self.to(self.device)
-        
         if self.args.fp16:
             self.half()
         else:
             self.float()
+
+        if self.gpu:
+            self.to(self.device)
 
     def forward(self, in0, state: List[torch.Tensor]):
         with torch.no_grad():

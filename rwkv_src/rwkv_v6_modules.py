@@ -142,7 +142,7 @@ class Rwkv6SelfAttention(nn.Module):
                 kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
                 receptance = receptance.view(seq_length, self.num_heads, self.head_size, 1)
                 time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
-                wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device)
+                wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device, dtype=kv.dtype)
                 for i in range(seq_length):
                     tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
                     wkv[i, :, :, :] = self.matmul_rkv(tmp, receptance[i, :, :, :])

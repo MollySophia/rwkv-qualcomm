@@ -63,32 +63,37 @@ class ActMSEQuantizer(LLMQuantizer):
                     args.per_device_calib_batch_size,
                     args.block_size,
                     model.args.n_embd,
-                ), device=model.device,
+                ), device=torch.device('cpu'),
             )
             blocks[0] = InputCatcher(blocks[0], cache, block_inputs)
             for batch in batch_data:
                 try:
                     state = get_dummy_state_kvcache(1, model.args, model.device)
-                    input = {'in0': batch['input_ids'], 'state': state}
+                    input = {'in0': batch['input_ids'].to('cpu'), 'state': state}
                     model(**input)
                 except ValueError:
                     pass
             blocks[0] = blocks[0].module
             return cache, block_inputs
 
-        device = self.quant_sim.model.device
-        self.quant_sim.model = self.quant_sim.model.to(device)
-        _, qt_inputs = get_block_inputs(qt_blocks, self.quant_sim.model)
-        self.quant_sim.model= self.quant_sim.model.to("cpu")
+        self.model.fp16 = False
+        self.quant_sim.model.fp16 = False
 
-        self.model = self.model.to(device)
+        device = self.quant_sim.model.device
+        self.quant_sim.model = self.quant_sim.model.to("cpu").float()
+        _, qt_inputs = get_block_inputs(qt_blocks, self.quant_sim.model)
+        qt_inputs = qt_inputs.to(device)
+
+        self.model = self.model.to("cpu").float()
         cache, fp_inputs = get_block_inputs(fp_blocks, self.model)
-        self.model = self.model.to("cpu")
+        fp_inputs = fp_inputs.to(device)
 
         del batch_data
         torch.cuda.empty_cache()
 
         state = cache["state"]
+        for s in state:
+            s.to(device)
         fp_outputs, qt_outputs = torch.zeros_like(fp_inputs), torch.zeros_like(qt_inputs)
 
         for block_idx in range(len(qt_blocks)):
@@ -168,7 +173,7 @@ class ActMSEQuantizer(LLMQuantizer):
             print(f"block optimization took {t_block} seconds...")
 
         del self.model
-        self.quant_sim.model.to(device)
+        self.quant_sim.model.half().to("cpu")
         self.model = self.quant_sim.model
 
 
