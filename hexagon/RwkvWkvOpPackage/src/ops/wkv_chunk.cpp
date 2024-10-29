@@ -10,29 +10,29 @@
 #include "HTP/core/simple_reg.h"
 
 
-BEGIN_PKG_OP_DEFINITION(PKG_wkv);
+BEGIN_PKG_OP_DEFINITION(PKG_wkv_chunk);
 
 
 // op execute function declarations
 template<typename TensorType>
-GraphStatus wkvImpl(TensorType& out_0,
-                     TensorType& out_1,
-                    const TensorType& k,
-                    const TensorType& v,
-                    const TensorType& r,
-                    const TensorType& in_3,
-                    const TensorType& tf,
-                    const TensorType& td);
+GraphStatus wkv_chunkImpl(TensorType& out_0,
+                           TensorType& out_1,
+                          const TensorType& k,
+                          const TensorType& v,
+                          const TensorType& r,
+                          const TensorType& in_3,
+                          const TensorType& tf,
+                          const TensorType& td);
 
 // forward declaration of sample cost function
-static float wkvCostFunc(const Op *op);
+static float wkv_chunkCostFunc(const Op *op);
 
 /*
  * method 1 for defining op, using default cost value (i.e. GLACIAL) and default flag (Flags::RESOURCE_HVX)
  * syntax: DEF_PACKAGE_OP(F,OP)
- * e.g. DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
+ * e.g. DEF_PACKAGE_OP((wkv_chunkImpl<Tensor>), "wkv_chunk")
  */
-DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
+DEF_PACKAGE_OP((wkv_chunkImpl<Tensor>), "wkv_chunk")
 
 /*
  * method 2 for defining op with specified cost value (one of GLACIAL, SNAIL, FAST, FREE)
@@ -40,15 +40,15 @@ DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
  * syntax: DEF_PACKAGE_OP_AND_COST_AND_FLAGS(F,OP,COST,...)
  * can use zero or more flags, FLAG options are IS_CONST, INHIBIT_CONST_PROP,
  * RESOURCE_HVX, RESOURCE_HMX(not supported in external op packages)
- * e.g. DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkvImpl<PlainFloatTensor>), "wkv", SNAIL)
+ * e.g. DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv_chunkImpl<PlainFloatTensor>), "wkv_chunk", SNAIL)
  */
 
 /*
  * method 3 for defining op with cost function pointer and provided flags
  * cost function pointer type: typedef float (*cost_function) (const Op * op);
  * syntax: DEF_PACKAGE_OP_AND_COST_F_AND_FLAGS(F,OP,COST_F,...)
- * e.g. DEF_PACKAGE_OP_AND_COST_F_AND_FLAGS((wkvImpl<PlainFloatTensor>),
- * "wkv", wkvCostFunc, Flags::RESOURCE_HVX)
+ * e.g. DEF_PACKAGE_OP_AND_COST_F_AND_FLAGS((wkv_chunkImpl<PlainFloatTensor>),
+ * "wkv_chunk", wkv_chunkCostFunc, Flags::RESOURCE_HVX)
  */
 
 /*
@@ -89,14 +89,14 @@ DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
 /* execute functions for ops */
 
 template<typename TensorType>
-GraphStatus wkvImpl(TensorType& out_0,
-                     TensorType& out_1,
-                    const TensorType& k,
-                    const TensorType& v,
-                    const TensorType& r,
-                    const TensorType& in_3,
-                    const TensorType& tf,
-                    const TensorType& td)
+GraphStatus wkv_chunkImpl(TensorType& out_0,
+                           TensorType& out_1,
+                          const TensorType& k,
+                          const TensorType& v,
+                          const TensorType& r,
+                          const TensorType& in_3,
+                          const TensorType& tf,
+                          const TensorType& td)
 
 {
   /*
@@ -114,7 +114,7 @@ GraphStatus wkvImpl(TensorType& out_0,
   return GraphStatus::Success;
 }
 
-__attribute__((unused)) static float wkvCostFunc(const Op *op)
+__attribute__((unused)) static float wkv_chunkCostFunc(const Op *op)
 {
   /*
    * add code here
@@ -131,4 +131,4 @@ __attribute__((unused)) static float wkvCostFunc(const Op *op)
 /* At the bottom of the op file, call END_PKG_OP_DEFINITION(<name>),
    where <name> is as BEGIN_PKG_OP_DEFINITION
 */
-END_PKG_OP_DEFINITION(PKG_wkv);
+END_PKG_OP_DEFINITION(PKG_wkv_chunk);

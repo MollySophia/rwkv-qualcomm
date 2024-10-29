@@ -20,13 +20,14 @@ BEGIN_PKG_OPS_OPTS_LIST()
  *  Append the latest OpName at the bottom
  */
 DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv)
+DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv_chunk)
 
 END_PKG_OPS_OPTS_LIST()
 
 // op package info
 static constexpr auto sg_packageName = THIS_PKG_NAME_STR;  // package name passed in as compile flag
 
-static std::array<const char*, 1> sg_opNames{{"wkv"}};
+static std::array<const char*, 2> sg_opNames{{"wkv", "wkv_chunk"}};
 
 static Qnn_ApiVersion_t sg_sdkApiVersion  = QNN_HTP_API_VERSION_INIT;
 static QnnOpPackage_Info_t sg_packageInfo = QNN_OP_PACKAGE_INFO_INIT;
@@ -211,7 +212,12 @@ Qnn_ErrorHandle_t RwkvWkvOpPackageValidateOpConfig (Qnn_OpConfig_t opConfig){
      * If a match is found, check number of inputs, outputs and params
      */
     if (std::string(opConfig.v1.typeName) == "wkv"){
-        if (opConfig.v1.numOfParams != 1 || opConfig.v1.numOfInputs != 5 || opConfig.v1.numOfOutputs != 2){
+        if (opConfig.v1.numOfParams != 0 || opConfig.v1.numOfInputs != 6 || opConfig.v1.numOfOutputs != 2){
+          return QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE;
+        }
+    }
+    else if (std::string(opConfig.v1.typeName) == "wkv_chunk"){
+        if (opConfig.v1.numOfParams != 0 || opConfig.v1.numOfInputs != 6 || opConfig.v1.numOfOutputs != 2){
           return QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE;
         }
     }
