@@ -24,9 +24,6 @@ GraphStatus wkvImpl(TensorType& out_0,
                     const TensorType& tf,
                     const TensorType& td);
 
-// forward declaration of sample cost function
-static float wkvCostFunc(const Op *op);
-
 /*
  * method 1 for defining op, using default cost value (i.e. GLACIAL) and default flag (Flags::RESOURCE_HVX)
  * syntax: DEF_PACKAGE_OP(F,OP)
@@ -88,6 +85,9 @@ DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
 
 /* execute functions for ops */
 
+#define NAIVE_IMPL 1
+#include <hexagon_types.h>
+
 template<typename TensorType>
 GraphStatus wkvImpl(TensorType& out_0,
                      TensorType& out_1,
@@ -100,9 +100,6 @@ GraphStatus wkvImpl(TensorType& out_0,
 
 {
   /*
-   * add code here
-   * */
-  /*
    * To have good performance and stability, it is required to avoid heap memory
    * allocation in this function. The heap memory allocation includes but not
    * limited to calling malloc, operator new, constructing STL container objects
@@ -111,22 +108,31 @@ GraphStatus wkvImpl(TensorType& out_0,
    *
    * Please check in SDK documentation for more information.
    */
+
+#if NAIVE_IMPL
+  int num_heads = in_3.dim(1);
+  int head_size = in_3.dim(2);
+  for (int h = 0; h < num_heads; h++) {
+    for (int i = 0; i < head_size; i++) {
+      auto v_val = v(0, h, 0, i);
+      auto td_val = td(0, h, 0, i);
+      auto tf_val = tf(0, h, 0, i);
+      out_0(0, h, 0, i) = 0;
+      for (int j = 0; j < head_size; j++) {
+        auto k_val = k(0, h, j, 0);
+        auto r_val = r(0, h, 0, j);
+        auto kv_val = k_val * v_val;
+        auto prev_state_val = in_3(0, h, i, j);
+        out_0(0, h, 0, i) = r_val * (kv_val * tf_val + prev_state_val) + out_0(0, h, 0, i);
+        out_1(0, h, i, j) = prev_state_val * td_val + kv_val;
+      }
+    }
+  }
+#else
+  //TODO
+#endif
   return GraphStatus::Success;
 }
-
-__attribute__((unused)) static float wkvCostFunc(const Op *op)
-{
-  /*
-   * add code here
-   * */
-
-  float cost = 0.0;  // add cost computation here
-  return cost;
-}
-
-
-
-
 
 /* At the bottom of the op file, call END_PKG_OP_DEFINITION(<name>),
    where <name> is as BEGIN_PKG_OP_DEFINITION
