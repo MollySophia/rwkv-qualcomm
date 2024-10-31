@@ -98,16 +98,15 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
             for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_inputTensors[0][0]); i++) {
                 dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(app->m_inputTensors[0][0]) + i));
             }
-            if (dims.size() == 1 && dims[0] != 1) {
-                int emb_size = dims[0];
-                emb_file.seekg(0, std::ios::end);
-                size_t file_size = emb_file.tellg();
-                emb_file.seekg(0, std::ios::beg);
-                for (int i = 0; i < file_size / (emb_size * sizeof(float)); i++) {
-                    std::vector<float> emb(emb_size);
-                    emb_file.read(reinterpret_cast<char*>(emb.data()), emb_size * sizeof(float));
-                    app->m_embedding.push_back(emb);
-                }
+
+            int emb_size = dims[dims.size() - 1];
+            emb_file.seekg(0, std::ios::end);
+            size_t file_size = emb_file.tellg();
+            emb_file.seekg(0, std::ios::beg);
+            for (int i = 0; i < file_size / (emb_size * sizeof(float)); i++) {
+                std::vector<float> emb(emb_size);
+                emb_file.read(reinterpret_cast<char*>(emb.data()), emb_size * sizeof(float));
+                app->m_embedding.push_back(emb);
             }
         }
     }

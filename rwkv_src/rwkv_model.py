@@ -277,7 +277,7 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
                 if args.USE_EMBEDDING:
                     in0 = torch.LongTensor([[token]]) if i == 0 else logits
                 else:
-                    in0 = model[0].w.emb.weight[token].view(1, 1, -1) if i == 0 else logits
+                    in0 = model[0].emb_weight[token].view(1, 1, -1) if i == 0 else logits
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
                 inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
@@ -297,7 +297,7 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
             if args.USE_EMBEDDING:
                 in0 = torch.LongTensor([[token]])
             else:
-                in0 = model.w.emb.weight[token].view(1, 1, -1)
+                in0 = model.emb_weight[token].view(1, 1, -1)
             if device is not torch.device('cpu'):
                 in0 = in0.to(device)
             inputs = {'in0': in0, 'state': states}
