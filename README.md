@@ -34,7 +34,7 @@
 ### Converting an A16W4 model
 - `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
 - Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
-- Convert the model file: `--linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings` (The quantization encodings are either from the pre-calculated ones in this repo, or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))
+- Convert the model file: `--linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings` (The quantization encodings are either from the pre-calculated ones ([GDrive](https://drive.google.com/drive/folders/1IXp6FwdiZjV4fn8HXRUoGHM91WzvEwqj?usp=drive_link)), or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))
 - Some large Linear modules are quantized to 4-bit weights, while some are kept 8-bit for better accuracy.
 - Note: Please keep the `chunks` parameter the same in both scripts.
 
