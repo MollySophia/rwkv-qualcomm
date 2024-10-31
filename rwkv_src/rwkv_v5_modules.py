@@ -157,7 +157,7 @@ class Rwkv5FeedForward(nn.Module):
         self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
         self.value = nn.Linear(intermediate_size, hidden_size, bias=False)
         if rescale_layer > 0:
-            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight']) / (2 ** int(layer_id // rescale_layer))
+            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'] / (2 ** int(layer_id // rescale_layer)))
         else:
             self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'])
 

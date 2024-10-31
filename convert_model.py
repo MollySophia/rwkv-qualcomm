@@ -213,7 +213,7 @@ else:
         model.emb_weight.cpu().numpy().astype(np.float32).tofile("onnx/" + args.MODEL_NAME.split("/")[-1] + ".emb")
     args = model.args
     fp16 = args.fp16
-    in0 = [torch.LongTensor([[1]*seq_length])] if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)]
+    in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)]
     states = []
     for i in range(model.args.n_layer):
         states.append(torch.zeros(1, model.args.n_embd, dtype=torch.float16 if fp16 else torch.float32))
@@ -230,7 +230,7 @@ else:
     quant_override(model)
 
     print("Converting to QNN model...")
-    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " " ".join([f'--input_layout "state{3*j+1}_in" "NFC"' for j in range(model[i].layer_begin, model[i].layer_end)])
+    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "NFC"' for j in range(model.layer_begin, model.layer_end)])
     converter_cmd += ' --input_layout "in" "NFC"'
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
