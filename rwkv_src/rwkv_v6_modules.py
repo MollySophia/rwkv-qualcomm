@@ -17,8 +17,13 @@ class Rwkv6SelfAttention(nn.Module):
         self.TIME_DECAY_EXTRA_DIM = 128 if hidden_size == 4096 else 64
 
         self.time_maa_x = nn.Parameter(state_dict[prefix + 'time_maa_x'])
-        maa = torch.cat([state_dict[prefix + f'time_maa_{i}'].view(1, 1, -1) for i in ['w', 'k', 'v', 'r', 'g']], dim=0)
-        self.time_maa = nn.Parameter(maa)
+        # maa = torch.cat([state_dict[prefix + f'time_maa_{i}'].view(1, 1, -1) for i in ['w', 'k', 'v', 'r', 'g']], dim=0)
+        # self.time_maa = nn.Parameter(maa)
+        self.time_maa_w = nn.Parameter(state_dict[prefix + 'time_maa_w'].view(1, 1, -1))
+        self.time_maa_k = nn.Parameter(state_dict[prefix + 'time_maa_k'].view(1, 1, -1))
+        self.time_maa_v = nn.Parameter(state_dict[prefix + 'time_maa_v'].view(1, 1, -1))
+        self.time_maa_r = nn.Parameter(state_dict[prefix + 'time_maa_r'].view(1, 1, -1))
+        self.time_maa_g = nn.Parameter(state_dict[prefix + 'time_maa_g'].view(1, 1, -1))
 
         self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].view(self.num_heads, 1, self.head_size))
         self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, 1, self.head_size))
@@ -44,10 +49,10 @@ class Rwkv6SelfAttention(nn.Module):
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'] / (2 ** int(layer_id // rescale_layer)))
         else:
             self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'])
-        # self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5, affine=False)
-        self.ln_x = nn.LayerNorm(self.head_size, eps=1e-5)
-        self.ln_x.weight = nn.Parameter(torch.ones(self.head_size))
-        self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size))
+        self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=1e-5)
+        # self.ln_x = nn.LayerNorm(self.head_size, eps=1e-5)
+        # self.ln_x.weight = nn.Parameter(torch.ones(self.head_size))
+        # self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size))
         self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
         self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
         self.mul_ln_x = op.Multiply()
@@ -56,8 +61,13 @@ class Rwkv6SelfAttention(nn.Module):
         self.sub_shift              = op.Subtract()
         self.mul_time_maa           = op.Multiply()
         self.add_time_maa           = op.Add()
-        self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
-        self.matmul_time_maa_w2     = op.Bmm()
+        # self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
+        # self.matmul_time_maa_w2     = op.Bmm()
+        self.time_maa_w2_0          = nn.Parameter(state_dict[prefix + 'time_maa_w2'][0])
+        self.time_maa_w2_1          = nn.Parameter(state_dict[prefix + 'time_maa_w2'][1])
+        self.time_maa_w2_2          = nn.Parameter(state_dict[prefix + 'time_maa_w2'][2])
+        self.time_maa_w2_3          = nn.Parameter(state_dict[prefix + 'time_maa_w2'][3])
+        self.time_maa_w2_4          = nn.Parameter(state_dict[prefix + 'time_maa_w2'][4])
         self.add_time_maa           = op.Add()
         self.mul_time_maa           = op.Multiply()
         self.add_x                  = op.Add()
@@ -106,14 +116,24 @@ class Rwkv6SelfAttention(nn.Module):
             state1_out = x[:, -1, :]
 
         xxx = self.add_time_maa(x, self.mul_time_maa(sx, self.time_maa_x))
-        if seq_length == 1:
-            xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
-        else:
-            xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
-        xxx = self.matmul_time_maa_w2(xxx, self.time_maa_w2)
-        xxx = self.mul_time_maa(sx, self.add_time_maa(xxx, self.time_maa))
-        xxx = self.add_x(x, xxx)
+        xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
+
+        # xxx = self.matmul_time_maa_w2(xxx, self.time_maa_w2)
+        # xxx = self.mul_time_maa(sx, self.add_time_maa(xxx, self.time_maa))
+        # xxx = self.add_x(x, xxx)
+        # mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
         mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
+        mw = mw @ self.time_maa_w2_0
+        mk = mk @ self.time_maa_w2_1
+        mv = mv @ self.time_maa_w2_2
+        mr = mr @ self.time_maa_w2_3
+        mg = mg @ self.time_maa_w2_4
+
+        mw = sx * (mw + self.time_maa_w) + x
+        mk = sx * (mk + self.time_maa_k) + x
+        mv = sx * (mv + self.time_maa_v) + x
+        mr = sx * (mr + self.time_maa_r) + x
+        mg = sx * (mg + self.time_maa_g) + x
 
         receptance = self.receptance(mr).view(self.num_heads * seq_length, self.head_size, 1)
         key = self.key(mk).view(self.num_heads * seq_length, 1, self.head_size)
@@ -136,7 +156,7 @@ class Rwkv6SelfAttention(nn.Module):
             kv = self.matmul_kv(value, key)
             if seq_length == 1:
                 wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
-                wkv = self.matmul_rkv(wkv, receptance).view(self.num_heads, 1, self.head_size)
+                wkv = self.matmul_rkv(wkv, receptance).view(1, self.num_heads, 1, self.head_size)
                 state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
             else:
                 kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
