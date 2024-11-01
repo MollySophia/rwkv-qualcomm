@@ -17,3 +17,6 @@ input_list*
 dataset_cache/
 quant_export/
 trace_output/
+test_wkv*
+test_data*
+QNN/
