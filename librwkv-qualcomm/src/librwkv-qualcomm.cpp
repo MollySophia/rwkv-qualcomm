@@ -89,7 +89,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
         return StatusCode::FAILURE;
     }
 
-    if (app->m_embedding.empty()) {
+    if (app->m_embedding.empty() && QNN_TENSOR_GET_DATA_TYPE(app->m_inputTensors[0][0]) != QNN_DATATYPE_INT_32) {
         std::string emb_path = modelPath.substr(0, modelPath.find_last_of(".")) + ".emb";
         std::ifstream emb_file;
         emb_file.open(emb_path, std::ios::in|std::ios::binary);
@@ -108,6 +108,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
                 emb_file.read(reinterpret_cast<char*>(emb.data()), emb_size * sizeof(float));
                 app->m_embedding.push_back(emb);
             }
+            emb_file.close();
         }
     }
 
