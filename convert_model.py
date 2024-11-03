@@ -7,6 +7,8 @@ import argparse
 import json
 import copy
 from pathlib import Path
+import onnx
+from onnx import shape_inference
 
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
@@ -19,6 +21,7 @@ parser.add_argument('--ext_embedding', action='store_true', default=False, help=
 parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
 parser.add_argument('--prefill_model', action='store_true', help='Convert model for sequential prefill')
+parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
 parser_args = parser.parse_args()
 
 seq_length = 32 if parser_args.prefill_model else 1
@@ -41,7 +44,7 @@ WEIGHTS_BITWIDTH = parser_args.weights_bitwidth
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
 model_args.fp16 = False
-model_args.wkv_customop = False
+model_args.wkv_customop = parser_args.wkv_customop
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 
 model_args.MODEL_NAME = str(parser_args.model)
@@ -164,8 +167,17 @@ if type(model) == list:
             register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
 
         torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
+        shape_inference.infer_shapes_path(dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
+        onnx_model = onnx.load(dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
+
+        # To make qnn-onnx-converter happy when using custom op
+        for initializer in onnx_model.graph.initializer:
+            shape = list(initializer.dims)
+            value_info = onnx.helper.make_tensor_value_info(initializer.name, initializer.data_type, shape)
+            onnx_model.graph.value_info.append(value_info)
+        onnx.save_model(onnx_model, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", save_as_external_data=True, all_tensors_to_one_file=True)
         print(f"onnx model chunk{i} saved to {dirname}" + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
-    
+
     quant_override(model)
 
     print("Converting and compiling QNN models...")
@@ -176,6 +188,8 @@ if type(model) == list:
         converter_cmd += ' --input_layout "in" "NFC"'
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
+        if model_args.wkv_customop:
+            converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
         print(converter_cmd)
         os.system(converter_cmd)
         # Set state{id}_in to have the same encoding as state{id}_out
@@ -225,6 +239,15 @@ else:
     input_names = ['in'] + [f'state{i}_in' for i in range(3*model.args.n_layer)]
     output_names = ['logits'] + [f'state{i}_out' for i in range(3*model.args.n_layer)]
     torch.onnx.export(model, inputs, "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", input_names=input_names, output_names=output_names, opset_version=17)
+    shape_inference.infer_shapes_path("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
+    onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
+
+    # To make qnn-onnx-converter happy when using custom op
+    for initializer in onnx_model.graph.initializer:
+        shape = list(initializer.dims)
+        value_info = onnx.helper.make_tensor_value_info(initializer.name, initializer.data_type, shape)
+        onnx_model.graph.value_info.append(value_info)
+    onnx.save_model(onnx_model, "onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx", save_as_external_data=True, all_tensors_to_one_file=True)
     print(f"onnx model saved to onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
 
     quant_override(model)
@@ -234,6 +257,8 @@ else:
     converter_cmd += ' --input_layout "in" "NFC"'
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
+    if model_args.wkv_customop:
+        converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")

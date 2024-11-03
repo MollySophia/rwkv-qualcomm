@@ -14,6 +14,7 @@
     - QNN SDK 2.26.0
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
+    - protobuf==3.20.2 (Mandatory for making both QNN's onnx-converter and onnx==1.16.1 working properly)
     - torch==2.2.2 (although QNN SDK is verified to work with torch==1.13.0, it's okay to use latest version of torch since we are only using torch for model conversion and onnx exporting) (2.2.2 is recommended by AIMET toolkit)
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
