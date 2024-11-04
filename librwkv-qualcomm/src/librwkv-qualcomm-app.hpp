@@ -61,7 +61,7 @@ class QnnRwkvApp {
 
   void copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src);
 
-  // StatusCode registerOpPackages();
+  StatusCode registerOpPackages();
 
   StatusCode createFromBinary(uint8_t *binary, size_t binarySize);
 
@@ -105,6 +105,7 @@ class QnnRwkvApp {
   std::string m_outputPath;
   std::string m_saveBinaryName;
   std::string m_cachedBinaryPath;
+  std::vector<std::string> m_opPackagePaths;
   uint8_t *m_binaryBuffer = nullptr;
   uint64_t m_binarySize = 0;
   QnnBackend_Config_t **m_backendConfig = nullptr;

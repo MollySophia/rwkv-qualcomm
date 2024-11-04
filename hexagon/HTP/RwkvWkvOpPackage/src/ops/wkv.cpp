@@ -114,18 +114,19 @@ GraphStatus wkvImpl(TensorType& out_0,
   int head_size = in_3.dim(2);
   for (int h = 0; h < num_heads; h++) {
     for (int i = 0; i < head_size; i++) {
-      auto v_val = v(0, h, 0, i);
-      auto td_val = td(0, h, 0, i);
-      auto tf_val = tf(0, h, 0, i);
-      out_0(0, h, 0, i) = 0;
+      auto v_val = v(0, 0, h, i);
+      float tmp = 0;
       for (int j = 0; j < head_size; j++) {
-        auto k_val = k(0, h, j, 0);
-        auto r_val = r(0, h, 0, j);
+        auto k_val = k(0, 0, h, j);
+        auto r_val = r(0, 0, h, j);
         auto kv_val = k_val * v_val;
         auto prev_state_val = in_3(0, h, i, j);
-        out_0(0, h, 0, i) = r_val * (kv_val * tf_val + prev_state_val) + out_0(0, h, 0, i);
+        auto td_val = td(0, h, 0, j);
+        auto tf_val = tf(0, h, 0, j);
+        tmp += r_val * (kv_val * tf_val + prev_state_val);
         out_1(0, h, i, j) = prev_state_val * td_val + kv_val;
       }
+      out_0(0, h, 0, i) = tmp;
     }
   }
 #else

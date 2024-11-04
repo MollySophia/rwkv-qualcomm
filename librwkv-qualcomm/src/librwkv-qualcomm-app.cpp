@@ -195,42 +195,42 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::terminateBackend() {
 // Register op packages and interface providers supplied during
 // object creation. If there are multiple op packages, register
 // them sequentially in the order provided.
-// rwkv_app::StatusCode rwkv_app::QnnRwkvApp::registerOpPackages() {
-//   const size_t pathIdx              = 0;
-//   const size_t interfaceProviderIdx = 1;
-//   for (auto const& opPackagePath : m_opPackagePaths) {
-//     std::vector<std::string> opPackage;
-//     split(opPackage, opPackagePath, ':');
-//     QNN_DEBUG("opPackagePath: %s", opPackagePath.c_str());
-//     const char* target     = nullptr;
-//     const size_t targetIdx = 2;
-//     if (opPackage.size() != 2 && opPackage.size() != 3) {
-//       QNN_ERROR("Malformed opPackageString provided: %s", opPackagePath.c_str());
-//       return StatusCode::FAILURE;
-//     }
-//     if (opPackage.size() == 3) {
-//       target = (char*)opPackage[targetIdx].c_str();
-//     }
-//     if (nullptr == m_qnnFunctionPointers.qnnInterface.backendRegisterOpPackage) {
-//       QNN_ERROR("backendRegisterOpPackageFnHandle is nullptr.");
-//       return StatusCode::FAILURE;
-//     }
-//     if (QNN_BACKEND_NO_ERROR != m_qnnFunctionPointers.qnnInterface.backendRegisterOpPackage(
-//                                     m_backendHandle,
-//                                     (char*)opPackage[pathIdx].c_str(),
-//                                     (char*)opPackage[interfaceProviderIdx].c_str(),
-//                                     target)) {
-//       QNN_ERROR("Could not register Op Package: %s and interface provider: %s",
-//                 opPackage[pathIdx].c_str(),
-//                 opPackage[interfaceProviderIdx].c_str());
-//       return StatusCode::FAILURE;
-//     }
-//     QNN_INFO("Registered Op Package: %s and interface provider: %s",
-//              opPackage[pathIdx].c_str(),
-//              opPackage[interfaceProviderIdx].c_str());
-//   }
-//   return StatusCode::SUCCESS;
-// }
+rwkv_app::StatusCode rwkv_app::QnnRwkvApp::registerOpPackages() {
+  const size_t pathIdx              = 0;
+  const size_t interfaceProviderIdx = 1;
+  for (auto const& opPackagePath : m_opPackagePaths) {
+    std::vector<std::string> opPackage;
+    split(opPackage, opPackagePath, ':');
+    QNN_DEBUG("opPackagePath: %s", opPackagePath.c_str());
+    const char* target     = nullptr;
+    const size_t targetIdx = 2;
+    if (opPackage.size() != 2 && opPackage.size() != 3) {
+      QNN_ERROR("Malformed opPackageString provided: %s", opPackagePath.c_str());
+      return StatusCode::FAILURE;
+    }
+    if (opPackage.size() == 3) {
+      target = (char*)opPackage[targetIdx].c_str();
+    }
+    if (nullptr == m_qnnFunctionPointers.qnnInterface.backendRegisterOpPackage) {
+      QNN_ERROR("backendRegisterOpPackageFnHandle is nullptr.");
+      return StatusCode::FAILURE;
+    }
+    if (QNN_BACKEND_NO_ERROR != m_qnnFunctionPointers.qnnInterface.backendRegisterOpPackage(
+                                    m_backendHandle,
+                                    (char*)opPackage[pathIdx].c_str(),
+                                    (char*)opPackage[interfaceProviderIdx].c_str(),
+                                    target)) {
+      QNN_ERROR("Could not register Op Package: %s and interface provider: %s",
+                opPackage[pathIdx].c_str(),
+                opPackage[interfaceProviderIdx].c_str());
+      return StatusCode::FAILURE;
+    }
+    QNN_INFO("Registered Op Package: %s and interface provider: %s",
+             opPackage[pathIdx].c_str(),
+             opPackage[interfaceProviderIdx].c_str());
+  }
+  return StatusCode::SUCCESS;
+}
 
 // Create a Context in a backend.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createContext() {

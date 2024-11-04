@@ -127,9 +127,9 @@ class Rwkv6SelfAttention(nn.Module):
         mr = sx * self.matmul_time_maa_w2_3(mr) + x
         mg = sx * self.matmul_time_maa_w2_4(mg) + x
 
-        receptance = self.receptance(mr).view(self.num_heads * seq_length, self.head_size, 1)
-        key = self.key(mk).view(self.num_heads * seq_length, 1, self.head_size)
-        value = self.value(mv).view(self.num_heads * seq_length, self.head_size, 1)
+        receptance = self.receptance(mr)
+        key = self.key(mk)
+        value = self.value(mv)
         gate = self.silu0(self.gate(mg))
 
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
@@ -139,12 +139,18 @@ class Rwkv6SelfAttention(nn.Module):
 
         # wkv
         if self.custom_wkv and self.wkv_func is not None and self.wkv_chunk_func is not None:
+            key = key.view(self.num_heads * seq_length, self.head_size)
+            value = value.view(self.num_heads * seq_length, self.head_size)
+            receptance = receptance.view(self.num_heads * seq_length, self.head_size)
             if seq_length == 1:
                 wkv, state2_out = self.wkv_func(key, value, receptance, state2, self.time_first, time_decay)
             else:
                 wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, self.time_first, time_decay)
         else:
             # kv = self.matmul_kv(key, value)
+            key = key.view(self.num_heads * seq_length, 1, self.head_size)
+            value = value.view(self.num_heads * seq_length, self.head_size, 1)
+            receptance = receptance.view(self.num_heads * seq_length, self.head_size, 1)
             kv = self.matmul_kv(value, key)
             if seq_length == 1:
                 wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)

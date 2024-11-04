@@ -9,12 +9,13 @@ def main():
     parser.add_argument('platform', type=str, choices=htp_devices.keys(), help='Platform name')
     parser.add_argument('--use_optrace', action='store_true', help='Use optrace profiling')
     parser.add_argument('--wkv_customop', action='store_true', help='Use wkv custom op')
+    parser.add_argument('--output_name', type=str, default=None, help='Output name for the binary file')
     args = parser.parse_args()
     qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
     if not qnn_sdk_root:
         print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
         exit(1)
-    
+
     QNN_VERSION_MINOR = int(qnn_sdk_root.split('/')[-1].split('.')[1])
     old_qnn = True if QNN_VERSION_MINOR < 22 else False
     print(f"QNN_VERSION_MINOR: {QNN_VERSION_MINOR}")
@@ -33,13 +34,14 @@ def main():
             convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
             convert_cmd += f" --model {model_path}"
             convert_cmd += f" --output_dir {args.output_path}"
-            convert_cmd += f" --binary_file {model_name.replace('lib', '')}"
+            convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name + f'_chunk{i}of{num_chunks}'}"
             convert_cmd += f" --config_file {model_path.replace('.so', '_htp_link.json')}"
             if args.use_optrace:
                 convert_cmd += " --profiling_level detailed --profiling_option optrace"
-            
+
             if args.wkv_customop:
                 convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
+
             os.system(convert_cmd)
 
     else:
@@ -50,13 +52,14 @@ def main():
         convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
         convert_cmd += f" --model {args.model_lib}"
         convert_cmd += f" --output_dir {args.output_path}"
-        convert_cmd += f" --binary_file {model_name.replace('lib', '')}"
+        convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name}"
         convert_cmd += f" --config_file {str(args.model_lib).replace('.so', '_htp_link.json')}"
         if args.use_optrace:
             convert_cmd += " --profiling_level detailed --profiling_option optrace"
 
         if args.wkv_customop:
                 convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
+
         os.system(convert_cmd)
 
 if __name__ == '__main__':

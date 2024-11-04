@@ -27,7 +27,7 @@ class qnn_graph(torch.nn.Module):
         else:
             assert False
         
-        self.tf = torch.rand(n_head, head_size, 1)
+        self.tf = torch.rand(n_head, 1, head_size)
     
     def forward(self, k, v, r, state, td):
         return self.wkv_func(k, v, r, state, self.tf, td)
@@ -46,10 +46,10 @@ register_custom_op_symbolic("rwkv::wkv_chunk", onnx_custom_wkv_chunk, 9)
 
 print("Testing wkv length = 1")
 gen_graph = qnn_graph(1, n_head, head_size)
-k = torch.rand(n_head, 1, head_size)
-v = torch.rand(n_head, head_size, 1)
-r = torch.rand(n_head, head_size, 1)
-td = torch.rand(n_head, head_size, 1)
+k = torch.rand(n_head, head_size)
+v = torch.rand(n_head, head_size)
+r = torch.rand(n_head, head_size)
+td = torch.rand(n_head, 1, head_size)
 state = torch.rand(n_head, head_size, head_size)
 inputs = (k, v, r, state, td)
 print("converting test graph")
@@ -76,10 +76,10 @@ else:
 
 print("\n\nTesting wkv length = " + str(wkv_chunk_size))
 chunk_graph = qnn_graph(wkv_chunk_size, n_head, head_size)
-k = torch.rand(wkv_chunk_size, n_head, 1, head_size)
-v = torch.rand(wkv_chunk_size, n_head, head_size, 1)
-r = torch.rand(wkv_chunk_size, n_head, head_size, 1)
-td = torch.rand(wkv_chunk_size, n_head, head_size, 1)
+k = torch.rand(wkv_chunk_size, n_head, head_size)
+v = torch.rand(wkv_chunk_size, n_head, head_size)
+r = torch.rand(wkv_chunk_size, n_head, head_size)
+td = torch.rand(wkv_chunk_size, n_head, 1, head_size)
 state = torch.rand(n_head, head_size, head_size)
 inputs = (k, v, r, state, td)
 print("converting test graph")

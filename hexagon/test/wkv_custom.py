@@ -6,6 +6,9 @@ std::tuple<torch::Tensor, torch::Tensor> wkv(
     torch::Tensor k, torch::Tensor v, torch::Tensor r,
     torch::Tensor state2, torch::Tensor time_first,
     torch::Tensor time_decay) {
+    k = torch::unsqueeze(k, 1);
+    v = torch::unsqueeze(v, -1);
+    r = torch::unsqueeze(r, -1);
     auto kv = torch::matmul(v, k);
     auto wkv = torch::matmul((time_first * kv + state2), r);
     wkv = torch::squeeze(wkv, 0);
