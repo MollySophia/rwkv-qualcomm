@@ -1,4 +1,4 @@
-set(APP "librwkv-qualcomm")
+set(APP "rwkv-qualcomm")
 set(APP_SOURCES "librwkv-qualcomm-app.cpp"
                 "librwkv-qualcomm.cpp"
                 "Log/Logger.cpp"
@@ -21,7 +21,7 @@ add_library(${APP} STATIC ${APP_SOURCES})
 target_compile_definitions(${APP} PUBLIC "-DNOMINMAX")
 target_link_libraries(${APP} PRIVATE Shlwapi Shell32)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Ob3")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Ob2")
 target_include_directories(${APP} PUBLIC CachingUtil
                                          Log
                                          PAL/include
