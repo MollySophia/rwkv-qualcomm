@@ -8,7 +8,9 @@
 #include <cmath>
 #include <fstream>
 
+#ifndef _WIN32
 #include "tokenizer.h"
+#endif
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -546,6 +548,7 @@ StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<st
     return StatusCode::SUCCESS;
 }
 
+#ifndef _WIN32
 // Completion functions
 static int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
     temperature = std::max(temperature, 0.1f);
@@ -683,3 +686,4 @@ const char * QnnRwkvCompletionGetTokenStr(QnnRwkvBackend_t backend, int *current
 
     return outputStr.c_str();
 }
+#endif

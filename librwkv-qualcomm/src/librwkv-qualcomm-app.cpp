@@ -499,7 +499,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       for (int j = 0; j < graphCounts[i]; j++) {
         m_graphsInfo[gidx] = graphInfoArr + gidx;
         m_graphsInfo[gidx]->graph = (*graphInfos[i])[j].graph;
-        m_graphsInfo[gidx]->graphName = strndup((*graphInfos[i])[j].graphName, strlen((*graphInfos[i])[j].graphName));
+        m_graphsInfo[gidx]->graphName = strdup((*graphInfos[i])[j].graphName);
         m_graphsInfo[gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
         m_graphsInfo[gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
         m_graphsInfo[gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;

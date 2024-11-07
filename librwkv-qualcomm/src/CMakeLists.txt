@@ -20,8 +20,8 @@ add_library(${APP} STATIC ${APP_SOURCES})
 
 target_compile_definitions(${APP} PUBLIC "-DNOMINMAX")
 target_link_libraries(${APP} PRIVATE Shlwapi Shell32)
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT /O2 /Ob3")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Ob3")
 target_include_directories(${APP} PUBLIC CachingUtil
                                          Log
                                          PAL/include
