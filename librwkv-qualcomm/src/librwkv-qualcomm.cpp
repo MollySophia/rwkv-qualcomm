@@ -8,7 +8,7 @@
 #include <cmath>
 #include <fstream>
 
-#ifndef _WIN32
+#if !defined(_WIN32) && ENABLE_CHAT_APIS
 #include "tokenizer.h"
 #endif
 
@@ -548,7 +548,7 @@ StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<st
     return StatusCode::SUCCESS;
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && ENABLE_CHAT_APIS
 // Completion functions
 static int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
     temperature = std::max(temperature, 0.1f);

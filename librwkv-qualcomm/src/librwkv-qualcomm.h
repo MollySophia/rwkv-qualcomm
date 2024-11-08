@@ -46,7 +46,7 @@ StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath)
 
 StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<std::vector<float>>> states);
 
-#ifndef _WIN32
+#if !defined(_WIN32) && ENABLE_CHAT_APIS
 // Completion functions
 int QnnRwkvTokenizerInit(std::string tokenizerPath);
 
