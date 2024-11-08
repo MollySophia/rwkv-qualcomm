@@ -64,6 +64,11 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
                 LOG_ERROR("Power Config setting failure");
             }
         }
+
+        app->m_opPackagePaths.push_back("libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider");
+        if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
+            LOG_ERROR("Op package registration failure");
+        }
     }
 
     if (!context) {

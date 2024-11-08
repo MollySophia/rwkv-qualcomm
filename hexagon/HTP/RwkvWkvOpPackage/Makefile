@@ -81,7 +81,7 @@ LIBRARY_NAME := libQnn$(PACKAGE_NAME).so
 SUPPORTED_TARGETS = x86_64-linux-clang hexagon-v68 hexagon-v69 hexagon-v73 hexagon-v75 aarch64-android
 
 
-COMMON_CXX_FLAGS = -std=c++17 -I$(QNN_INCLUDE) -fPIC -Wall -Wreorder -Wno-missing-braces -Wno-unused-function
+COMMON_CXX_FLAGS = -std=c++17 -I$(QNN_INCLUDE) -fPIC -Wall -Wreorder -Wno-c++11-narrowing -Wno-missing-braces -Wno-unused-function
 COMMON_CXX_FLAGS += -Werror -Wno-format -Wno-unused-command-line-argument -fvisibility=default -stdlib=libc++
 COMMON_CXX_FLAGS += -DQNN_API="__attribute__((visibility(\"default\")))"  -D__QAIC_HEADER_EXPORT="__attribute__((visibility(\"default\")))"
 
@@ -161,6 +161,28 @@ X86_CXX_FLAGS = $(COMMON_CXX_FLAGS) $(X86_C_FLAGS) -fomit-frame-pointer -Wno-inv
 linux_objs =
 #============================================================================================================
 # Setup compiler, compiler instructions and linker for hexagon
+
+# QHL_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl
+# QHL_HVX_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl_hvx
+# QHL_INC_DIRS_V68 := $(QHL_DIR_V68)/inc/qhmath $(QHL_DIR_V68)/inc/qhcomplex $(QHL_DIR_V68)/inc/qhdsp $(QHL_DIR_V68)/inc/qhblas
+# QHL_HVX_INC_DIRS_V68 := $(QHL_HVX_DIR_V68)/inc/internal $(QHL_HVX_DIR_V68)/inc/qhdsp_hvx $(QHL_HVX_DIR_V68)/inc/qhblas_hvx
+
+# QHL_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl
+# QHL_HVX_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl_hvx
+# QHL_INC_DIRS_V69 := $(QHL_DIR_V69)/inc/qhmath $(QHL_DIR_V69)/inc/qhcomplex $(QHL_DIR_V69)/inc/qhdsp $(QHL_DIR_V69)/inc/qhblas
+# QHL_HVX_INC_DIRS_V69 := $(QHL_HVX_DIR_V69)/inc/internal $(QHL_HVX_DIR_V69)/inc/qhdsp_hvx $(QHL_HVX_DIR_V69)/inc/qhblas_hvx
+
+# QHL_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl
+# QHL_HVX_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl_hvx
+# QHL_INC_DIRS_V73 := $(QHL_DIR_V73)/inc/qhmath $(QHL_DIR_V73)/inc/qhcomplex $(QHL_DIR_V73)/inc/qhdsp $(QHL_DIR_V73)/inc/qhblas
+# QHL_HVX_INC_DIRS_V73 := $(QHL_HVX_DIR_V73)/inc/internal $(QHL_HVX_DIR_V73)/inc/qhdsp_hvx $(QHL_HVX_DIR_V73)/inc/qhblas_hvx
+
+QHL_DIR_V75 = $(HEXAGON_SDK_ROOT_V75)/libs/qhl
+QHL_HVX_DIR_V75 = $(HEXAGON_SDK_ROOT_V75)/libs/qhl_hvx
+QHL_INC_DIRS_V75 := $(QHL_DIR_V75)/inc/qhmath $(QHL_DIR_V75)/inc/qhcomplex $(QHL_DIR_V75)/inc/qhdsp $(QHL_DIR_V75)/inc/qhblas
+QHL_HVX_INC_DIRS_V75 := $(QHL_HVX_DIR_V75)/inc/internal $(QHL_HVX_DIR_V75)/inc/qhdsp_hvx $(QHL_HVX_DIR_V75)/inc/qhblas_hvx
+QHL_INCLUDES_V75 = $(addprefix -I,$(QHL_INC_DIRS_V75)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V75))
+
 HEXAGON_CXX_FLAGS := $(COMMON_CXX_FLAGS) -mhvx -mhvx-length=128B -mhmx -DUSE_OS_QURT -O2 -Wno-reorder -DPREPARE_DISABLED
 
 HEXAGON_CXX_FLAGS_V68 := $(HEXAGON_CXX_FLAGS) -mv68 -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/qurt -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/posix -I$(HEXAGON_SDK_ROOT_V68)/incs -I$(HEXAGON_SDK_ROOT_V68)/incs/stddef
@@ -305,7 +327,7 @@ $(WORK)/hexagon-v75/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v75
 	$(HEXAGON_CXX_V75) $(HEXAGON_CXX_FLAGS_V75) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
 
 $(WORK)/hexagon-v75/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v75
-	$(HEXAGON_CXX_V75) $(HEXAGON_CXX_FLAGS_V75) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+	$(HEXAGON_CXX_V75) $(HEXAGON_CXX_FLAGS_V75) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V75) -DUSE_HVX -c $< -o $@
 
 $(WORK)/hexagon-v75/ops/%.o: $(OP_SRC_DIR)/v75_asm/%.S | $(WORK)/hexagon-v75
 	$(HEXAGON_CXX_V75) $(HEXAGON_CXX_FLAGS_V75) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@

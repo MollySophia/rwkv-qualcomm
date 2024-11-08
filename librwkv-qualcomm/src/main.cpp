@@ -128,14 +128,15 @@ int main(int argc, char** argv) {
 
   std::map<int, float> occurences;
   std::vector<double> inference_durations;
-  std::string prompt = "User: 请为我写一首诗。\n\nAssistant:";
+  // std::string prompt = "User: 请为我写一首诗。\n\nAssistant:";
+  std::string prompt = "\n我们发现，";
   srand((unsigned)time(NULL));
 
   const float presence_penalty = 0.4;
   const float freq_penalty = 0.4;
   const float penalty_decay = 0.996;
   const float temperature = 0.7;
-  const int top_k = 128;
+  const int top_k = 1;
   const float top_p = 0.9;
 
   std::vector<int> prompt_ids = tokenizer.Encode(prompt);
