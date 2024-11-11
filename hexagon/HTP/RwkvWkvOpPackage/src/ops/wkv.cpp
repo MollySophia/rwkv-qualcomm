@@ -109,47 +109,56 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
                   const float *td) {
   float __attribute__((aligned(VLEN))) buffer[VLEN_WORD];
   float *outptr = out_0;
+  const float *v_ptr = v;
+  const float *r_ptr = r;
+  const float *k_ptr = k;
+  const float *tf_ptr = tf;
+  const float *td_ptr = td;
   memset(outptr, 0, sizeof(float)*num_heads*head_size);
   HVX_Vector *prev_state_ptr = (HVX_Vector *)(in_3);
   HVX_Vector *out_state_ptr = (HVX_Vector *)(out_1);
   for (int h = 0; h < num_heads; h++) {
-    HVX_Vector *r_ptr = (HVX_Vector *)(r + h * head_size);
-    HVX_Vector *k_ptr = (HVX_Vector *)(k + h * head_size);
-    HVX_Vector *tf_ptr = (HVX_Vector *)(tf + h * head_size);
-    HVX_Vector *td_ptr = (HVX_Vector *)(td + h * head_size);
+    HVX_Vector r_vec_0 = *(HVX_Vector *)r_ptr;
+    HVX_Vector k_vec_0 = *(HVX_Vector *)k_ptr;
+    HVX_Vector tf_vec_0 = *(HVX_Vector *)tf_ptr;
+    HVX_Vector td_vec_0 = *(HVX_Vector *)td_ptr;
+    HVX_Vector r_vec_1 = *((HVX_Vector *)r_ptr + 1);
+    HVX_Vector k_vec_1 = *((HVX_Vector *)k_ptr + 1);
+    HVX_Vector tf_vec_1 = *((HVX_Vector *)tf_ptr + 1);
+    HVX_Vector td_vec_1 = *((HVX_Vector *)td_ptr + 1);
     for (int i = 0; i < head_size; i += 4) {
-      auto v_vec_0 = Q6_V_vsplat_R(float_to_int(v[h * head_size + i]));
-      auto v_vec_1 = Q6_V_vsplat_R(float_to_int(v[h * head_size + i + 1]));
-      auto v_vec_2 = Q6_V_vsplat_R(float_to_int(v[h * head_size + i + 2]));
-      auto v_vec_3 = Q6_V_vsplat_R(float_to_int(v[h * head_size + i + 3]));
+      HVX_Vector v_vec_0 = Q6_V_vsplat_R(float_to_int(*v_ptr++));
+      HVX_Vector v_vec_1 = Q6_V_vsplat_R(float_to_int(*v_ptr++));
+      HVX_Vector v_vec_2 = Q6_V_vsplat_R(float_to_int(*v_ptr++));
+      HVX_Vector v_vec_3 = Q6_V_vsplat_R(float_to_int(*v_ptr++));
 
-      HVX_Vector kv_vec_0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*k_ptr, v_vec_0));
-      HVX_Vector kv_vec_1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*(k_ptr + 1), v_vec_0));
-      HVX_Vector kv_vec_2 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*k_ptr, v_vec_1));
-      HVX_Vector kv_vec_3 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*(k_ptr + 1), v_vec_1));
-      HVX_Vector kv_vec_4 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*k_ptr, v_vec_2));
-      HVX_Vector kv_vec_5 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*(k_ptr + 1), v_vec_2));
-      HVX_Vector kv_vec_6 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*k_ptr, v_vec_3));
-      HVX_Vector kv_vec_7 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(*(k_ptr + 1), v_vec_3));
+      HVX_Vector kv_vec_0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_0, v_vec_0));
+      HVX_Vector kv_vec_1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_1, v_vec_0));
+      HVX_Vector kv_vec_2 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_0, v_vec_1));
+      HVX_Vector kv_vec_3 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_1, v_vec_1));
+      HVX_Vector kv_vec_4 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_0, v_vec_2));
+      HVX_Vector kv_vec_5 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_1, v_vec_2));
+      HVX_Vector kv_vec_6 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_0, v_vec_3));
+      HVX_Vector kv_vec_7 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vmpy_VsfVsf(k_vec_1, v_vec_3));
 
-      HVX_Vector vtmp_0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_0, *tf_ptr), *prev_state_ptr));
-      HVX_Vector vtmp_1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_1, *(tf_ptr+1)), *(prev_state_ptr+1)));
-      HVX_Vector vtmp_2 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_2, *tf_ptr), *(prev_state_ptr+2)));
-      HVX_Vector vtmp_3 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_3, *(tf_ptr+1)), *(prev_state_ptr+3)));
-      HVX_Vector vtmp_4 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_4, *tf_ptr), *(prev_state_ptr+4)));
-      HVX_Vector vtmp_5 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_5, *(tf_ptr+1)), *(prev_state_ptr+5)));
-      HVX_Vector vtmp_6 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_6, *tf_ptr), *(prev_state_ptr+6)));
-      HVX_Vector vtmp_7 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_7, *(tf_ptr+1)), *(prev_state_ptr+7)));
+      HVX_Vector vtmp_0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_0, tf_vec_0), *prev_state_ptr));
+      HVX_Vector vtmp_1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_1, tf_vec_1), *(prev_state_ptr+1)));
+      HVX_Vector vtmp_2 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_2, tf_vec_0), *(prev_state_ptr+2)));
+      HVX_Vector vtmp_3 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_3, tf_vec_1), *(prev_state_ptr+3)));
+      HVX_Vector vtmp_4 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_4, tf_vec_0), *(prev_state_ptr+4)));
+      HVX_Vector vtmp_5 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_5, tf_vec_1), *(prev_state_ptr+5)));
+      HVX_Vector vtmp_6 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_6, tf_vec_0), *(prev_state_ptr+6)));
+      HVX_Vector vtmp_7 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(kv_vec_7, tf_vec_1), *(prev_state_ptr+7)));
       // dot product r, vtmp
       {
-        vtmp_0 = Q6_Vqf32_vmpy_VsfVsf(vtmp_0, *r_ptr);
-        vtmp_1 = Q6_Vqf32_vmpy_VsfVsf(vtmp_1, *(r_ptr+1));
-        vtmp_2 = Q6_Vqf32_vmpy_VsfVsf(vtmp_2, *r_ptr);
-        vtmp_3 = Q6_Vqf32_vmpy_VsfVsf(vtmp_3, *(r_ptr+1));
-        vtmp_4 = Q6_Vqf32_vmpy_VsfVsf(vtmp_4, *r_ptr);
-        vtmp_5 = Q6_Vqf32_vmpy_VsfVsf(vtmp_5, *(r_ptr+1));
-        vtmp_6 = Q6_Vqf32_vmpy_VsfVsf(vtmp_6, *r_ptr);
-        vtmp_7 = Q6_Vqf32_vmpy_VsfVsf(vtmp_7, *(r_ptr+1));
+        vtmp_0 = Q6_Vqf32_vmpy_VsfVsf(vtmp_0, r_vec_0);
+        vtmp_1 = Q6_Vqf32_vmpy_VsfVsf(vtmp_1, r_vec_1);
+        vtmp_2 = Q6_Vqf32_vmpy_VsfVsf(vtmp_2, r_vec_0);
+        vtmp_3 = Q6_Vqf32_vmpy_VsfVsf(vtmp_3, r_vec_1);
+        vtmp_4 = Q6_Vqf32_vmpy_VsfVsf(vtmp_4, r_vec_0);
+        vtmp_5 = Q6_Vqf32_vmpy_VsfVsf(vtmp_5, r_vec_1);
+        vtmp_6 = Q6_Vqf32_vmpy_VsfVsf(vtmp_6, r_vec_0);
+        vtmp_7 = Q6_Vqf32_vmpy_VsfVsf(vtmp_7, r_vec_1);
 
         vtmp_0 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_0, vtmp_1);
         vtmp_2 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_2, vtmp_3);
@@ -173,18 +182,22 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
         *outptr++ += buffer[31];
       }
 
-      *out_state_ptr = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*prev_state_ptr, *td_ptr), kv_vec_0));
-      *(out_state_ptr + 1) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 1), *(td_ptr + 1)), kv_vec_1));
-      *(out_state_ptr + 2) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 2), *td_ptr), kv_vec_2));
-      *(out_state_ptr + 3) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 3), *(td_ptr + 1)), kv_vec_3));
-      *(out_state_ptr + 4) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 4), *td_ptr), kv_vec_4));
-      *(out_state_ptr + 5) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 5), *(td_ptr + 1)), kv_vec_5));
-      *(out_state_ptr + 6) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 6), *td_ptr), kv_vec_6));
-      *(out_state_ptr + 7) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 7), *(td_ptr + 1)), kv_vec_7));
+      *out_state_ptr = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*prev_state_ptr, td_vec_0), kv_vec_0));
+      *(out_state_ptr + 1) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 1), td_vec_1), kv_vec_1));
+      *(out_state_ptr + 2) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 2), td_vec_0), kv_vec_2));
+      *(out_state_ptr + 3) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 3), td_vec_1), kv_vec_3));
+      *(out_state_ptr + 4) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 4), td_vec_0), kv_vec_4));
+      *(out_state_ptr + 5) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 5), td_vec_1), kv_vec_5));
+      *(out_state_ptr + 6) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 6), td_vec_0), kv_vec_6));
+      *(out_state_ptr + 7) = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*(prev_state_ptr + 7), td_vec_1), kv_vec_7));
 
       out_state_ptr += 8;
       prev_state_ptr += 8;
     }
+    k_ptr += head_size;
+    r_ptr += head_size;
+    tf_ptr += head_size;
+    td_ptr += head_size;
   }
 }
 
@@ -199,23 +212,24 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
                   const __fp16 *td) {
   __fp16 __attribute__((aligned(VLEN))) buffer[VLEN_SHORT];
   __fp16 *outptr = out_0;
+  __fp16 *v_ptr = (__fp16*)v;
   memset(outptr, 0, sizeof(__fp16)*num_heads*head_size);
   HVX_Vector *prev_state_ptr = (HVX_Vector *)(in_3);
   HVX_Vector *out_state_ptr = (HVX_Vector *)(out_1);
   for (int h = 0; h < num_heads; h++) {
-    HVX_Vector r_vec = *(HVX_Vector *)(r + h * head_size);
-    HVX_Vector k_vec = *(HVX_Vector *)(k + h * head_size);
-    HVX_Vector tf_vec = *(HVX_Vector *)(tf + h * head_size);
-    HVX_Vector td_vec = *(HVX_Vector *)(td + h * head_size);
+    HVX_Vector r_vec = *(HVX_Vector *)r;
+    HVX_Vector k_vec = *(HVX_Vector *)k;
+    HVX_Vector tf_vec = *(HVX_Vector *)tf;
+    HVX_Vector td_vec = *(HVX_Vector *)td;
     for (int i = 0; i < head_size; i += 8) {
-      HVX_Vector v_vec_0 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i]));
-      HVX_Vector v_vec_1 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 1]));
-      HVX_Vector v_vec_2 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 2]));
-      HVX_Vector v_vec_3 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 3]));
-      HVX_Vector v_vec_4 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 4]));
-      HVX_Vector v_vec_5 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 5]));
-      HVX_Vector v_vec_6 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 6]));
-      HVX_Vector v_vec_7 = Q6_Vh_vsplat_R(fp16_to_bits((__fp16*)&v[h * head_size + i + 7]));
+      HVX_Vector v_vec_0 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_1 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_2 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_3 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_4 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_5 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_6 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
+      HVX_Vector v_vec_7 = Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++));
 
       HVX_Vector kv_vec_0 = Q6_Vqf16_vmpy_VhfVhf(v_vec_0, k_vec);
       HVX_Vector kv_vec_1 = Q6_Vqf16_vmpy_VhfVhf(v_vec_1, k_vec);
@@ -301,6 +315,10 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
       out_state_ptr += 8;
       prev_state_ptr += 8;
     }
+    k += head_size;
+    r += head_size;
+    tf += head_size;
+    td += head_size;
   }
 }
 
