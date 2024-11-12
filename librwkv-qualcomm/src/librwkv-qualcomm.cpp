@@ -7,6 +7,7 @@
 #include "Logger.hpp"
 #include <cmath>
 #include <fstream>
+#include <sstream>
 
 #if !defined(_WIN32) && ENABLE_CHAT_APIS
 #include "tokenizer.h"
@@ -65,9 +66,24 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
             }
         }
 
-        app->m_opPackagePaths.push_back("libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider");
-        if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
-            LOG_ERROR("Op package registration failure");
+        const char* ldLibraryPath = getenv("LD_LIBRARY_PATH");
+        if (ldLibraryPath) {
+            std::string pathStr(ldLibraryPath);
+            std::stringstream ss(pathStr);
+            std::string dir;
+            while (std::getline(ss, dir, ':')) {
+                std::string fullPath = dir + "/libQnnRwkvWkvOpPackage.so";
+                std::ifstream file(fullPath);
+                if (file.good()) {
+                    LOG_ERROR("Found libQnnRwkvWkvOpPackage.so in LD_LIBRARY_PATH");
+                    app->m_opPackagePaths.push_back("libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider");
+
+                    if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
+                        LOG_ERROR("Op package registration failure");
+                    }
+                    break;
+                }
+            }
         }
     }
 
