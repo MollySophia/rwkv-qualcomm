@@ -18,8 +18,15 @@ class Rwkv6SelfAttention(nn.Module):
 
         self.time_maa_x = nn.Parameter(state_dict[prefix + 'time_maa_x'])
 
-        self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].view(self.num_heads, 1, self.head_size))
-        self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, 1, self.head_size))
+        self.time_decay = nn.Parameter(state_dict[prefix + 'time_decay'].view(self.num_heads, self.head_size, 1))
+        if custom_wkv:
+            time_first_splits = torch.split(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1), self.num_heads//4, dim=0)
+            self.time_first0 = nn.Parameter(time_first_splits[0])
+            self.time_first1 = nn.Parameter(time_first_splits[1])
+            self.time_first2 = nn.Parameter(time_first_splits[2])
+            self.time_first3 = nn.Parameter(time_first_splits[3])
+        else:
+            self.time_first = nn.Parameter(state_dict[prefix + 'time_faaaa'].view(self.num_heads, self.head_size, 1))
 
         self.receptance = nn.Linear(hidden_size, hidden_size, bias=False)
         self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'])
@@ -134,7 +141,7 @@ class Rwkv6SelfAttention(nn.Module):
 
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
         time_decay = self.matmul_time_decay_w2(mw)
-        time_decay = self.add_time_decay0(self.time_decay, time_decay.view(seq_length, self.num_heads, 1, self.head_size))
+        time_decay = self.add_time_decay0(self.time_decay, time_decay.view(seq_length, self.num_heads, self.head_size, 1))
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
@@ -143,27 +150,39 @@ class Rwkv6SelfAttention(nn.Module):
             value = value.view(self.num_heads * seq_length, self.head_size)
             receptance = receptance.view(self.num_heads * seq_length, self.head_size)
             if seq_length == 1:
-                wkv, state2_out = self.wkv_func(key, value, receptance, state2, self.time_first, time_decay)
+                key_split = torch.split(key, self.num_heads//4, dim=0)
+                value_split = torch.split(value, self.num_heads//4, dim=0)
+                receptance_split = torch.split(receptance, self.num_heads//4, dim=0)
+                if (len(state2.shape) == 3):
+                    state2_split = torch.split(state2, self.num_heads//4, dim=0)
+                else:
+                    state2_split = torch.split(state2, self.num_heads//4, dim=1)
+                time_decay_split = torch.split(time_decay, self.num_heads//4, dim=1)
+                wkv0, state2_out0 = self.wkv_func(key_split[0], value_split[0], receptance_split[0], state2_split[0], self.time_first0, time_decay_split[0])
+                wkv1, state2_out1 = self.wkv_func(key_split[1], value_split[1], receptance_split[1], state2_split[1], self.time_first1, time_decay_split[1])
+                wkv2, state2_out2 = self.wkv_func(key_split[2], value_split[2], receptance_split[2], state2_split[2], self.time_first2, time_decay_split[2])
+                wkv3, state2_out3 = self.wkv_func(key_split[3], value_split[3], receptance_split[3], state2_split[3], self.time_first3, time_decay_split[3])
+                wkv = torch.cat([wkv0, wkv1, wkv2, wkv3], dim=0).view(1, self.num_heads, 1, self.head_size)
+                state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=1)
             else:
                 wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, self.time_first, time_decay)
         else:
             # kv = self.matmul_kv(key, value)
-            key = key.view(self.num_heads * seq_length, 1, self.head_size)
-            value = value.view(self.num_heads * seq_length, self.head_size, 1)
-            receptance = receptance.view(self.num_heads * seq_length, self.head_size, 1)
-            kv = self.matmul_kv(value, key)
+            key = key.view(self.num_heads * seq_length, self.head_size, 1)
+            value = value.view(self.num_heads * seq_length, 1, self.head_size)
+            receptance = receptance.view(self.num_heads * seq_length, 1, self.head_size)
+            kv = self.matmul_kv(key, value)
             if seq_length == 1:
                 wkv = self.add_time_first(self.mul_time_first(kv, self.time_first), state2)
-                wkv = self.matmul_rkv(wkv, receptance).view(1, self.num_heads, 1, self.head_size)
+                wkv = self.matmul_rkv(receptance, wkv).view(1, self.num_heads, 1, self.head_size)
                 state2_out = self.add_time_decay1(kv, self.mul_time_decay(state2, time_decay))
             else:
                 kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
-                receptance = receptance.view(seq_length, self.num_heads, self.head_size, 1)
-                time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
-                wkv = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=x.device, dtype=kv.dtype)
+                receptance = receptance.view(seq_length, self.num_heads, 1, self.head_size)
+                wkv = torch.zeros(seq_length, self.num_heads, 1, self.head_size, device=x.device, dtype=kv.dtype)
                 for i in range(seq_length):
                     tmp = self.add_time_first(self.mul_time_first(kv[i, :, :, :], self.time_first), state2)
-                    wkv[i, :, :, :] = self.matmul_rkv(tmp, receptance[i, :, :, :])
+                    wkv[i, :, :, :] = self.matmul_rkv(receptance[i, :, :, :], tmp)
                     state2 = self.add_time_decay1(kv[i, :, :, :], self.mul_time_decay(state2, time_decay[i, :, :, :]))
                 state2_out = state2
                 wkv = wkv.view(seq_length, self.num_heads, 1, self.head_size)

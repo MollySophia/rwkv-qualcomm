@@ -75,10 +75,11 @@ def quant_override(model):
             if "matmul_kv" in graph.node[i].name \
                 or "mul_time_decay" in graph.node[i].name \
                 or "add_time_decay1" in graph.node[i].name \
-                or "ln" in graph.node[i].name:
+                or "ln" in graph.node[i].name \
+                or "wkv" in graph.node[i].name:
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
-                if "ln" in graph.node[i].name:
+                if "ln" in graph.node[i].name or "wkv" in graph.node[i].name:
                     for j in graph.node[i].input:
                         encodings_dict['activation_encodings'][j] = float_override
             if "add_time_first" in graph.node[i].name:
@@ -158,12 +159,13 @@ if type(model) == list:
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
         if args.wkv_customop:
+            from torch.onnx.symbolic_helper import _get_tensor_sizes
+            from torch.onnx import register_custom_op_symbolic
             op_name = "rwkv::wkv_chunk" if parser_args.prefill_model else "rwkv::wkv"
             def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay):
                 out1, out2 = g.op(op_name, k, v, r, state2, time_first, time_decay, outputs=2)
-                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([seq_length, args.n_head, 1, args.head_size])),\
-                 out2.setType(k.type().with_dtype(torch.float32).with_sizes([args.n_head, args.head_size, args.head_size]))
-            from torch.onnx import register_custom_op_symbolic
+                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([seq_length, _get_tensor_sizes(k)[0], 1, args.head_size])),\
+                 out2.setType(k.type().with_dtype(torch.float32).with_sizes([1, _get_tensor_sizes(k)[0], args.head_size, args.head_size]))
             register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
 
         torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)

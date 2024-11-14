@@ -34,18 +34,18 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 
   int num_heads = operation->getInput(3)->currentDimensions[0];
   int head_size = operation->getInput(3)->currentDimensions[1];
+  memset(output, 0, num_heads * head_size * sizeof(float));
   for (int h = 0; h < num_heads; h++) {
     for (int i = 0; i < head_size; i++) {
-      auto v_val = v[h * head_size + i];
-      output[h * head_size + i] = 0;
+      auto k_val = k[h * head_size + i];
+      auto r_val = r[h * head_size + i];
+      auto td_val = td[h * head_size + i];
+      auto tf_val = tf[h * head_size + i];
       for (int j = 0; j < head_size; j++) {
-        auto k_val = k[h * head_size + j];
-        auto r_val = r[h * head_size + j];
-        auto td_val = td[h * head_size + j];
-        auto tf_val = tf[h * head_size + j];
+        auto v_val = v[h * head_size + j];
         auto kv_val = k_val * v_val;
         auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
-        output[h * head_size + i] += r_val * (kv_val * tf_val + prev_state_val);
+        output[h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
         state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
       }
     }
