@@ -92,6 +92,9 @@ DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
 #include <hvx_internal.h>
 // #include <qhblas_hvx.h>
 
+#define BLOCK_SIZE       (8*1024/VLEN)  // vector chunks
+#define L2FETCH_AHEAD    (BLOCK_SIZE)
+
 static inline int32_t float_to_int(float scale)
 {
     union { float f; int32_t i; } fp32 = { .f = scale };
@@ -114,7 +117,6 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
   const float *k_ptr = k;
   const float *tf_ptr = tf;
   const float *td_ptr = td;
-  memset(outptr, 0, sizeof(float)*num_heads*head_size);
   HVX_Vector *prev_state_ptr = (HVX_Vector *)(in_3);
   HVX_Vector *out_state_ptr = (HVX_Vector *)(out_1);
   for (int h = 0; h < num_heads; h++) {
@@ -165,6 +167,7 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
         vtmp_4 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_4, vtmp_5);
         vtmp_6 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_6, vtmp_7);
         HVX_Vector zero = Q6_V_vzero();
+        #pragma unroll
         for (int32_t i = 64; i >= 4; i >>= 1)
         {
           vtmp_0 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_0, Q6_V_vlalign_VVR(vtmp_0, zero, i));
@@ -173,13 +176,13 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
           vtmp_6 = Q6_Vqf32_vadd_Vqf32Vqf32(vtmp_6, Q6_V_vlalign_VVR(vtmp_6, zero, i));
         }
         *(HVX_Vector *) buffer = Q6_Vsf_equals_Vqf32(vtmp_0);
-        *outptr++ += buffer[31];
+        *outptr++ = buffer[31];
         *(HVX_Vector *) buffer = Q6_Vsf_equals_Vqf32(vtmp_2);
-        *outptr++ += buffer[31];
+        *outptr++ = buffer[31];
         *(HVX_Vector *) buffer = Q6_Vsf_equals_Vqf32(vtmp_4);
-        *outptr++ += buffer[31];
+        *outptr++ = buffer[31];
         *(HVX_Vector *) buffer = Q6_Vsf_equals_Vqf32(vtmp_6);
-        *outptr++ += buffer[31];
+        *outptr++ = buffer[31];
       }
 
       *out_state_ptr = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_Vqf32Vsf(Q6_Vqf32_vmpy_VsfVsf(*prev_state_ptr, td_vec_0), kv_vec_0));
@@ -213,7 +216,6 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
   __fp16 __attribute__((aligned(VLEN))) buffer[VLEN_SHORT];
   __fp16 *outptr = out_0;
   __fp16 *v_ptr = (__fp16*)v;
-  memset(outptr, 0, sizeof(__fp16)*num_heads*head_size);
   HVX_Vector *prev_state_ptr = (HVX_Vector *)(in_3);
   HVX_Vector *out_state_ptr = (HVX_Vector *)(out_1);
   for (int h = 0; h < num_heads; h++) {
@@ -259,6 +261,7 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
         vtmp_6 = Q6_Vqf16_vmpy_Vqf16Vhf(vtmp_6, r_vec);
         vtmp_7 = Q6_Vqf16_vmpy_Vqf16Vhf(vtmp_7, r_vec);
         HVX_Vector zero = Q6_V_vzero();
+        #pragma unroll
         for (int32_t i = 64; i >= 2; i >>= 1)
         {
           vtmp_0 = Q6_Vqf16_vadd_Vqf16Vqf16(vtmp_0, Q6_V_vlalign_VVR(vtmp_0, zero, i));
@@ -279,21 +282,21 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
         vtmp_6 = Q6_Vhf_equals_Vqf16(vtmp_6);
         vtmp_7 = Q6_Vhf_equals_Vqf16(vtmp_7);
         *(HVX_Vector *) buffer = vtmp_0;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_1;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_2;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_3;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_4;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_5;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_6;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
         *(HVX_Vector *) buffer = vtmp_7;
-        *outptr++ += buffer[63];
+        *outptr++ = buffer[63];
       }
 
       *(out_state_ptr) = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vadd_Vqf16Vqf16(
