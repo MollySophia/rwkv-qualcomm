@@ -59,25 +59,32 @@ class Rwkv6SelfAttention(nn.Module):
         self.sub_shift              = op.Subtract()
         self.mul_time_maa           = op.Multiply()
         self.add_time_maa           = op.Add()
-        self.matmul_time_maa_w2_0   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
-        self.matmul_time_maa_w2_0.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][0].t())
-        self.matmul_time_maa_w2_0.bias = nn.Parameter(state_dict[prefix + 'time_maa_w'].flatten())
+        # For online preparing on Windows ARM64 QNN
+        if False:
+            maa = torch.cat([state_dict[prefix + f'time_maa_{i}'].view(1, 1, -1) for i in ['w', 'k', 'v', 'r', 'g']], dim=0)
+            self.time_maa = nn.Parameter(maa)
+            self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
+            self.matmul_time_maa_w2     = op.Bmm()
+        else:
+            self.matmul_time_maa_w2_0   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
+            self.matmul_time_maa_w2_0.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][0].t())
+            self.matmul_time_maa_w2_0.bias = nn.Parameter(state_dict[prefix + 'time_maa_w'].flatten())
 
-        self.matmul_time_maa_w2_1   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
-        self.matmul_time_maa_w2_1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][1].t())
-        self.matmul_time_maa_w2_1.bias = nn.Parameter(state_dict[prefix + 'time_maa_k'].flatten())
+            self.matmul_time_maa_w2_1   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
+            self.matmul_time_maa_w2_1.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][1].t())
+            self.matmul_time_maa_w2_1.bias = nn.Parameter(state_dict[prefix + 'time_maa_k'].flatten())
 
-        self.matmul_time_maa_w2_2   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
-        self.matmul_time_maa_w2_2.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][2].t())
-        self.matmul_time_maa_w2_2.bias = nn.Parameter(state_dict[prefix + 'time_maa_v'].flatten())
+            self.matmul_time_maa_w2_2   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
+            self.matmul_time_maa_w2_2.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][2].t())
+            self.matmul_time_maa_w2_2.bias = nn.Parameter(state_dict[prefix + 'time_maa_v'].flatten())
 
-        self.matmul_time_maa_w2_3   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
-        self.matmul_time_maa_w2_3.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][3].t())
-        self.matmul_time_maa_w2_3.bias = nn.Parameter(state_dict[prefix + 'time_maa_r'].flatten())
+            self.matmul_time_maa_w2_3   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
+            self.matmul_time_maa_w2_3.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][3].t())
+            self.matmul_time_maa_w2_3.bias = nn.Parameter(state_dict[prefix + 'time_maa_r'].flatten())
 
-        self.matmul_time_maa_w2_4   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
-        self.matmul_time_maa_w2_4.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][4].t())
-        self.matmul_time_maa_w2_4.bias = nn.Parameter(state_dict[prefix + 'time_maa_g'].flatten())
+            self.matmul_time_maa_w2_4   = nn.Linear(self.TIME_MIX_EXTRA_DIM, self.hidden_size)
+            self.matmul_time_maa_w2_4.weight = nn.Parameter(state_dict[prefix + 'time_maa_w2'][4].t())
+            self.matmul_time_maa_w2_4.bias = nn.Parameter(state_dict[prefix + 'time_maa_g'].flatten())
 
         self.add_x                  = op.Add()
 
@@ -125,14 +132,25 @@ class Rwkv6SelfAttention(nn.Module):
             state1_out = x[:, -1, :]
 
         xxx = self.add_time_maa(x, self.mul_time_maa(sx, self.time_maa_x))
-        xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
+        # For online preparing on Windows ARM64 QNN
+        if False:
+            if seq_length == 1:
+                xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
+            else:
+                xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
+            xxx = self.matmul_time_maa_w2(xxx, self.time_maa_w2)
+            xxx = self.mul_time_maa(sx, self.add_time_maa(xxx, self.time_maa))
+            xxx = self.add_x(x, xxx)
+            mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
+        else:
+            xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(seq_length, 5, -1).transpose(0, 1)
 
-        mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
-        mw = sx * self.matmul_time_maa_w2_0(mw) + x
-        mk = sx * self.matmul_time_maa_w2_1(mk) + x
-        mv = sx * self.matmul_time_maa_w2_2(mv) + x
-        mr = sx * self.matmul_time_maa_w2_3(mr) + x
-        mg = sx * self.matmul_time_maa_w2_4(mg) + x
+            mw, mk, mv, mr, mg = self.split0(xxx, split_size_or_sections=1, dim=0)
+            mw = sx * self.matmul_time_maa_w2_0(mw) + x
+            mk = sx * self.matmul_time_maa_w2_1(mk) + x
+            mv = sx * self.matmul_time_maa_w2_2(mv) + x
+            mr = sx * self.matmul_time_maa_w2_3(mr) + x
+            mg = sx * self.matmul_time_maa_w2_4(mg) + x
 
         receptance = self.receptance(mr)
         key = self.key(mk)

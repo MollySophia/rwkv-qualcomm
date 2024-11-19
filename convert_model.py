@@ -64,6 +64,10 @@ if not qnn_sdk_root:
     print("Please set QNN_SDK_ROOT environment variable to the root of the Qualcomm Neural Processing SDK")
     exit(1)
 os.path.exists("onnx") or os.mkdir("onnx")
+if os.name == 'nt':
+    qnn_tools_target = 'x86_64-windows-msvc'
+else:
+    qnn_tools_target = 'x86_64-linux-clang'
 
 def quant_override(model):
     def calc_quant_override(model, layer_begin):
@@ -186,13 +190,19 @@ if type(model) == list:
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "NFC"' for j in range(model[i].layer_begin, model[i].layer_end)])
+        if os.name == 'nt':
+            states_layout = "NONTRIVIAL"
+        else:
+            states_layout = "NFC"
+        converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += ' --input_layout "in" "NFC"'
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         if model_args.wkv_customop:
             converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
         print(converter_cmd)
+        if os.name == 'nt':
+            converter_cmd = "python " + converter_cmd
         os.system(converter_cmd)
         # Set state{id}_in to have the same encoding as state{id}_out
         # with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "r") as f:
@@ -221,7 +231,9 @@ if type(model) == list:
         #     f.writelines(cpp_lines)
 
         print("Compiling QNN model library...")
-        compiling_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
+        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {os.getcwd()}/{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp -b {os.getcwd()}/{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.bin"
+        if os.name == 'nt':
+            compiling_cmd = "python " + compiling_cmd
         os.system(compiling_cmd)
 else:
     args = model.args
@@ -255,13 +267,23 @@ else:
     quant_override(model)
 
     print("Converting to QNN model...")
-    converter_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "NFC"' for j in range(model.layer_begin, model.layer_end)])
+    if os.name == 'nt':
+        states_layout = "NONTRIVIAL"
+    else:
+        states_layout = "NFC"
+    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
     converter_cmd += ' --input_layout "in" "NFC"'
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
     if model_args.wkv_customop:
         converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
+    if os.name == 'nt':
+        converter_cmd = "python " + converter_cmd
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")
-    os.system(f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-model-lib-generator -c onnx/{args.MODEL_NAME.split('/')[-1]}.cpp -b onnx/{args.MODEL_NAME.split('/')[-1]}.bin")
+    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {os.getcwd()}/onnx/{args.MODEL_NAME.split('/')[-1]}.cpp -b {os.getcwd()}/onnx/{args.MODEL_NAME.split('/')[-1]}.bin"
+    if os.name == 'nt':
+        compiling_cmd = "python " + compiling_cmd
+    print(compiling_cmd)
+    os.system(compiling_cmd)
