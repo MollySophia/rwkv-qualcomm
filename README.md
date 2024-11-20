@@ -115,6 +115,10 @@ Average tokens per second: 42.4368
 | RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 21.3172 | TODO |
 | RWKV v6 3B   | a16w8 | 16.2146 | TODO |
 
+```(Experimental) Running with custom WKV kernel```
+| Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 47.6698 | TODO |
+
 #### Obsolete data in previous versions for comparison:
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
