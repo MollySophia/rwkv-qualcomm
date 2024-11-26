@@ -117,6 +117,7 @@ Average tokens per second: 42.4368
 
 ```(Experimental) Running with custom WKV kernel```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
+| --- | --- | --- | --- |
 | RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 47.6698 | TODO |
 | RWKV v6 7B   | a16w4 | 12.9782 | TODO |
 
