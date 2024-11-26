@@ -265,11 +265,14 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
 // are expected to be read by the app.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::composeGraphs() {
   if (m_graphConfigsInfo == nullptr) {
-    m_graphConfigsInfoCount = 1;
+    m_graphConfigsInfoCount = 2;
     m_graphConfigsInfo = new qnn_wrapper_api::GraphConfigInfo_t*[m_graphConfigsInfoCount];
     m_graphConfigsInfo[0] = new qnn_wrapper_api::GraphConfigInfo_t();
     m_graphConfigsInfo[0]->graphName = (char*)"RWKV_6_ABC_85M_v1_20240217_ctx1024";
     m_graphConfigsInfo[0]->graphConfigs = (const QnnGraph_Config_t**)new QnnGraph_Config_t*[2];
+    m_graphConfigsInfo[1] = new qnn_wrapper_api::GraphConfigInfo_t();
+    m_graphConfigsInfo[1]->graphName = (char*)"sudoku_rwkv_20241120";
+    m_graphConfigsInfo[1]->graphConfigs = (const QnnGraph_Config_t**)new QnnGraph_Config_t*[2];
 
     static QnnHtpGraph_CustomConfig_t customConfig;
     customConfig.option = QNN_HTP_GRAPH_CONFIG_OPTION_PRECISION;
@@ -279,6 +282,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::composeGraphs() {
     graphConfig.customConfig = &customConfig;
     m_graphConfigsInfo[0]->graphConfigs[0] = &graphConfig;
     m_graphConfigsInfo[0]->graphConfigs[1] = nullptr;
+    m_graphConfigsInfo[1]->graphConfigs[0] = &graphConfig;
+    m_graphConfigsInfo[1]->graphConfigs[1] = nullptr;
   }
 
   auto returnStatus = StatusCode::SUCCESS;
