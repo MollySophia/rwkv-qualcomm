@@ -111,7 +111,10 @@ class RWKV_RNN(torch.nn.Module):
         if self.args.USE_EMBEDDING:
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
         else:
-            self.emb_weight = emb_weight
+            if self.args.fp16:
+                self.emb_weight = emb_weight.half()
+            else:
+                self.emb_weight = emb_weight
 
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, custom_wkv=self.args.wkv_customop) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)

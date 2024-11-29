@@ -171,6 +171,26 @@ class ActMSEQuantizer(LLMQuantizer):
 
             t_block = time.time() - t0
             print(f"block optimization took {t_block} seconds...")
+        
+        print(f"Quantizing layer head...")
+        print('+------------------+--------------+------------+-----------+-------+')
+        self.model.ln_out = self.model.ln_out.to(device)
+        self.quant_sim.model.ln_out = self.quant_sim.model.ln_out.to(device)
+        self.model.head = self.model.head.to(device)
+        self.quant_sim.model.head = self.quant_sim.model.head.to(device)
+        qt_inputs = self.quant_sim.model.ln_out(qt_inputs)
+        fp_inputs = self.model.ln_out(fp_inputs)
+
+        if self.input_symmetry == "asym":
+            self.optimize_module(self.quant_sim.model.head, fp_inputs, qt_inputs)
+        elif self.input_symmetry == "symfp":
+            self.optimize_module(self.quant_sim.model.head, fp_inputs, fp_inputs)
+        elif self.input_symmetry == "symqt":
+            self.optimize_module(self.quant_sim.model.head, qt_inputs, qt_inputs)
+        else:
+            raise ValueError
+
+        self.quant_sim.model.head.param_quantizers["weight"]._is_encoding_frozen = True
 
         del self.model
         self.quant_sim.model.half().to("cpu")

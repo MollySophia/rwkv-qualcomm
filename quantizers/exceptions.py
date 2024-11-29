@@ -5,7 +5,10 @@ from collections import defaultdict
 import torch
 
 from aimet_torch.qc_quantize_op import LearnedGridQuantWrapper, QcQuantizeWrapper
-from aimet_torch.elementwise_ops import Cast, CustomGather, MatMul, Permute, Reshape, Split
+try:
+    from aimet_torch.nn.modules.custom import Cast, CustomGather, MatMul, Permute, Reshape, Split
+except:
+    from aimet_torch.elementwise_ops import Cast, CustomGather, MatMul, Permute, Reshape, Split
 import aimet_common.libpymo as libpymo
 from aimet_common.defs import QuantizationDataType
 

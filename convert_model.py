@@ -28,7 +28,10 @@ seq_length = 32 if parser_args.prefill_model else 1
 
 # TODO: add more while keeping the precision
 if parser_args.linear_param_encodings:
-    quant_list = ["att.output", "ffn"]
+    if "7B" in str(parser_args.model):
+        quant_list = ["att.key", "att.value", "att.receptance", "att.gate", "att.output", "ffn", "head"]
+    else:
+        quant_list = ["att.output", "ffn"]
     with open(parser_args.linear_param_encodings, "r") as f:
         encodings = json.load(f)
     linear_encodings_new = copy.deepcopy(encodings)
@@ -107,7 +110,7 @@ def quant_override(model):
 
         if parser_args.linear_param_encodings:
             for k, v in linear_encodings_new['param_encodings'].items():
-                if not "ln" in k:
+                if not "ln" in k and not "head" in k:
                     k = k.replace(".", "/").replace("/weight", "").replace("blocks/", "/blocks.")
                     encoding_block_id = int(k.split(".")[-1].split("/")[0])
                     if encoding_block_id >= layer_begin:
@@ -116,6 +119,13 @@ def quant_override(model):
                                 print("Setting encoding for", k)
                                 print("onnx weight name:", graph.node[i].input[1])
                                 encodings_dict["param_encodings"][graph.node[i].input[1]] = v
+                elif "head" in k:
+                    k = k.replace(".", "/").replace("/weight", "").replace("blocks/", "/blocks.")
+                    for i in range(len(graph.node)):
+                        if "head" in graph.node[i].name:
+                            print("Setting encoding for", k)
+                            print("onnx weight name:", graph.node[i].input[1])
+                            encodings_dict["param_encodings"][graph.node[i].input[1]] = v
 
         return encodings_dict
 

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import rwkv_src.elemwise_ops as op
 
 class Rwkv6SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
@@ -59,8 +59,8 @@ class Rwkv6SelfAttention(nn.Module):
         self.sub_shift              = op.Subtract()
         self.mul_time_maa           = op.Multiply()
         self.add_time_maa           = op.Add()
-        # For online preparing on Windows ARM64 QNN
-        if False:
+
+        if self.online_preparing:
             maa = torch.cat([state_dict[prefix + f'time_maa_{i}'].view(1, 1, -1) for i in ['w', 'k', 'v', 'r', 'g']], dim=0)
             self.time_maa = nn.Parameter(maa)
             self.time_maa_w2            = nn.Parameter(state_dict[prefix + 'time_maa_w2'])
@@ -132,8 +132,7 @@ class Rwkv6SelfAttention(nn.Module):
             state1_out = x[:, -1, :]
 
         xxx = self.add_time_maa(x, self.mul_time_maa(sx, self.time_maa_x))
-        # For online preparing on Windows ARM64 QNN
-        if False:
+        if self.online_preparing:
             if seq_length == 1:
                 xxx = self.tanh0(self.matmul_time_maa_w1(xxx)).view(5, 1, -1)
             else:
@@ -160,6 +159,7 @@ class Rwkv6SelfAttention(nn.Module):
         mw = self.tanh1(self.matmul_time_decay_w1(mw))
         time_decay = self.matmul_time_decay_w2(mw)
         time_decay = self.add_time_decay0(self.time_decay, time_decay.view(seq_length, self.num_heads, self.head_size, 1))
+        # key = key.view(self.num_heads * seq_length, self.head_size, 1) * torch.clamp(time_decay, max=0).exp()
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
