@@ -1,5 +1,6 @@
 # Inference RWKV on Qualcomm HTP (Hexagon Tensor Processor) using QNN SDK
 ## Features
+- Support for RWKV v5, v6 and experimentally v7 models(WIP)
 - Inference RWKV using QNN SDK, with Qualcomm CPU, GPU or HTP (Hexagon Tensor Processor) as the backend.
 - Support for whole-model float16 inference (since Qualcomm HTP cannot do float32 math).
 - Support for activation INT16 and weights INT8 quantized inference (with some key operations running with float16).
