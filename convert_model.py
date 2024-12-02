@@ -52,7 +52,7 @@ model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 
 model_args.MODEL_NAME = str(parser_args.model)
 
-if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or USE_QNN_QUANT == True:
+if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or USE_QNN_QUANT == True or 'x070' in model_args.MODEL_NAME:
     model_args.RESCALE_LAYER = 0
 else:
     model_args.RESCALE_LAYER = 6

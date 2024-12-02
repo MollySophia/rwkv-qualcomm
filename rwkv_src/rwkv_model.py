@@ -13,6 +13,7 @@ from tqdm import tqdm
 import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
+from rwkv_src.rwkv_v7_modules import Rwkv7SelfAttention, Rwkv7FeedForward
 
 def sample_logits(out, temperature=1.0, top_p=0.8, top_k=128):
     probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
@@ -48,6 +49,9 @@ def check_rwkv_info(state_dict):
                     version = max(5.2, version)
         if 'time_maa' in k:
             version = max(6, version)
+        if 'r_k' in k:
+            version = max(7, version)
+            n_head, _ = state_dict[k].shape
         if int(version) == 6 and 'time_faaaa' in k:
             n_head = state_dict[k].shape[0]
     return version, n_layer, n_head
@@ -57,17 +61,25 @@ class RWKV_Block(nn.Module):
         super().__init__()
         self.version = version
         self.layer_offset = layer_id - layer_begin
-        if self.version == 6:
+        if self.version == 7:
+            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
+            self.ffn = Rwkv7FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id)
+        elif self.version == 6:
             self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, custom_wkv=custom_wkv)
             self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
         else:
             self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer)
             self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
 
-    def forward(self, x, state):
-        x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
-        x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
-        return x, state
+    def forward(self, x, state, v_first=None):
+        if self.version == 7:
+            x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
+            x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+            return x, state, v_first
+        else:
+            x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
+            x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+            return x, state
 
 class RWKV_RNN(torch.nn.Module):
     def __init__(self, args, chunks=1, chunk_idx=0):
@@ -84,6 +96,9 @@ class RWKV_RNN(torch.nn.Module):
         self.args.n_ffn = w['blocks.0.ffn.key.weight'].shape[0]
         self.args.version, self.args.n_layer, self.args.n_head = check_rwkv_info(w)
         self.args.head_size = self.args.n_embd // self.args.n_head
+
+        if self.args.version == 7:
+            self.args.RESCALE_LAYER = 0
         
         if chunk_idx == 0:
             print("Model version:", self.args.version)
@@ -141,9 +156,15 @@ class RWKV_RNN(torch.nn.Module):
                 batch_size, seq_length, _ = x.size()
             except:
                 batch_size, seq_length = 1, 1
+            
+            if self.args.version == 7:
+                v_first = torch.empty_like(x)
 
             for i in range(self.layer_begin, self.layer_end):
-                x, state = self.blocks[i-self.layer_begin](x, state)
+                if self.args.version == 7:
+                    x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first=v_first)
+                else:
+                    x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:
                     if (i+1) % self.args.RESCALE_LAYER == 0:
                         x = x / 2
