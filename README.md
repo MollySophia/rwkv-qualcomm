@@ -110,16 +110,18 @@ Average tokens per second: 42.4368
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
-| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 42.4368 | TODO |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 42.4368 | 5.09183,65.4182% |
 | RWKV v6 1.6B | a16w8 | 31.6564| 4.75009,66.3497% |
 | RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
-| RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 21.3172 | TODO |
-| RWKV v6 3B   | a16w8 | 16.2146 | TODO |
+| RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 21.3172 | 4.46606,68.8725% |
+| RWKV v6 3B   | a16w8 | 16.2146 | 3.9039,71.3647% |
+
+(Currently QNN's INT4 quantization is the naive linear per-channel quantization, together with the INT16 activation quantization, the perplexity gets a bit worse than the INT8 models. LAMBADA test accuracy seems lower but still acceptable.)
 
 ```(Experimental) Running with custom WKV kernel```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
-| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 47.6698 | TODO |
+| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 47.6698 | 5.09183,65.4182% |
 | RWKV v6 7B   | a16w4 | 12.9782 | TODO |
 
 #### Obsolete data in previous versions for comparison:
