@@ -12,6 +12,7 @@ class Rwkv6SelfAttention(nn.Module):
         self.head_size = head_size
         self.hidden_size = hidden_size
         self.custom_wkv = custom_wkv
+        self.online_preparing = online_preparing
 
         self.TIME_MIX_EXTRA_DIM = 64 if hidden_size == 4096 else 32
         self.TIME_DECAY_EXTRA_DIM = 128 if hidden_size == 4096 else 64
