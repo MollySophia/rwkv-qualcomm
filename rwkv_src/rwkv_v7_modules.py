@@ -13,14 +13,8 @@ class Rwkv7SelfAttention(nn.Module):
         self.hidden_size = hidden_size
         self.custom_wkv = custom_wkv
 
-        if layer_id == 0:
-            state_dict[prefix + 'v0'] = state_dict[prefix + 'a0']
-            state_dict[prefix + 'v1'] = state_dict[prefix + 'a1']
-            state_dict[prefix + 'v2'] = state_dict[prefix + 'a2']
-
         self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
-        self.D_MV_LORA = state_dict[prefix + 'v1'].shape[-1]
         self.D_GATE_LORA = state_dict[prefix + 'g1'].shape[-1]
 
         self.x_r = nn.Parameter(state_dict[prefix + 'x_r'])
@@ -50,25 +44,25 @@ class Rwkv7SelfAttention(nn.Module):
         self.matmul_a2 = nn.Linear(self.D_AAA_LORA, hidden_size, bias=False)
         self.matmul_a2.weight = nn.Parameter(state_dict[prefix + 'a2'].t())
 
-        self.v0 = nn.Parameter(state_dict[prefix + 'v0'])
-        self.matmul_v1 = nn.Linear(hidden_size, self.D_MV_LORA, bias=False)
-        self.matmul_v1.weight = nn.Parameter(state_dict[prefix + 'v1'].t())
-        self.matmul_v2 = nn.Linear(self.D_MV_LORA, hidden_size, bias=False)
-        self.matmul_v2.weight = nn.Parameter(state_dict[prefix + 'v2'].t())
+        if layer_id != 0:
+            self.D_MV_LORA = state_dict[prefix + 'v1'].shape[-1]
+            self.v0 = nn.Parameter(state_dict[prefix + 'v0'])
+            self.matmul_v1 = nn.Linear(hidden_size, self.D_MV_LORA, bias=False)
+            self.matmul_v1.weight = nn.Parameter(state_dict[prefix + 'v1'].t())
+            self.matmul_v2 = nn.Linear(self.D_MV_LORA, hidden_size, bias=False)
+            self.matmul_v2.weight = nn.Parameter(state_dict[prefix + 'v2'].t())
 
         self.matmul_g1 = nn.Linear(hidden_size, self.D_GATE_LORA, bias=False)
         self.matmul_g1.weight = nn.Parameter(state_dict[prefix + 'g1'].t())
         self.matmul_g2 = nn.Linear(self.D_GATE_LORA, hidden_size, bias=False)
         self.matmul_g2.weight = nn.Parameter(state_dict[prefix + 'g2'].t())
 
-        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'])
-        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'])
-        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].flatten())
+        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads, self.head_size))
+        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads, self.head_size))
+        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads, self.head_size))
 
         self.output = nn.Linear(hidden_size, hidden_size, bias=False)
         self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'])
-        # self.ln_x = nn.InstanceNorm2d(self.num_heads, eps=64e-5)
-        self.norm_kk = nn.LayerNorm(self.head_size, eps=1e-12)
         self.ln_x = nn.LayerNorm(self.head_size, eps=64e-5)
         self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
         self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
@@ -110,39 +104,38 @@ class Rwkv7SelfAttention(nn.Module):
         xa = x + self.x_a * sx
         xg = x + self.x_g * sx
 
-        receptance = self.receptance(xr)
-        key = self.key(xk)
-        value = self.value(xv)
+        receptance = self.receptance(xr).view(seq_length, self.num_heads, self.head_size)
+        key = self.key(xk).view(seq_length, self.num_heads, self.head_size)
+        value = self.value(xv).view(seq_length, self.num_heads, self.head_size)
         gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
-        a = self.sigmoid_a(self.a0 + self.matmul_a2(self.matmul_a1(xa)))
+        a = self.sigmoid_a(self.a0 + self.matmul_a2(self.matmul_a1(xa))).view(seq_length, self.num_heads, self.head_size)
         time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
 
         kk = key * self.k_k
-        # kk = self.norm_kk(kk.view(seq_length, self.num_heads, self.head_size)).view(-1)
-        kk = torch.nn.functional.normalize(kk.view(seq_length, self.num_heads, self.head_size), dim=-1, p=2.0).view(-1)
+        kk = torch.nn.functional.normalize(kk, dim=-1, p=2.0)
         key = key * (1 + (a-1) * self.k_a)
 
         if self.layer_id == 0:
             v_first = value
         else:
-            value = value + (v_first - value) * self.sigmoid_v(self.v0 + self.matmul_v2(self.matmul_v1(xv)))
+            value = value + (v_first - value) * self.sigmoid_v(self.v0 + self.matmul_v2(self.matmul_v1(xv))).view(seq_length, self.num_heads, self.head_size)
 
         time_decay = self.add_time_decay0(self.time_decay, time_decay)
-        time_decay = self.exp_w(-0.606531 * self.sigmoid_w(time_decay)).view(seq_length, self.num_heads, 1, self.head_size)
+        time_decay = self.exp_w(-0.606531 * self.sigmoid_w(time_decay)).view(seq_length, self.num_heads, self.head_size, 1)
 
         # kernel
-        vk = value.view(seq_length, self.num_heads, self.head_size, 1) @ key.view(seq_length, self.num_heads, 1, self.head_size)
-        
-        ab = (-kk).view(self.num_heads, self.head_size, 1) @ (kk * a).view(self.num_heads, 1, self.head_size)
-        state2_out = state2 * time_decay + (state2 @ ab) + vk
-        x = (state2_out @ receptance.view(seq_length, self.num_heads, self.head_size, 1)).view(seq_length, self.num_heads, 1, self.head_size)
+        kv = key.unsqueeze(-1) @ value.unsqueeze(-2)
+
+        ab = (kk * a).view(self.num_heads, self.head_size, 1) @ (-kk).view(self.num_heads, 1, self.head_size)
+        state2_out = state2 * time_decay + (ab @ state2) + kv
+        x = receptance.unsqueeze(-2) @ state2_out
 
         # group_norm
         x = self.ln_x(x).view(batch_size, seq_length, self.hidden_size)
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
-        
-        x = x + ((receptance * key * self.r_k).view(seq_length, self.num_heads, self.head_size).sum(dim=-1, keepdim=True) * value.view(seq_length, self.num_heads, self.head_size)).view(seq_length, self.hidden_size)
+
+        x = x + ((receptance * key * self.r_k).sum(dim=-1, keepdim=True) * value).view(seq_length, self.hidden_size)
         x = self.mul_attention(x, gate)
         x = self.output(x)
 
