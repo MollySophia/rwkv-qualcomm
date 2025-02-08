@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -179,6 +179,35 @@ bool rwkv_app::copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoS
   return true;
 }
 
+bool rwkv_app::copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoSrc,
+                                  qnn_wrapper_api::GraphInfo_t *graphInfoDst) {
+  graphInfoDst->graphName = nullptr;
+  if (graphInfoSrc->graphName) {
+    graphInfoDst->graphName =
+        pal::StringOp::strndup(graphInfoSrc->graphName, strlen(graphInfoSrc->graphName));
+  }
+  graphInfoDst->inputTensors    = nullptr;
+  graphInfoDst->numInputTensors = 0;
+  if (graphInfoSrc->graphInputs) {
+    if (!copyTensorsInfo(
+            graphInfoSrc->graphInputs, graphInfoDst->inputTensors, graphInfoSrc->numGraphInputs)) {
+      return false;
+    }
+    graphInfoDst->numInputTensors = graphInfoSrc->numGraphInputs;
+  }
+  graphInfoDst->outputTensors    = nullptr;
+  graphInfoDst->numOutputTensors = 0;
+  if (graphInfoSrc->graphOutputs) {
+    if (!copyTensorsInfo(graphInfoSrc->graphOutputs,
+                         graphInfoDst->outputTensors,
+                         graphInfoSrc->numGraphOutputs)) {
+      return false;
+    }
+    graphInfoDst->numOutputTensors = graphInfoSrc->numGraphOutputs;
+  }
+  return true;
+}
+
 bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
                                 const uint32_t numGraphs,
                                 qnn_wrapper_api::GraphInfo_t **&graphsInfo) {
@@ -201,6 +230,8 @@ bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
       QNN_DEBUG("Extracting graphsInfo for graph Idx: %d", gIdx);
       if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
         copyGraphsInfoV1(&graphsInput[gIdx].graphInfoV1, &graphInfoArr[gIdx]);
+      } else if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3) {
+        copyGraphsInfoV3(&graphsInput[gIdx].graphInfoV3, &graphInfoArr[gIdx]);
       }
       graphsInfo[gIdx] = graphInfoArr + gIdx;
     }
@@ -259,6 +290,17 @@ bool rwkv_app::copyMetadataToGraphsInfo(const QnnSystemContext_BinaryInfo_t *bin
       graphsCount = binaryInfo->contextBinaryInfoV2.numGraphs;
       return true;
     }
+  } else if (binaryInfo->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_3) {
+    if (binaryInfo->contextBinaryInfoV3.graphs) {
+      if (!copyGraphsInfo(binaryInfo->contextBinaryInfoV3.graphs,
+                          binaryInfo->contextBinaryInfoV3.numGraphs,
+                          graphsInfo)) {
+        QNN_ERROR("Failed while copying graphs Info.");
+        return false;
+      }
+      graphsCount = binaryInfo->contextBinaryInfoV3.numGraphs;
+      return true;
+    }
   }
   QNN_ERROR("Unrecognized system context binary info version.");
   return false;
@@ -281,4 +323,12 @@ QnnLog_Level_t rwkv_app::parseLogLevel(std::string logLevelString) {
   }
   QNN_FUNCTION_EXIT_LOG;
   return parsedLogLevel;
+}
+
+unsigned int rwkv_app::parseNumInferences(std::string numString) {
+  unsigned int num = 0;
+  std::stringstream numStream;
+  numStream << numString;
+  numStream >> num;
+  return num;
 }

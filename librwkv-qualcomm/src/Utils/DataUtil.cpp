@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -18,7 +18,8 @@
 #include "PAL/FileOp.hpp"
 #include "PAL/Path.hpp"
 #endif
-
+#include <fcntl.h>
+#include <sys/types.h>
 using namespace qnn;
 using namespace qnn::tools;
 
@@ -359,6 +360,10 @@ template datautil::StatusCode datautil::castToFloat<uint32_t>(float* out,
                                                               uint32_t* in,
                                                               size_t numElements);
 
+template datautil::StatusCode datautil::castToFloat<uint64_t>(float* out,
+                                                              uint64_t* in,
+                                                              size_t numElements);
+
 template datautil::StatusCode datautil::castToFloat<int8_t>(float* out,
                                                             int8_t* in,
                                                             size_t numElements);
@@ -369,6 +374,10 @@ template datautil::StatusCode datautil::castToFloat<int16_t>(float* out,
 
 template datautil::StatusCode datautil::castToFloat<int32_t>(float* out,
                                                              int32_t* in,
+                                                             size_t numElements);
+
+template datautil::StatusCode datautil::castToFloat<int64_t>(float* out,
+                                                             int64_t* in,
                                                              size_t numElements);
 
 template <typename T_QuantType>
@@ -395,6 +404,10 @@ template datautil::StatusCode datautil::castFromFloat<uint32_t>(uint32_t* out,
                                                                 float* in,
                                                                 size_t numElements);
 
+template datautil::StatusCode datautil::castFromFloat<uint64_t>(uint64_t* out,
+                                                                float* in,
+                                                                size_t numElements);
+
 template datautil::StatusCode datautil::castFromFloat<int8_t>(int8_t* out,
                                                               float* in,
                                                               size_t numElements);
@@ -404,5 +417,9 @@ template datautil::StatusCode datautil::castFromFloat<int16_t>(int16_t* out,
                                                                size_t numElements);
 
 template datautil::StatusCode datautil::castFromFloat<int32_t>(int32_t* out,
+                                                               float* in,
+                                                               size_t numElements);
+
+template datautil::StatusCode datautil::castFromFloat<int64_t>(int64_t* out,
                                                                float* in,
                                                                size_t numElements);

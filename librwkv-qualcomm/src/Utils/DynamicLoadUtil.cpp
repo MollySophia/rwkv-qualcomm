@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2019-2024 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -39,13 +39,13 @@ dynamicloadutil::StatusCode dynamicloadutil::getQnnFunctionPointers(
     void** backendHandleRtn,
     bool loadModelLib,
     void** modelHandleRtn) {
-#if defined(__ANDROID__)
-  void* libBackendHandle = pal::dynamicloading::dlOpen(
-      backendPath.c_str(), pal::dynamicloading::DL_NOW | pal::dynamicloading::DL_LOCAL);
-#else
+// #if defined(__ANDROID__)
+//   void* libBackendHandle = pal::dynamicloading::dlOpen(
+//       backendPath.c_str(), pal::dynamicloading::DL_NOW | pal::dynamicloading::DL_LOCAL);
+// #else
   void* libBackendHandle = pal::dynamicloading::dlOpen(
       backendPath.c_str(), pal::dynamicloading::DL_NOW | pal::dynamicloading::DL_GLOBAL);
-#endif
+// #endif
   if (nullptr == libBackendHandle) {
     QNN_ERROR("Unable to load backend. pal::dynamicloading::dlError(): %s",
               pal::dynamicloading::dlError());

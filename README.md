@@ -12,11 +12,11 @@
 - Setup the $QNN_SDK_ROOT environment variable to point to the QNN SDK installation directory. It should by default be installed at /opt/qcom/aistack/qnn/{version}.
 - (Optional) Install the [AIMET](https://github.com/quic/aimet) toolkit for aimet quantization methods: https://quic.github.io/aimet-pages/releases/latest/install/index.html#quick-install
 - This project has been verified with:
-    - QNN SDK 2.26.0
+    - QNN SDK 2.31.0
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
     - protobuf==3.20.2 (Mandatory for making both QNN's onnx-converter and onnx==1.16.1 working properly)
-    - torch==2.2.2 (although QNN SDK is verified to work with torch==1.13.0, it's okay to use latest version of torch since we are only using torch for model conversion and onnx exporting) (2.2.2 is recommended by AIMET toolkit)
+    - torch==2.1.2
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
 ## Usage
@@ -57,12 +57,12 @@ $ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-Worl
 - Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
 - Push the tokenizer model to the device: ``adb push assets/brwkv_vocab_v20230424.txt /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
-```/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtp.so
-/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
-/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpNetRunExtensions.so
-/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnSystem.so
-/opt/qcom/aistack/qairt/2.22.6.240515/lib/aarch64-android/libQnnHtpV75Stub.so
-/opt/qcom/aistack/qairt/2.22.6.240515/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so
+```/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtp.so
+/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpNetRunExtensions.so
+/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpNetRunExtensions.so
+/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnSystem.so
+/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpV75Stub.so
+/opt/qcom/aistack/qairt/2.31.0.250130/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so
 ```
 - *If using external embedding, please push `onnx/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.emb` to `/data/local/tmp/rwkv/` too.*
 - Finally run the demo code:

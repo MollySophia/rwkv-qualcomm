@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2020-2024 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -122,6 +122,17 @@ iotensor::StatusCode iotensor::IOTensor::copyFromFloatToNative(float* floatBuffe
       }
       break;
 
+    case QNN_DATATYPE_UINT_64:
+      if (datautil::StatusCode::SUCCESS !=
+          datautil::castFromFloat<uint64_t>(
+              static_cast<uint64_t*>(QNN_TENSOR_GET_CLIENT_BUF(tensor).data),
+              floatBuffer,
+              datautil::calculateElementCount(dims))) {
+        QNN_ERROR("failure in castFromFloat<uint64_t>");
+        returnStatus = StatusCode::FAILURE;
+      }
+      break;
+
     case QNN_DATATYPE_INT_8:
       if (datautil::StatusCode::SUCCESS !=
           datautil::castFromFloat<int8_t>(
@@ -155,6 +166,17 @@ iotensor::StatusCode iotensor::IOTensor::copyFromFloatToNative(float* floatBuffe
       }
       break;
 
+    case QNN_DATATYPE_INT_64:
+      if (datautil::StatusCode::SUCCESS !=
+          datautil::castFromFloat<int64_t>(
+              static_cast<int64_t*>(QNN_TENSOR_GET_CLIENT_BUF(tensor).data),
+              floatBuffer,
+              datautil::calculateElementCount(dims))) {
+        QNN_ERROR("failure in castFromFloat<int64_t>");
+        returnStatus = StatusCode::FAILURE;
+      }
+      break;
+
     case QNN_DATATYPE_BOOL_8:
       if (datautil::StatusCode::SUCCESS !=
           datautil::castFromFloat<uint8_t>(
@@ -167,7 +189,7 @@ iotensor::StatusCode iotensor::IOTensor::copyFromFloatToNative(float* floatBuffe
       break;
 
     default:
-      QNN_ERROR("copyFromFloatToNative: Datatype not supported yet!");
+      QNN_ERROR("Datatype not supported yet!");
       returnStatus = StatusCode::FAILURE;
       break;
   }
@@ -467,6 +489,11 @@ iotensor::StatusCode iotensor::IOTensor::allocateBuffer(uint8_t** buffer,
       returnStatus = allocateBuffer<uint32_t>(reinterpret_cast<uint32_t**>(buffer), elementCount);
       break;
 
+    case QNN_DATATYPE_UINT_64:
+      QNN_DEBUG("allocating uint64_t buffer");
+      returnStatus = allocateBuffer<uint64_t>(reinterpret_cast<uint64_t**>(buffer), elementCount);
+      break;
+
     case QNN_DATATYPE_INT_8:
       QNN_DEBUG("allocating int8_t buffer");
       returnStatus = allocateBuffer<int8_t>(reinterpret_cast<int8_t**>(buffer), elementCount);
@@ -482,13 +509,18 @@ iotensor::StatusCode iotensor::IOTensor::allocateBuffer(uint8_t** buffer,
       returnStatus = allocateBuffer<int32_t>(reinterpret_cast<int32_t**>(buffer), elementCount);
       break;
 
+    case QNN_DATATYPE_INT_64:
+      QNN_DEBUG("allocating int64_t buffer");
+      returnStatus = allocateBuffer<int64_t>(reinterpret_cast<int64_t**>(buffer), elementCount);
+      break;
+
     case QNN_DATATYPE_BOOL_8:
       QNN_DEBUG("allocating bool buffer");
       returnStatus = allocateBuffer<uint8_t>(reinterpret_cast<uint8_t**>(buffer), elementCount);
       break;
 
     default:
-      QNN_ERROR("Datatype %x not supported yet!", dataType);
+      QNN_ERROR("Datatype not supported yet!");
       returnStatus = StatusCode::FAILURE;
       break;
   }
@@ -588,6 +620,17 @@ iotensor::StatusCode iotensor::IOTensor::convertToFloat(float** out, Qnn_Tensor_
       }
       break;
 
+    case QNN_DATATYPE_UINT_64:
+      if (datautil::StatusCode::SUCCESS !=
+          datautil::castToFloat<uint64_t>(
+              *out,
+              reinterpret_cast<uint64_t*>(QNN_TENSOR_GET_CLIENT_BUF(tensor).data),
+              elementCount)) {
+        QNN_ERROR("failure in castToFloat<uint64_t>");
+        returnStatus = StatusCode::FAILURE;
+      }
+      break;
+
     case QNN_DATATYPE_INT_8:
       if (datautil::StatusCode::SUCCESS !=
           datautil::castToFloat<int8_t>(
@@ -621,6 +664,17 @@ iotensor::StatusCode iotensor::IOTensor::convertToFloat(float** out, Qnn_Tensor_
       }
       break;
 
+    case QNN_DATATYPE_INT_64:
+      if (datautil::StatusCode::SUCCESS !=
+          datautil::castToFloat<int64_t>(
+              *out,
+              reinterpret_cast<int64_t*>(QNN_TENSOR_GET_CLIENT_BUF(tensor).data),
+              elementCount)) {
+        QNN_ERROR("failure in castToFloat<int64_t>");
+        returnStatus = StatusCode::FAILURE;
+      }
+      break;
+
     case QNN_DATATYPE_BOOL_8:
       if (datautil::StatusCode::SUCCESS !=
           datautil::castToFloat<uint8_t>(
@@ -633,7 +687,7 @@ iotensor::StatusCode iotensor::IOTensor::convertToFloat(float** out, Qnn_Tensor_
       break;
 
     default:
-      QNN_ERROR("convertToFloat: Datatype not supported yet!");
+      QNN_ERROR("Datatype not supported yet!");
       returnStatus = StatusCode::FAILURE;
       break;
   }

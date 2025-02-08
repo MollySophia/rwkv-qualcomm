@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2020, 2022 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -11,10 +11,10 @@
 #include <android/log.h>
 #endif
 
-void qnn::log::utils::logStdoutCallback(const char* fmt,
-                                        QnnLog_Level_t level,
-                                        uint64_t timestamp,
-                                        va_list argp) {
+void qnn::log::utils::logDefaultCallback(const char* fmt,
+                                         QnnLog_Level_t level,
+                                         uint64_t timestamp,
+                                         va_list argp) {
   const char* levelStr = "";
   switch (level) {
     case QNN_LOG_LEVEL_ERROR:

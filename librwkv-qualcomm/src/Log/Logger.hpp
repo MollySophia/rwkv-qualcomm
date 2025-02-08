@@ -1,7 +1,7 @@
 //==============================================================================
 //
-//  Copyright (c) 2020-2022 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
 //==============================================================================
@@ -66,10 +66,10 @@ bool setLogLevel(QnnLog_Level_t maxLevel);
 
 class Logger final {
  public:
-  Logger(const Logger&) = delete;
+  Logger(const Logger&)            = delete;
   Logger& operator=(const Logger&) = delete;
   Logger(Logger&&)                 = delete;
-  Logger& operator=(Logger&&) = delete;
+  Logger& operator=(Logger&&)      = delete;
 
   void setMaxLevel(QnnLog_Level_t maxLevel) {
     m_maxLevel.store(maxLevel, std::memory_order_seq_cst);
@@ -90,11 +90,10 @@ class Logger final {
   static std::shared_ptr<Logger> getLogger() { return s_logger; }
 
   static void reset() { s_logger = nullptr; }
+  uint64_t getTimestamp() const;
 
  private:
   Logger(QnnLog_Callback_t callback, QnnLog_Level_t maxLevel, QnnLog_Error_t* status);
-
-  uint64_t getTimestamp() const;
 
   QnnLog_Callback_t m_callback;
   std::atomic<QnnLog_Level_t> m_maxLevel;

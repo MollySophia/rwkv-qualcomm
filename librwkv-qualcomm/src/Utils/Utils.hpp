@@ -1,3 +1,10 @@
+//==============================================================================
+//
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
+//  Confidential and Proprietary - Qualcomm Technologies, Inc.
+//
+//==============================================================================
 #pragma once
 
 #include <iostream>
@@ -55,6 +62,9 @@ bool copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
 bool copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoSrc,
                       qnn_wrapper_api::GraphInfo_t *graphInfoDst);
 
+bool copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoSrc,
+                      qnn_wrapper_api::GraphInfo_t *graphInfoDst);
+
 bool copyTensorsInfo(const Qnn_Tensor_t *tensorsInfoSrc,
                      Qnn_Tensor_t *&tensorWrappers,
                      uint32_t tensorsCount);
@@ -63,8 +73,10 @@ bool deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src);
 
 QnnLog_Level_t parseLogLevel(std::string logLevelString);
 
+unsigned int parseNumInferences(std::string numString);
+
 void inline exitWithMessage(std::string &&msg, int code) {
-  QNN_ERROR(msg.c_str());
+  std::cerr << msg << std::endl;
   std::exit(code);
 }
 

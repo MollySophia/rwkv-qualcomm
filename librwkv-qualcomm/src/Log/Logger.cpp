@@ -1,10 +1,10 @@
-//=============================================================================
+//==============================================================================
 //
-//  Copyright (c) 2020-2022 Qualcomm Technologies, Inc.
-//  All Rights Reserved.
+//  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+//  All rights reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
-//=============================================================================
+//==============================================================================
 
 #include <chrono>
 #include <cstdio>
@@ -43,7 +43,7 @@ Logger::Logger(QnnLog_Callback_t callback, QnnLog_Level_t maxLevel, QnnLog_Error
 #ifdef ANDROID
     m_callback = utils::logAndroidCallback;
 #else
-    m_callback = utils::logStdoutCallback;
+    m_callback = utils::logDefaultCallback;
 #endif
   }
 }
