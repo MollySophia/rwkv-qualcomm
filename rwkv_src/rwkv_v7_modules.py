@@ -139,7 +139,7 @@ class Rwkv7SelfAttention(nn.Module):
         # kernel
         if self.custom_wkv:
             if seq_length == 1:
-                x, state2 = self.wkv_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
+                x, state2_out = self.wkv_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
             else:
                 assert False
         else:
