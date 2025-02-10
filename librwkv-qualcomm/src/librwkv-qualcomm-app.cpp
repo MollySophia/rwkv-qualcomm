@@ -43,13 +43,11 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                                        void* backendLibraryHandle,
                                        void* modelHandle,
                                        std::vector<std::vector<float>> embedding,
-                                       rwkv_app::ProfilingLevel profilingLevel,
                                        std::string cachedBinaryPath,
                                        std::string saveBinaryName)
     : m_qnnFunctionPointers(qnnFunctionPointers),
       m_saveBinaryName(saveBinaryName),
       m_cachedBinaryPath(cachedBinaryPath),
-      m_profilingLevel(profilingLevel),
       m_backendLibraryHandle(backendLibraryHandle),
       m_modelHandle(modelHandle),
       m_isBackendInitialized(false),
@@ -86,14 +84,6 @@ rwkv_app::QnnRwkvApp::~QnnRwkvApp() {
   if (m_modelHandle)
     pal::dynamicloading::dlClose(m_modelHandle);
 
-  // Free Profiling object if it was created
-  if (nullptr != m_profileBackendHandle) {
-    QNN_DEBUG("Freeing backend profile object.");
-    if (QNN_PROFILE_NO_ERROR !=
-        m_qnnFunctionPointers.qnnInterface.profileFree(m_profileBackendHandle)) {
-      QNN_ERROR("Could not free backend profile handle.");
-    }
-  }
   // Terminate backend
   if (m_isBackendInitialized && nullptr != m_qnnFunctionPointers.qnnInterface.backendFree) {
     QNN_DEBUG("Freeing backend");
@@ -136,36 +126,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initialize() {
     QNN_WARN("Logging not available in the backend.");
   }
   return StatusCode::SUCCESS;
-}
-
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeProfiling() {
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    QNN_INFO("Profiling turned on; level = %d", m_profilingLevel);
-    if (ProfilingLevel::BASIC == m_profilingLevel) {
-      QNN_INFO("Basic profiling requested. Creating Qnn Profile object.");
-      if (QNN_PROFILE_NO_ERROR !=
-          m_qnnFunctionPointers.qnnInterface.profileCreate(
-              m_backendHandle, QNN_PROFILE_LEVEL_BASIC, &m_profileBackendHandle)) {
-        QNN_WARN("Unable to create profile handle in the backend.");
-        return StatusCode::FAILURE;
-      }
-    } else if (ProfilingLevel::DETAILED == m_profilingLevel) {
-      QNN_INFO("Detailed profiling requested. Creating Qnn Profile object.");
-      if (QNN_PROFILE_NO_ERROR !=
-          m_qnnFunctionPointers.qnnInterface.profileCreate(
-              m_backendHandle, QNN_PROFILE_LEVEL_DETAILED, &m_profileBackendHandle)) {
-        QNN_ERROR("Unable to create profile handle in the backend.");
-        return StatusCode::FAILURE;
-      }
-    }
-  }
-  return StatusCode::SUCCESS;
-}
-
-// Simple method to report error from app to lib.
-int32_t rwkv_app::QnnRwkvApp::reportError(const std::string& err) {
-  QNN_ERROR("%s", err.c_str());
-  return EXIT_FAILURE;
 }
 
 // Initialize a QnnBackend.
@@ -249,7 +209,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createContext() {
 // Free context after done.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
   if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextFree(m_context[0], m_profileBackendHandle)) {
+      m_qnnFunctionPointers.qnnInterface.contextFree(m_context[0], nullptr)) {
     QNN_ERROR("Could not free context");
     return StatusCode::FAILURE;
   }
@@ -314,12 +274,9 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::finalizeGraphs() {
   for (size_t graphIdx = 0; graphIdx < m_graphsCount; graphIdx++) {
     if (QNN_GRAPH_NO_ERROR !=
         m_qnnFunctionPointers.qnnInterface.graphFinalize(
-            (*m_graphsInfo)[graphIdx].graph, m_profileBackendHandle, nullptr)) {
+            (*m_graphsInfo)[graphIdx].graph, nullptr, nullptr)) {
       return StatusCode::FAILURE;
     }
-  }
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    extractBackendProfilingInfo(m_profileBackendHandle);
   }
   auto returnStatus = StatusCode::SUCCESS;
   if (!m_saveBinaryName.empty()) {
@@ -463,12 +420,9 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
             static_cast<void*>(buffer[i].get()),
             bufferSizes[i],
             &m_context[i],
-            m_profileBackendHandle)) {
+            nullptr)) {
       QNN_ERROR("Could not create context from binary.");
       returnStatus = StatusCode::FAILURE;
-    }
-    if (ProfilingLevel::OFF != m_profilingLevel) {
-      extractBackendProfilingInfo(m_profileBackendHandle);
     }
     m_isContextCreated = true;
     if (StatusCode::SUCCESS == returnStatus) {
@@ -564,61 +518,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::saveBinary() {
     QNN_ERROR("Error while writing binary to file.");
     return StatusCode::FAILURE;
   }
-  return StatusCode::SUCCESS;
-}
-
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::extractBackendProfilingInfo(
-    Qnn_ProfileHandle_t profileHandle) {
-  if (nullptr == m_profileBackendHandle) {
-    QNN_ERROR("Backend Profile handle is nullptr; may not be initialized.");
-    return StatusCode::FAILURE;
-  }
-  const QnnProfile_EventId_t* profileEvents{nullptr};
-  uint32_t numEvents{0};
-  if (QNN_PROFILE_NO_ERROR != m_qnnFunctionPointers.qnnInterface.profileGetEvents(
-                                  profileHandle, &profileEvents, &numEvents)) {
-    QNN_ERROR("Failure in profile get events.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("ProfileEvents: [%p], numEvents: [%d]", profileEvents, numEvents);
-  for (size_t event = 0; event < numEvents; event++) {
-    extractProfilingEvent(*(profileEvents + event));
-    extractProfilingSubEvents(*(profileEvents + event));
-  }
-  return StatusCode::SUCCESS;
-}
-
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::extractProfilingSubEvents(
-    QnnProfile_EventId_t profileEventId) {
-  const QnnProfile_EventId_t* profileSubEvents{nullptr};
-  uint32_t numSubEvents{0};
-  if (QNN_PROFILE_NO_ERROR != m_qnnFunctionPointers.qnnInterface.profileGetSubEvents(
-                                  profileEventId, &profileSubEvents, &numSubEvents)) {
-    QNN_ERROR("Failure in profile get sub events.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("ProfileSubEvents: [%p], numSubEvents: [%d]", profileSubEvents, numSubEvents);
-  for (size_t subEvent = 0; subEvent < numSubEvents; subEvent++) {
-    extractProfilingEvent(*(profileSubEvents + subEvent));
-    extractProfilingSubEvents(*(profileSubEvents + subEvent));
-  }
-  return StatusCode::SUCCESS;
-}
-
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::extractProfilingEvent(
-    QnnProfile_EventId_t profileEventId) {
-  QnnProfile_EventData_t eventData;
-  if (QNN_PROFILE_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.profileGetEventData(profileEventId, &eventData)) {
-    QNN_ERROR("Failure in profile get event type.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("Printing Event Info - Event Type: [%d], Event Value: [%" PRIu64
-            "], Event Identifier: [%s], Event Unit: [%d]",
-            eventData.type,
-            eventData.value,
-            eventData.identifier,
-            eventData.unit);
   return StatusCode::SUCCESS;
 }
 
@@ -810,8 +709,22 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         QNN_ERROR("Error in setting up Input and output Tensors");
         return StatusCode::FAILURE;
       }
+
+      m_inputIdx.push_back(-1);
+      m_outputIdx.push_back(-1);
+      m_vfirstInIdx.push_back(-1);
+      m_vfirstOutIdx.push_back(-1);
+
       for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
         QNN_INFO("Input Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]));
+
+        std::string inputName = std::string(QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]));
+        if (inputName == "in") {
+          m_inputIdx[graph_id] = i;
+        } else if (inputName == "v_first_in") {
+          m_vfirstInIdx[graph_id] = i;
+        }
+
         std::vector<size_t> dims;
         for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[graph_id][i]); j++) {
           dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[graph_id][i]) + j));
@@ -829,9 +742,14 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
       }
       for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
         QNN_INFO("Output Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]));
-        if (std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i])).find("kv") != std::string::npos) {
-          m_isExternalWkv = true;
+
+        std::string outputName = std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]));
+        if (outputName == "out") {
+          m_outputIdx[graph_id] = i;
+        } else if (outputName == "v_first_out") {
+          m_vfirstOutIdx[graph_id] = i;
         }
+
         std::vector<size_t> dims;
         for (int j = 0; j < QNN_TENSOR_GET_RANK(m_outputTensors[graph_id][i]); j++) {
           dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_outputTensors[graph_id][i]) + j));
@@ -847,6 +765,26 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
           delete[] ptr;
         }
       }
+
+      // state copy map
+      std::vector<int> tmp(graphInfo.numInputTensors);
+      for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
+        std::string inputName = std::string(QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]));
+        if (inputName.find("state") != std::string::npos) {
+          for (size_t j = 0; j < graphInfo.numInputTensors; j++) {
+            std::string outputName = std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][j]));
+            if (outputName.find("state") != std::string::npos) {
+              if (inputName.substr(0, inputName.find("_in")) == outputName.substr(0, outputName.find("_out"))) {
+                tmp[i] = j;
+                break;
+              }
+            }
+          }
+        } else {
+          tmp[i] = -1;
+        }
+      }
+      m_stateCopyMap.push_back(tmp);
     }
   }
   return StatusCode::SUCCESS;
@@ -878,10 +816,15 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
   for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
     auto graphInfo     = (*m_graphsInfo)[graph_id];
     if (graph_id) { // chunked models
-      // copyTensor(&m_inputTensors[graph_id][0], &m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]);
-      auto tmp = getQnnTensorClientBuf(&m_inputTensors[graph_id][0]);
-      setQnnTensorClientBuf(&m_inputTensors[graph_id][0], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1]));
-      setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][(*m_graphsInfo)[graph_id - 1].numOutputTensors - 1], tmp);
+      auto tmp = getQnnTensorClientBuf(&m_inputTensors[graph_id][m_inputIdx[graph_id]]);
+      setQnnTensorClientBuf(&m_inputTensors[graph_id][m_inputIdx[graph_id]], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_outputIdx[graph_id - 1]]));
+      setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_outputIdx[graph_id - 1]], tmp);
+
+      if (m_vfirstInIdx[graph_id] != -1) {
+        auto tmp = getQnnTensorClientBuf(&m_inputTensors[graph_id][m_vfirstInIdx[graph_id]]);
+        setQnnTensorClientBuf(&m_inputTensors[graph_id][m_vfirstInIdx[graph_id]], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_vfirstOutIdx[graph_id - 1]]));
+        setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_vfirstOutIdx[graph_id - 1]], tmp);
+      }
     }
     std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
     auto executeStatus =
@@ -890,7 +833,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
                                                         graphInfo.numInputTensors,
                                                         m_outputTensors[graph_id],
                                                         graphInfo.numOutputTensors,
-                                                        m_profileBackendHandle,
+                                                        nullptr,
                                                         nullptr);
     std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
     if (!graph_id)

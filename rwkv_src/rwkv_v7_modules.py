@@ -106,7 +106,7 @@ class Rwkv7SelfAttention(nn.Module):
 
         receptance = self.receptance(xr).view(seq_length, self.num_heads, self.head_size)
         key = self.key(xk).view(seq_length, self.num_heads, self.head_size)
-        value = self.value(xv).view(seq_length, self.num_heads, self.head_size)
+        value = self.value(xv)
         gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
         a = self.sigmoid_a(self.a0 + self.matmul_a2(self.matmul_a1(xa))).view(seq_length, self.num_heads, self.head_size)
         time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
@@ -118,10 +118,12 @@ class Rwkv7SelfAttention(nn.Module):
         if self.layer_id == 0:
             v_first = value
         else:
-            value = value + (v_first - value) * self.sigmoid_v(self.v0 + self.matmul_v2(self.matmul_v1(xv))).view(seq_length, self.num_heads, self.head_size)
+            value = value + (v_first - value) * self.sigmoid_v(self.v0 + self.matmul_v2(self.matmul_v1(xv)))
 
         time_decay = self.add_time_decay0(self.time_decay, time_decay)
         time_decay = self.exp_w(-0.606531 * self.sigmoid_w(time_decay)).view(seq_length, self.num_heads, self.head_size, 1)
+
+        value = value.view(seq_length, self.num_heads, self.head_size)
 
         # kernel
         kv = key.unsqueeze(-1) @ value.unsqueeze(-2)

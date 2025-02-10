@@ -29,13 +29,8 @@ class QnnRwkvApp {
                void *backendHandle,
                void *modelHandle,
                std::vector<std::vector<float>> embedding = {},
-               ProfilingLevel profilingLevel           = ProfilingLevel::OFF,
                std::string cachedBinaryPath            = "",
                std::string saveBinaryName              = "");
-
-  // @brief Print a message to STDERR then return a nonzero
-  //  exit status.
-  int32_t reportError(const std::string &err);
 
   StatusCode initialize();
 
@@ -75,8 +70,6 @@ class QnnRwkvApp {
 
   Qnn_ContextHandle_t getContext();
 
-  StatusCode initializeProfiling();
-
   std::string getBackendBuildId();
 
   StatusCode isDevicePropertySupported();
@@ -90,12 +83,6 @@ class QnnRwkvApp {
   virtual ~QnnRwkvApp();
 
   std::vector<half_float::half> m_lastOutput;
-
-  StatusCode extractBackendProfilingInfo(Qnn_ProfileHandle_t profileHandle);
-
-  StatusCode extractProfilingSubEvents(QnnProfile_EventId_t profileEventId);
-
-  StatusCode extractProfilingEvent(QnnProfile_EventId_t profileEventId);
 
   uint32_t powerConfigId;
   uint32_t deviceId = 0;
@@ -111,7 +98,6 @@ class QnnRwkvApp {
   QnnBackend_Config_t **m_backendConfig = nullptr;
   Qnn_ContextHandle_t m_context[max_chunks] = {nullptr};
   QnnContext_Config_t **m_contextConfig = nullptr;
-  ProfilingLevel m_profilingLevel;
   qnn_wrapper_api::GraphInfo_t **m_graphsInfo;
   uint32_t m_graphsCount;
   void *m_backendLibraryHandle;
@@ -120,11 +106,16 @@ class QnnRwkvApp {
   Qnn_Tensor_t *m_inputTensors[max_chunks] = {nullptr};
   Qnn_Tensor_t *m_outputTensors[max_chunks] = {nullptr};
   std::vector<std::vector<float>> m_embedding = {};
-  bool m_isExternalWkv = false;
   bool m_inferenced = false;
   bool m_isBackendInitialized;
   bool m_isContextCreated;
-  Qnn_ProfileHandle_t m_profileBackendHandle              = nullptr;
+
+  std::vector<std::vector<int>> m_stateCopyMap;
+  std::vector<int> m_inputIdx;
+  std::vector<int> m_outputIdx;
+  std::vector<int> m_vfirstInIdx;
+  std::vector<int> m_vfirstOutIdx;
+
   qnn_wrapper_api::GraphConfigInfo_t **m_graphConfigsInfo = nullptr;
   uint32_t m_graphConfigsInfoCount;
   Qnn_LogHandle_t m_logHandle         = nullptr;

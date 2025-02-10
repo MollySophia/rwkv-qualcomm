@@ -172,6 +172,14 @@ if type(model) == list:
         input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
+        if model[0].args.version == 7:
+            if i != len(model) - 1:
+                output_names += ['v_first_out']
+
+            if i != 0:
+                input_names += ['v_first_in']
+                inputs['v_first'] = torch.zeros(seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
+
         if args.wkv_customop:
             from torch.onnx.symbolic_helper import _get_tensor_sizes
             from torch.onnx import register_custom_op_symbolic

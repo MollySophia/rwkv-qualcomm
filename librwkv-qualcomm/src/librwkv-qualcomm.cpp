@@ -52,11 +52,6 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
       }
     }
 
-    if (rwkv_app::StatusCode::SUCCESS != app->initializeProfiling()) {
-        LOG_ERROR("Profiling initialization failure");
-        return StatusCode::FAILURE;
-    }
-
     if (usingHtp) {
         if (rwkv_app::StatusCode::SUCCESS != app->createPowerConfigId()) {
             LOG_ERROR("Power Config ID creation failure");
@@ -202,7 +197,7 @@ StatusCode QnnRwkvBackendCreateWithContext(
       return StatusCode::FAILURE;
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, std::vector<std::vector<float>>({}), qnn::tools::rwkv_app::ProfilingLevel::OFF,
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, std::vector<std::vector<float>>({}),
         contextPath);
     bool usingHtp = backendPath.find("Htp") != std::string::npos;
     return QnnRwkvBackendInitialize(*backend, true, usingHtp, contextPath);
@@ -255,7 +250,7 @@ StatusCode QnnRwkvBackendCreateWithContextBuffer(
             emb_weight.push_back(vec);
         }
     }
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, emb_weight, qnn::tools::rwkv_app::ProfilingLevel::OFF,
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, emb_weight,
         contextPath);
 
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(*backend);
@@ -477,12 +472,13 @@ StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend) {
         return StatusCode::SUCCESS;
 
     for (size_t graph_id = 0; graph_id < app->m_graphsCount; graph_id++) {
-        for (size_t idx = 1; idx < (*app->m_graphsInfo)[graph_id].numInputTensors; idx++) {
-            // app->copyTensor(&app->m_inputTensors[graph_id][idx], &app->m_outputTensors[graph_id][idx-1]);
-            // zero copy
-            auto tmp = getQnnTensorClientBuf(app->m_inputTensors[graph_id][idx]);
-            setQnnTensorClientBuf(app->m_inputTensors[graph_id][idx], getQnnTensorClientBuf(app->m_outputTensors[graph_id][idx-1]));
-            setQnnTensorClientBuf(app->m_outputTensors[graph_id][idx-1], tmp);
+        for (size_t idx = 0; idx < app->m_stateCopyMap[graph_id].size(); idx++) {
+            if (app->m_stateCopyMap[graph_id][idx] != -1) {
+                // std::cout << "copying " << QNN_TENSOR_GET_NAME(app->m_inputTensors[graph_id][idx]) << " to " << QNN_TENSOR_GET_NAME(app->m_outputTensors[graph_id][app->m_stateCopyMap[graph_id][idx]]) << std::endl;
+                auto tmp = getQnnTensorClientBuf(app->m_inputTensors[graph_id][idx]);
+                setQnnTensorClientBuf(app->m_inputTensors[graph_id][idx], getQnnTensorClientBuf(app->m_outputTensors[graph_id][app->m_stateCopyMap[graph_id][idx]]));
+                setQnnTensorClientBuf(app->m_outputTensors[graph_id][app->m_stateCopyMap[graph_id][idx]], tmp);
+            }
         }
     }
 

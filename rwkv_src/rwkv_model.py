@@ -146,7 +146,7 @@ class RWKV_RNN(torch.nn.Module):
         if self.gpu:
             self.to(self.device)
 
-    def forward(self, in0, state: List[torch.Tensor]):
+    def forward(self, in0, state: List[torch.Tensor], v_first: torch.Tensor|None=None):
         with torch.no_grad():
             if self.args.USE_EMBEDDING and self.chunk_idx == 0:
                 x = self.embedding(in0)
@@ -156,9 +156,6 @@ class RWKV_RNN(torch.nn.Module):
                 batch_size, seq_length, _ = x.size()
             except:
                 batch_size, seq_length = 1, 1
-            
-            if self.args.version == 7:
-                v_first = torch.empty_like(x)
 
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
@@ -174,13 +171,16 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.head(x)
             else:
                 x = x.view(batch_size, seq_length, self.args.n_embd)
-
-            return x, state
+            if (not self.args.version == 7) or self.chunk_idx == self.chunks - 1:
+                return x, state
+            else:
+                return x, state, v_first
 
 iteration_count = 0
 def run_prompt(model, context, length=150, seq_length=1, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8, TOP_K=128):
     global iteration_count
     if iteration_count == 0 and generate_samples:
+        os.path.exists(samples_output) or os.mkdir(samples_output)
         not os.path.exists(os.path.join(samples_output, "input_list.txt")) or os.remove(os.path.join(samples_output, "input_list.txt"))
         not os.path.exists(os.path.join(samples_output, "input_list_chunk0.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk0.txt"))
         not os.path.exists(os.path.join(samples_output, "input_list_chunk1.txt")) or os.remove(os.path.join(samples_output, "input_list_chunk1.txt"))
@@ -231,6 +231,7 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
         iterator = tqdm(prompt_ids)
     for token in iterator:
         if chunks > 0:
+            v_first = None
             for i in range(chunks):
                 if args.USE_EMBEDDING:
                     in0 = torch.LongTensor([token]) if i == 0 else logits
@@ -239,6 +240,8 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
                 if device is not torch.device('cpu'):
                     in0 = in0.to(device)
                 inputs = {'in0': in0, 'state': [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]}
+                if model[0].args.version == 7:
+                    inputs['v_first'] = v_first
                 if generate_samples:
                     os.path.exists(f"{samples_output}/samples_chunk{i}") or os.mkdir(f"{samples_output}/samples_chunk{i}")
                     os.path.exists(f"{samples_output}/samples_chunk{i}/{iteration_count}") or os.mkdir(f"{samples_output}/samples_chunk{i}/{iteration_count}")
@@ -246,6 +249,9 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
                     for j in range(len(inputs['state'])):
                         inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
                     input_list_lines[i].append(" ".join([f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
+                    if model[0].args.version == 7:
+                        v_first.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{len(inputs['state'])+1}.bin")
+                        input_list_lines[i].append(f" {samples_output}/samples_chunk{i}/{iteration_count}/input_{len(inputs['state'])+1}.bin\n")
                 outputs = model[i].forward(**inputs)
                 logits = outputs[0]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
