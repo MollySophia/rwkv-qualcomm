@@ -217,7 +217,7 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
             return tokenizer.encode(x).ids
         else:
             return tokenizer.encode(x)
-    
+
     if chunks > 0:
         if generate_samples:
             input_list_lines = [[] for i in range(chunks)]
@@ -248,12 +248,16 @@ def run_prompt(model, context, length=150, seq_length=1, generate_samples=False,
                     in0.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_0.bin")
                     for j in range(len(inputs['state'])):
                         inputs['state'][j].cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j+1}.bin")
-                    input_list_lines[i].append(" ".join([f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]) + "\n")
-                    if model[0].args.version == 7:
+                    input_list_lines[i].append(" ".join([f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{j}.bin" for j in range(len(inputs['state'])+1)]))
+                    if model[0].args.version == 7 and i > 0:
                         v_first.cpu().numpy().astype(np.float32).tofile(f"{samples_output}/samples_chunk{i}/{iteration_count}/input_{len(inputs['state'])+1}.bin")
                         input_list_lines[i].append(f" {samples_output}/samples_chunk{i}/{iteration_count}/input_{len(inputs['state'])+1}.bin\n")
+                    else:
+                        input_list_lines[i].append("\n")
                 outputs = model[i].forward(**inputs)
                 logits = outputs[0]
+                if model[0].args.version == 7 and i != chunks - 1:
+                    v_first = outputs[2]
                 for j in range(3*model[i].layer_begin, 3*model[i].layer_end):
                     states[j] = outputs[1][j - 3*model[i].layer_begin]
             if generate_samples:

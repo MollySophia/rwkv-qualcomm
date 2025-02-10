@@ -73,7 +73,7 @@ else:
     qnn_tools_target = 'x86_64-linux-clang'
 
 def quant_override(model):
-    def calc_quant_override(model, layer_begin):
+    def calc_quant_override_v6(model, layer_begin):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
@@ -129,18 +129,73 @@ def quant_override(model):
 
         return encodings_dict
 
+    def calc_quant_override_v7(model, layer_begin):
+        encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
+        graph = model.graph
+        float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
+        act_int_override = [{"bitwidth": 16, "dtype": "int"}]
+        for i in range(len(graph.node)):
+            if "matmul_kv" in graph.node[i].name \
+                or "mul_time_decay" in graph.node[i].name \
+                or "matmul_ab" in graph.node[i].name \
+                or ("ln" in graph.node[i].name and not "ln_x" in graph.node[i].name):
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = float_override
+                if "ln" in graph.node[i].name and not "ln_x" in graph.node[i].name:
+                    for j in graph.node[i].input:
+                        encodings_dict['activation_encodings'][j] = float_override
+
+            # a16w8 head
+            if "head" in graph.node[i].name:
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = act_int_override
+
+        for i in range(len(graph.input)):
+            if (graph.input[i].type.tensor_type.elem_type == 1):
+                encodings_dict['activation_encodings'][graph.input[i].name] = float_override
+        for i in range(len(graph.output)):
+            if not graph.output[i].name in encodings_dict['activation_encodings']:
+                encodings_dict['activation_encodings'][graph.output[i].name] = float_override
+
+        if parser_args.linear_param_encodings:
+            for k, v in linear_encodings_new['param_encodings'].items():
+                if not "ln" in k and not "head" in k:
+                    k = k.replace(".", "/").replace("/weight", "").replace("blocks/", "/blocks.")
+                    encoding_block_id = int(k.split(".")[-1].split("/")[0])
+                    if encoding_block_id >= layer_begin:
+                        for i in range(len(graph.node)):
+                            if k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id - layer_begin}") in graph.node[i].name:
+                                print("Setting encoding for", k)
+                                print("onnx weight name:", graph.node[i].input[1])
+                                encodings_dict["param_encodings"][graph.node[i].input[1]] = v
+                elif "head" in k:
+                    k = k.replace(".", "/").replace("/weight", "").replace("blocks/", "/blocks.")
+                    for i in range(len(graph.node)):
+                        if "head" in graph.node[i].name:
+                            print("Setting encoding for", k)
+                            print("onnx weight name:", graph.node[i].input[1])
+                            encodings_dict["param_encodings"][graph.node[i].input[1]] = v
+
+        return encodings_dict
+
     args = model[0].args if type(model) == list else model.args
     import onnx
     import json
     if type(model) == list:
         for i in range(len(model)):
             onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
-            encodings_dict = calc_quant_override(onnx_model, model[i].layer_begin)
+            if args.version == 7:
+                encodings_dict = calc_quant_override_v7(onnx_model, model[i].layer_begin)
+            else:
+                encodings_dict = calc_quant_override_v6(onnx_model, model[i].layer_begin)
             with open("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + "quant_override.json", 'w') as encoding_json:
                 json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
     else:
         onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
-        encodings_dict = calc_quant_override(onnx_model, 0)
+        if args.version == 7:
+            encodings_dict = calc_quant_override_v7(onnx_model, 0)
+        else:
+            encodings_dict = calc_quant_override_v6(onnx_model, 0)
         with open("onnx/" + args.MODEL_NAME.split("/")[-1] + "_quant_override.json", 'w') as encoding_json:
             json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
 

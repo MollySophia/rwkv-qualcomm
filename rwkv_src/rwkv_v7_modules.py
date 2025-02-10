@@ -76,6 +76,9 @@ class Rwkv7SelfAttention(nn.Module):
         self.mul_attention          = op.Multiply()
         self.sub_shifted            = op.Subtract()
         self.add_time_decay0        = op.Add()
+        self.mul_time_decay         = op.Multiply()
+        self.matmul_kv              = op.MatMul()
+        self.matmul_ab              = op.MatMul()
 
         self.tanh_w                 = op.Tanh()
         self.exp_w                  = op.Exponential()
@@ -126,10 +129,10 @@ class Rwkv7SelfAttention(nn.Module):
         value = value.view(seq_length, self.num_heads, self.head_size)
 
         # kernel
-        kv = key.unsqueeze(-1) @ value.unsqueeze(-2)
+        kv = self.matmul_kv(key.unsqueeze(-1), value.unsqueeze(-2))
 
-        ab = (kk * a).view(self.num_heads, self.head_size, 1) @ (-kk).view(self.num_heads, 1, self.head_size)
-        state2_out = state2 * time_decay + (ab @ state2) + kv
+        ab = self.matmul_ab((kk * a).view(self.num_heads, self.head_size, 1), (-kk).view(self.num_heads, 1, self.head_size))
+        state2_out = self.mul_time_decay(state2, time_decay) + (ab @ state2) + kv
         x = receptance.unsqueeze(-2) @ state2_out
 
         # group_norm
