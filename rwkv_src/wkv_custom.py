@@ -26,6 +26,12 @@ std::tuple<torch::Tensor, torch::Tensor> wkv6_chunk(
     return std::make_tuple(torch::zeros({32, num_head, 1, head_size}), state2);
 }
 
+std::tuple<torch::Tensor, torch::Tensor> wkv7(
+    torch::Tensor r, torch::Tensor w, torch::Tensor k, torch::Tensor v,
+    torch::Tensor a, torch::Tensor b, torch::Tensor state2) {
+    
+}
+
 TORCH_LIBRARY(rwkv, m) {
   m.def("wkv6", &wkv6);
   m.def("wkv6_chunk", &wkv6_chunk);

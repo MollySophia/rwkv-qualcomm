@@ -86,6 +86,14 @@ class Rwkv7SelfAttention(nn.Module):
         self.sigmoid_g              = nn.Sigmoid()
         self.sigmoid_v              = nn.Sigmoid()
         self.sigmoid_w              = nn.Sigmoid()
+
+        if custom_wkv:
+            # dummy customop for adding the onnx nodes
+            from rwkv_src.wkv_custom import wkv_c_impl_src
+            module = torch.utils.cpp_extension.load_inline(
+                    name='extension', cpp_sources=[wkv_c_impl_src])
+            self.wkv_func = torch.ops.rwkv.wkv7
+            self.wkv_chunk_func = torch.ops.rwkv.wkv7_chunk
     
     def forward(self, x, state1, state2, v_first):
         last_x = x
@@ -129,11 +137,28 @@ class Rwkv7SelfAttention(nn.Module):
         value = value.view(seq_length, self.num_heads, self.head_size)
 
         # kernel
-        kv = self.matmul_kv(key.unsqueeze(-1), value.unsqueeze(-2))
-
-        ab = self.matmul_ab((kk * a).view(self.num_heads, self.head_size, 1), (-kk).view(self.num_heads, 1, self.head_size))
-        state2_out = self.mul_time_decay(state2, time_decay) + (ab @ state2) + kv
-        x = receptance.unsqueeze(-2) @ state2_out
+        if self.custom_wkv:
+            if seq_length == 1:
+                x, state2 = self.wkv_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
+            else:
+                assert False
+        else:
+            kv = self.matmul_kv(key.unsqueeze(-1), value.unsqueeze(-2))
+            if seq_length == 1:
+                ab = self.matmul_ab((kk * a).view(self.num_heads, self.head_size, 1), (-kk).view(self.num_heads, 1, self.head_size))
+                state2_out = self.mul_time_decay(state2, time_decay) + (ab @ state2) + kv
+                x = receptance.unsqueeze(-2) @ state2_out
+            else:
+                kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
+                a = (kk * a).view(seq_length, self.num_heads, self.head_size, 1)
+                b = (-kk).view(seq_length, self.num_heads, 1, self.head_size)
+                x = torch.zeros(seq_length, self.num_heads, 1, self.head_size, device=x.device, dtype=kv.dtype)
+                for i in range(seq_length):
+                    ab = self.matmul_ab(a[i, :, :, :], b[i, :, :, :])
+                    state2 = self.mul_time_decay(state2, time_decay[i, :, :, :]) + (ab @ state2) + kv[i, :, :, :]
+                    x[i, :, :, :] = receptance.view(seq_length, self.num_heads, 1, self.head_size)[i, :, :, :] @ state2
+                state2_out = state2
+                x = x.view(seq_length, self.num_heads, 1, self.head_size)
 
         # group_norm
         x = self.ln_x(x).view(batch_size, seq_length, self.hidden_size)

@@ -116,8 +116,8 @@ class Rwkv6SelfAttention(nn.Module):
             from rwkv_src.wkv_custom import wkv_c_impl_src
             module = torch.utils.cpp_extension.load_inline(
                     name='extension', cpp_sources=[wkv_c_impl_src])
-            self.wkv_func = torch.ops.rwkv.wkv
-            self.wkv_chunk_func = torch.ops.rwkv.wkv_chunk
+            self.wkv_func = torch.ops.rwkv.wkv6
+            self.wkv_chunk_func = torch.ops.rwkv.wkv6_chunk
     
     def forward(self, x, state1, state2):
         last_x = x
