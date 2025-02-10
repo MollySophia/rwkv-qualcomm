@@ -10,13 +10,9 @@
 using namespace qnn::custom;
 using namespace qnn::custom::utils;
 
-namespace wkv_chunk {
+namespace wkv6 {
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
-
-  /**
-   * Add code here
-   **/
   /*
    * To have good performance and stability, it is required to avoid heap memory
    * allocation in this function. The heap memory allocation includes but not
@@ -26,6 +22,34 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
    *
    * Please check in SDK documentation for more information.
    */
+
+  float* k = (float*)operation->getInput(0)->data;
+  float* v = (float*)operation->getInput(1)->data;
+  float* r = (float*)operation->getInput(2)->data;
+  float* state_in = (float*)operation->getInput(3)->data;
+  float* tf = (float*)operation->getInput(4)->data;
+  float* td = (float*)operation->getInput(5)->data;
+  float* output = (float*)operation->getOutput(0)->data;
+  float* state_out = (float*)operation->getOutput(1)->data;
+
+  int num_heads = operation->getInput(3)->currentDimensions[0];
+  int head_size = operation->getInput(3)->currentDimensions[1];
+  memset(output, 0, num_heads * head_size * sizeof(float));
+  for (int h = 0; h < num_heads; h++) {
+    for (int i = 0; i < head_size; i++) {
+      auto k_val = k[h * head_size + i];
+      auto r_val = r[h * head_size + i];
+      auto td_val = td[h * head_size + i];
+      auto tf_val = tf[h * head_size + i];
+      for (int j = 0; j < head_size; j++) {
+        auto v_val = v[h * head_size + j];
+        auto kv_val = k_val * v_val;
+        auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
+        output[h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
+        state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
+      }
+    }
+  }
 
   return QNN_SUCCESS;
 }
@@ -69,19 +93,19 @@ Qnn_ErrorHandle_t populateFromNode(const QnnOpPackage_Node_t node,
 
 Qnn_ErrorHandle_t validateOpConfig(Qnn_OpConfig_t opConfig) {
   QNN_CUSTOM_BE_ENSURE_EQ(
-      strcmp(opConfig.v1.typeName, "wkv_chunk"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
+      strcmp(opConfig.v1.typeName, "wkv6"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
 
   QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
   QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfOutputs, 2, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   return QNN_SUCCESS;
 }
-}  // namespace wkv_chunk
+}  // namespace wkv6
 
-CustomOpRegistration_t* register_Wkv_ChunkCustomOp() {
-  using namespace wkv_chunk;
-  static CustomOpRegistration_t Wkv_ChunkRegister = {execute, finalize, free, validateOpConfig, populateFromNode};
-  return &Wkv_ChunkRegister;
+CustomOpRegistration_t* register_WkvCustomOp() {
+  using namespace wkv6;
+  static CustomOpRegistration_t WkvRegister = {execute, finalize, free, validateOpConfig, populateFromNode};
+  return &WkvRegister;
 }
 
-REGISTER_OP(wkv_chunk, register_Wkv_ChunkCustomOp);
+REGISTER_OP(wkv6, register_WkvCustomOp);

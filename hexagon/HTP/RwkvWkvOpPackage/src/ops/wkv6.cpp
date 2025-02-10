@@ -10,12 +10,12 @@
 #include "HTP/core/simple_reg.h"
 
 
-BEGIN_PKG_OP_DEFINITION(PKG_wkv);
+BEGIN_PKG_OP_DEFINITION(PKG_wkv6);
 
 
 // op execute function declarations
 template<typename TensorType>
-GraphStatus wkvImpl(TensorType& out_0,
+GraphStatus wkv6Impl(TensorType& out_0,
                      TensorType& out_1,
                     const TensorType& k,
                     const TensorType& v,
@@ -27,9 +27,9 @@ GraphStatus wkvImpl(TensorType& out_0,
 /*
  * method 1 for defining op, using default cost value (i.e. GLACIAL) and default flag (Flags::RESOURCE_HVX)
  * syntax: DEF_PACKAGE_OP(F,OP)
- * e.g. DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
+ * e.g. DEF_PACKAGE_OP((wkv6Impl<Tensor>), "wkv6")
  */
-DEF_PACKAGE_OP((wkvImpl<Tensor>), "wkv")
+DEF_PACKAGE_OP((wkv6Impl<Tensor>), "wkv6")
 
 /*
  * method 2 for defining op with specified cost value (one of GLACIAL, SNAIL, FAST, FREE)
@@ -98,7 +98,7 @@ static inline int32_t float_to_int(float scale)
     return fp32.i;
 }
 
-static void wkv_hvx_f(const int num_heads, const int head_size,
+static void wkv6_hvx_f(const int num_heads, const int head_size,
                   float *out_0,
                   float *out_1,
                   const float *k,
@@ -191,7 +191,7 @@ static void wkv_hvx_f(const int num_heads, const int head_size,
   }
 }
 
-static void wkv_hvx_hf(const int num_heads, const int head_size,
+static void wkv6_hvx_hf(const int num_heads, const int head_size,
                   __fp16 *out_0,
                   __fp16 *out_1,
                   const __fp16 *k,
@@ -277,7 +277,7 @@ static void wkv_hvx_hf(const int num_heads, const int head_size,
 #else
 
 template <typename T>
-static void wkv_naive(const int num_heads, const int head_size,
+static void wkv6_naive(const int num_heads, const int head_size,
                   T *out_0,
                   T *out_1,
                   const T *k,
@@ -307,7 +307,7 @@ static void wkv_naive(const int num_heads, const int head_size,
 #endif
 
 template<typename TensorType>
-GraphStatus wkvImpl(TensorType& out_0,
+GraphStatus wkv6Impl(TensorType& out_0,
                      TensorType& out_1,
                     const TensorType& k,
                     const TensorType& v,
@@ -339,7 +339,7 @@ GraphStatus wkvImpl(TensorType& out_0,
     auto td_ptr = (float*)td.raw_data_const();
     auto out0_ptr = (float*)out_0.raw_data();
     auto out1_ptr = (float*)out_1.raw_data();
-    wkv_hvx_f(num_heads, head_size,
+    wkv6_hvx_f(num_heads, head_size,
               out0_ptr,
               out1_ptr,
               k_ptr,
@@ -357,7 +357,7 @@ GraphStatus wkvImpl(TensorType& out_0,
     auto td_ptr = (__fp16*)td.raw_data_const();
     auto out0_ptr = (__fp16*)out_0.raw_data();
     auto out1_ptr = (__fp16*)out_1.raw_data();
-    wkv_hvx_hf(num_heads, head_size,
+    wkv6_hvx_hf(num_heads, head_size,
               out0_ptr,
               out1_ptr,
               k_ptr,
@@ -379,7 +379,7 @@ GraphStatus wkvImpl(TensorType& out_0,
     auto td_ptr = (float*)td.raw_data_const();
     auto out0_ptr = (float*)out_0.raw_data();
     auto out1_ptr = (float*)out_1.raw_data();
-    wkv_naive<float>(num_heads, head_size,
+    wkv6_naive<float>(num_heads, head_size,
                       out0_ptr,
                       out1_ptr,
                       k_ptr,
@@ -397,7 +397,7 @@ GraphStatus wkvImpl(TensorType& out_0,
     auto td_ptr = (__fp16*)td.raw_data_const();
     auto out0_ptr = (__fp16*)out_0.raw_data();
     auto out1_ptr = (__fp16*)out_1.raw_data();
-    wkv_naive<__fp16>(num_heads, head_size,
+    wkv6_naive<__fp16>(num_heads, head_size,
                       out0_ptr,
                       out1_ptr,
                       k_ptr,
@@ -414,4 +414,4 @@ GraphStatus wkvImpl(TensorType& out_0,
 /* At the bottom of the op file, call END_PKG_OP_DEFINITION(<name>),
    where <name> is as BEGIN_PKG_OP_DEFINITION
 */
-END_PKG_OP_DEFINITION(PKG_wkv);
+END_PKG_OP_DEFINITION(PKG_wkv6);

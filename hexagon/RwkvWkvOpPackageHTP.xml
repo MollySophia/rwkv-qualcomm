@@ -7,7 +7,7 @@
     <OpDefList>
 
         <OpDef>
-            <Name>wkv</Name>
+            <Name>wkv6</Name>
             <Description>
                 <Content>
                 </Content>
@@ -125,7 +125,7 @@
         </OpDef>
 
         <OpDef>
-            <Name>wkv_chunk</Name>
+            <Name>wkv6_chunk</Name>
             <Description>
                 <Content>
                 </Content>

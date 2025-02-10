@@ -19,15 +19,15 @@ BEGIN_PKG_OPS_OPTS_LIST()
  *  registered to the HTP Core.
  *  Append the latest OpName at the bottom
  */
-DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv_chunk)
-DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv)
+DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv6_chunk)
+DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv6)
 
 END_PKG_OPS_OPTS_LIST()
 
 // op package info
 static constexpr auto sg_packageName = THIS_PKG_NAME_STR;  // package name passed in as compile flag
 
-static std::array<const char*, 2> sg_opNames{{"wkv_chunk", "wkv"}};
+static std::array<const char*, 2> sg_opNames{{"wkv6_chunk", "wkv6"}};
 
 static Qnn_ApiVersion_t sg_sdkApiVersion  = QNN_HTP_API_VERSION_INIT;
 static QnnOpPackage_Info_t sg_packageInfo = QNN_OP_PACKAGE_INFO_INIT;
@@ -211,12 +211,12 @@ Qnn_ErrorHandle_t RwkvWkvOpPackageValidateOpConfig (Qnn_OpConfig_t opConfig){
      * Check if op config type matches any registered ops
      * If a match is found, check number of inputs, outputs and params
      */
-    if (std::string(opConfig.v1.typeName) == "wkv_chunk"){
+    if (std::string(opConfig.v1.typeName) == "wkv6_chunk"){
         if (opConfig.v1.numOfParams != 0 || opConfig.v1.numOfInputs != 6 || opConfig.v1.numOfOutputs != 2){
           return QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE;
         }
     }
-    else if (std::string(opConfig.v1.typeName) == "wkv"){
+    else if (std::string(opConfig.v1.typeName) == "wkv6"){
         if (opConfig.v1.numOfParams != 0 || opConfig.v1.numOfInputs != 6 || opConfig.v1.numOfOutputs != 2){
           return QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE;
         }
