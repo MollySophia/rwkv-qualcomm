@@ -165,10 +165,10 @@ class Rwkv6SelfAttention(nn.Module):
 
         # wkv
         if self.custom_wkv and self.wkv_func is not None and self.wkv_chunk_func is not None:
-            key = key.view(self.num_heads * seq_length, self.head_size)
-            value = value.view(self.num_heads * seq_length, self.head_size)
-            receptance = receptance.view(self.num_heads * seq_length, self.head_size)
             if seq_length == 1:
+                key = key.view(self.num_heads, self.head_size)
+                value = value.view(self.num_heads, self.head_size)
+                receptance = receptance.view(self.num_heads, self.head_size)
                 key_split = torch.split(key, self.num_heads//4, dim=0)
                 value_split = torch.split(value, self.num_heads//4, dim=0)
                 receptance_split = torch.split(receptance, self.num_heads//4, dim=0)
@@ -184,7 +184,11 @@ class Rwkv6SelfAttention(nn.Module):
                 wkv = torch.cat([wkv0, wkv1, wkv2, wkv3], dim=0).view(1, self.num_heads, 1, self.head_size)
                 state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=1)
             else:
-                wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, self.time_first, time_decay)
+                key = key.view(seq_length, self.num_heads, self.head_size)
+                value = value.view(seq_length, self.num_heads, self.head_size)
+                receptance = receptance.view(seq_length, self.num_heads, self.head_size)
+                time_first = torch.cat([self.time_first0, self.time_first1, self.time_first2, self.time_first3], dim=0)
+                wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, time_first, time_decay)
         else:
             # kv = self.matmul_kv(key, value)
             key = key.view(self.num_heads * seq_length, self.head_size, 1)

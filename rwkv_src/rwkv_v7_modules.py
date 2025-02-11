@@ -141,7 +141,7 @@ class Rwkv7SelfAttention(nn.Module):
             if seq_length == 1:
                 x, state2_out = self.wkv_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
             else:
-                assert False
+                x, state2_out = self.wkv_chunk_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
         else:
             kv = self.matmul_kv(key.unsqueeze(-1), value.unsqueeze(-2))
             if seq_length == 1:
