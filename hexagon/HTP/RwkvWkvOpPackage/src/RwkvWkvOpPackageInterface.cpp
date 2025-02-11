@@ -19,7 +19,6 @@ BEGIN_PKG_OPS_OPTS_LIST()
  *  registered to the HTP Core.
  *  Append the latest OpName at the bottom
  */
-DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv6_chunk)
 DECLARE_PKG_OPS_OPTS_LIST(PKG_wkv6)
 
 END_PKG_OPS_OPTS_LIST()

@@ -32,21 +32,25 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   float* output = (float*)operation->getOutput(0)->data;
   float* state_out = (float*)operation->getOutput(1)->data;
 
+  int seq_length = operation->getInput(0)->currentDimensions[0];
   int num_heads = operation->getInput(3)->currentDimensions[0];
   int head_size = operation->getInput(3)->currentDimensions[1];
-  memset(output, 0, num_heads * head_size * sizeof(float));
-  for (int h = 0; h < num_heads; h++) {
-    for (int i = 0; i < head_size; i++) {
-      auto k_val = k[h * head_size + i];
-      auto r_val = r[h * head_size + i];
-      auto td_val = td[h * head_size + i];
-      auto tf_val = tf[h * head_size + i];
-      for (int j = 0; j < head_size; j++) {
-        auto v_val = v[h * head_size + j];
-        auto kv_val = k_val * v_val;
-        auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
-        output[h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
-        state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
+  memset(output, 0, seq_length * num_heads * head_size * sizeof(float));
+  for (int t = 0; t < seq_length; t++) {
+    if (t > 0) state_in = state_out;
+    for (int h = 0; h < num_heads; h++) {
+      for (int i = 0; i < head_size; i++) {
+        auto k_val = k[t * num_heads * head_size + h * head_size + i];
+        auto r_val = r[t * num_heads * head_size + h * head_size + i];
+        auto td_val = td[t * num_heads * head_size + h * head_size + i];
+        auto tf_val = tf[h * head_size + i];
+        for (int j = 0; j < head_size; j++) {
+          auto v_val = v[t * num_heads * head_size + h * head_size + j];
+          auto kv_val = k_val * v_val;
+          auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
+          output[t * num_heads * head_size + h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
+          state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
+        }
       }
     }
   }

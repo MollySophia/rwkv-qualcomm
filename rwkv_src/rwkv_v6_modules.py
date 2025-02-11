@@ -117,7 +117,6 @@ class Rwkv6SelfAttention(nn.Module):
             module = torch.utils.cpp_extension.load_inline(
                     name='extension', cpp_sources=[wkv_c_impl_src])
             self.wkv_func = torch.ops.rwkv.wkv6
-            self.wkv_chunk_func = torch.ops.rwkv.wkv6_chunk
     
     def forward(self, x, state1, state2):
         last_x = x
@@ -164,31 +163,24 @@ class Rwkv6SelfAttention(nn.Module):
         time_decay = self.exp1(self.neg(self.exp0(time_decay.clip(-9.72, 2.27))))
 
         # wkv
-        if self.custom_wkv and self.wkv_func is not None and self.wkv_chunk_func is not None:
-            if seq_length == 1:
-                key = key.view(self.num_heads, self.head_size)
-                value = value.view(self.num_heads, self.head_size)
-                receptance = receptance.view(self.num_heads, self.head_size)
-                key_split = torch.split(key, self.num_heads//4, dim=0)
-                value_split = torch.split(value, self.num_heads//4, dim=0)
-                receptance_split = torch.split(receptance, self.num_heads//4, dim=0)
-                if (len(state2.shape) == 3):
-                    state2_split = torch.split(state2, self.num_heads//4, dim=0)
-                else:
-                    state2_split = torch.split(state2, self.num_heads//4, dim=1)
-                time_decay_split = torch.split(time_decay, self.num_heads//4, dim=1)
-                wkv0, state2_out0 = self.wkv_func(key_split[0], value_split[0], receptance_split[0], state2_split[0], self.time_first0, time_decay_split[0])
-                wkv1, state2_out1 = self.wkv_func(key_split[1], value_split[1], receptance_split[1], state2_split[1], self.time_first1, time_decay_split[1])
-                wkv2, state2_out2 = self.wkv_func(key_split[2], value_split[2], receptance_split[2], state2_split[2], self.time_first2, time_decay_split[2])
-                wkv3, state2_out3 = self.wkv_func(key_split[3], value_split[3], receptance_split[3], state2_split[3], self.time_first3, time_decay_split[3])
-                wkv = torch.cat([wkv0, wkv1, wkv2, wkv3], dim=0).view(1, self.num_heads, 1, self.head_size)
-                state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=1)
+        if self.custom_wkv and self.wkv_func is not None:
+            key = key.view(seq_length, self.num_heads, self.head_size)
+            value = value.view(seq_length, self.num_heads, self.head_size)
+            receptance = receptance.view(seq_length, self.num_heads, self.head_size)
+            key_split = torch.split(key, self.num_heads//4, dim=1)
+            value_split = torch.split(value, self.num_heads//4, dim=1)
+            receptance_split = torch.split(receptance, self.num_heads//4, dim=1)
+            time_decay_split = torch.split(time_decay, self.num_heads//4, dim=1)
+            if (len(state2.shape) == 3):
+                state2_split = torch.split(state2, self.num_heads//4, dim=0)
             else:
-                key = key.view(seq_length, self.num_heads, self.head_size)
-                value = value.view(seq_length, self.num_heads, self.head_size)
-                receptance = receptance.view(seq_length, self.num_heads, self.head_size)
-                time_first = torch.cat([self.time_first0, self.time_first1, self.time_first2, self.time_first3], dim=0)
-                wkv, state2_out = self.wkv_chunk_func(key, value, receptance, state2, time_first, time_decay)
+                state2_split = torch.split(state2, self.num_heads//4, dim=1)
+            wkv0, state2_out0 = self.wkv_func(key_split[0], value_split[0], receptance_split[0], state2_split[0], self.time_first0, time_decay_split[0])
+            wkv1, state2_out1 = self.wkv_func(key_split[1], value_split[1], receptance_split[1], state2_split[1], self.time_first1, time_decay_split[1])
+            wkv2, state2_out2 = self.wkv_func(key_split[2], value_split[2], receptance_split[2], state2_split[2], self.time_first2, time_decay_split[2])
+            wkv3, state2_out3 = self.wkv_func(key_split[3], value_split[3], receptance_split[3], state2_split[3], self.time_first3, time_decay_split[3])
+            wkv = torch.cat([wkv0, wkv1, wkv2, wkv3], dim=1).view(seq_length, self.num_heads, 1, self.head_size)
+            state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=1)
         else:
             # kv = self.matmul_kv(key, value)
             key = key.view(self.num_heads * seq_length, self.head_size, 1)
