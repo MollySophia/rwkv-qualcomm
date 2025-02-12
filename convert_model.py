@@ -16,7 +16,6 @@ parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
 parser.add_argument('--use_qnn_quant', action='store_true', help='Use QNN quantization')
 parser.add_argument('--qnn_float_width', type=int, default=32, help='QNN float width')
 parser.add_argument('--act_bitwidth', type=int, default=16, help='Activation bitwidth')
-parser.add_argument('--weights_bitwidth', type=int, default=8, help='Weights bitwidth')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--calib_data_path', type=Path, help='Path to calibration data')
 parser.add_argument('--linear_param_encodings', type=Path, default=None, help='Path to linear param encodings')
@@ -42,7 +41,10 @@ if parser_args.linear_param_encodings:
 
 USE_QNN_QUANT = parser_args.use_qnn_quant
 ACT_BITWIDTH = parser_args.act_bitwidth
-WEIGHTS_BITWIDTH = parser_args.weights_bitwidth
+
+# do not set this to 4 directly; it will quantize all linear weights to 4 bits naively
+# instead, set it to 8 and use linear_param_encodings to quantize only the weights that need to be quantized to 4 bits
+WEIGHTS_BITWIDTH = 8
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
@@ -86,7 +88,7 @@ def quant_override(model):
                 or "wkv" in graph.node[i].name:
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
-                if "ln" in graph.node[i].name or "wkv" in graph.node[i].name:
+                if "wkv" in graph.node[i].name:
                     for j in graph.node[i].input:
                         encodings_dict['activation_encodings'][j] = float_override
             if "add_time_first" in graph.node[i].name:
@@ -98,6 +100,10 @@ def quant_override(model):
 
             # a16w8 head
             if "head" in graph.node[i].name:
+                for j in graph.node[i].output:
+                    encodings_dict['activation_encodings'][j] = act_int_override
+
+            if "emb" in graph.node[i].name or "Gather" in graph.node[i].name:
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = act_int_override
 
@@ -270,7 +276,7 @@ if type(model) == list:
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += ' --input_layout "in" "NFC"'
         if USE_QNN_QUANT:
-            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --bias_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
+            converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         if model_args.wkv_customop:
             converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
         print(converter_cmd)
@@ -280,7 +286,7 @@ if type(model) == list:
         # Set state{id}_in to have the same encoding as state{id}_out
         # with open(f"{dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.cpp", "r") as f:
         #     cpp_lines = f.readlines()
-        
+
         # for state_id in range(3*model[i].layer_begin, 3*model[i].layer_end):
         #     for j in range(len(cpp_lines)):
         #         if f'.name= "state{state_id}_out",' in cpp_lines[j]:
