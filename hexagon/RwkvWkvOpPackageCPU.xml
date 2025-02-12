@@ -124,6 +124,137 @@
             <SupportedBackend>CPU</SupportedBackend>
         </OpDef>
 
+        <OpDef>
+            <Name>wkv7</Name>
+            <Description>
+                <Content>
+                </Content>
+            </Description>
+
+            <Reference Source=""
+                        Url=""/>
+
+            <Input>
+                <Name>r</Name>
+                <Description>
+                    <Content>r</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>w</Name>
+                <Description>
+                    <Content>w</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>k</Name>
+                <Description>
+                    <Content>k</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>v</Name>
+                <Description>
+                    <Content>v</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>a</Name>
+                <Description>
+                    <Content>a</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>b</Name>
+                <Description>
+                    <Content>b</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Input>
+                <Name>state_in</Name>
+                <Description>
+                    <Content>state_in</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Output>
+                <Name>output</Name>
+                <Description>
+                    <Content>output</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <Output>
+                <Name>state_out</Name>
+                <Description>
+                    <Content>state_out</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <!--This Op is implemented on these Backends-->
+            <SupportedBackend>CPU</SupportedBackend>
+        </OpDef>
+
     </OpDefList>
 
 </OpDefCollection>

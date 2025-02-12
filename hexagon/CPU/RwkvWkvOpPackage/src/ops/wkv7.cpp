@@ -10,7 +10,7 @@
 using namespace qnn::custom;
 using namespace qnn::custom::utils;
 
-namespace wkv6 {
+namespace wkv7 {
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
   /*
@@ -23,17 +23,18 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
    * Please check in SDK documentation for more information.
    */
 
-  float* k = (float*)operation->getInput(0)->data;
-  float* v = (float*)operation->getInput(1)->data;
-  float* r = (float*)operation->getInput(2)->data;
-  float* state_in = (float*)operation->getInput(3)->data;
-  float* tf = (float*)operation->getInput(4)->data;
-  float* td = (float*)operation->getInput(5)->data;
+  float* r = (float*)operation->getInput(0)->data;
+  float* w = (float*)operation->getInput(1)->data;
+  float* k = (float*)operation->getInput(2)->data;
+  float* v = (float*)operation->getInput(3)->data;
+  float* a = (float*)operation->getInput(4)->data;
+  float* b = (float*)operation->getInput(5)->data;
+  float* state_in = (float*)operation->getInput(6)->data;
   float* output = (float*)operation->getOutput(0)->data;
   float* state_out = (float*)operation->getOutput(1)->data;
 
-  int num_heads = operation->getInput(3)->currentDimensions[0];
-  int head_size = operation->getInput(3)->currentDimensions[1];
+  int num_heads = operation->getInput(6)->currentDimensions[0];
+  int head_size = operation->getInput(6)->currentDimensions[1];
   int seq_length = operation->getInput(0)->currentDimensions[0] / num_heads;
 
   memset(output, 0, seq_length * num_heads * head_size * sizeof(float));
@@ -41,17 +42,24 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     if (t > 0) state_in = state_out;
     for (int h = 0; h < num_heads; h++) {
       for (int i = 0; i < head_size; i++) {
-        auto k_val = k[t * num_heads * head_size + h * head_size + i];
-        auto r_val = r[t * num_heads * head_size + h * head_size + i];
-        auto td_val = td[t * num_heads * head_size + h * head_size + i];
-        auto tf_val = tf[h * head_size + i];
+        auto v_val = v[t * num_heads * head_size + h * head_size + i];
+
+        float sa = 0, result = 0;
         for (int j = 0; j < head_size; j++) {
-          auto v_val = v[t * num_heads * head_size + h * head_size + j];
+          sa += a[t * num_heads * head_size + h * head_size + j] * state_in[h * head_size * head_size + i * head_size + j];
+        }
+
+        for (int j = 0; j < head_size; j++) {
+          auto r_val = r[t * num_heads * head_size + h * head_size + j];
+          auto w_val = w[t * num_heads * head_size + h * head_size + j];
+          auto k_val = k[t * num_heads * head_size + h * head_size + j];
+          auto b_val = b[t * num_heads * head_size + h * head_size + j];
           auto kv_val = k_val * v_val;
           auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
-          output[t * num_heads * head_size + h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
-          state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
+          state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * w_val + kv_val + sa * b_val;
+          result += state_out[h * head_size * head_size + i * head_size + j] * r_val;
         }
+        output[t * num_heads * head_size + h * head_size + i] = result;
       }
     }
   }
@@ -98,19 +106,19 @@ Qnn_ErrorHandle_t populateFromNode(const QnnOpPackage_Node_t node,
 
 Qnn_ErrorHandle_t validateOpConfig(Qnn_OpConfig_t opConfig) {
   QNN_CUSTOM_BE_ENSURE_EQ(
-      strcmp(opConfig.v1.typeName, "wkv6"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
+      strcmp(opConfig.v1.typeName, "wkv7"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
 
-  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
   QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfOutputs, 2, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   return QNN_SUCCESS;
 }
-}  // namespace wkv6
+}  // namespace wkv7
 
-CustomOpRegistration_t* register_Wkv6CustomOp() {
-  using namespace wkv6;
+CustomOpRegistration_t* register_Wkv7CustomOp() {
+  using namespace wkv7;
   static CustomOpRegistration_t WkvRegister = {execute, finalize, free, validateOpConfig, populateFromNode};
   return &WkvRegister;
 }
 
-REGISTER_OP(wkv6, register_Wkv6CustomOp);
+REGISTER_OP(wkv7, register_Wkv7CustomOp);

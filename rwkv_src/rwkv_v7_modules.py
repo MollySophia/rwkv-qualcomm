@@ -131,15 +131,17 @@ class Rwkv7SelfAttention(nn.Module):
             value = value + (v_first - value) * self.sigmoid_v(self.v0 + self.matmul_v2(self.matmul_v1(xv)))
 
         time_decay = self.add_time_decay0(self.time_decay, time_decay)
-        time_decay = self.exp_w(-0.606531 * self.sigmoid_w(time_decay)).view(seq_length, self.num_heads, self.head_size, 1)
-
-        value = value.view(seq_length, self.num_heads, self.head_size)
+        time_decay = self.exp_w(-0.606531 * self.sigmoid_w(time_decay))
 
         # kernel
         if self.custom_wkv:
-            x, state2_out = self.wkv_func(receptance, time_decay, key, value, (kk * a).view(seq_length, self.num_heads, self.head_size), (-kk).view(seq_length, self.num_heads, self.head_size), state2)
+            b = (kk * a).reshape(seq_length * self.num_heads, self.head_size)
+            a = (-kk).reshape(seq_length * self.num_heads, self.head_size)
+            time_decay = time_decay.reshape(seq_length * self.num_heads, self.head_size)
+            x, state2_out = self.wkv_func(receptance, time_decay, key.reshape(seq_length * self.num_heads, self.head_size), value.reshape(seq_length * self.num_heads, self.head_size), a, b, state2)
         else:
-            kv = self.matmul_kv(key.unsqueeze(-1), value.unsqueeze(-2))
+            kv = self.matmul_kv(key.unsqueeze(-1), value.view(seq_length, self.num_heads, 1, self.head_size))
+            time_decay = time_decay.view(seq_length, self.num_heads, self.head_size, 1)
             if seq_length == 1:
                 ab = self.matmul_ab((kk * a).view(self.num_heads, self.head_size, 1), (-kk).view(self.num_heads, 1, self.head_size))
                 state2_out = self.mul_time_decay(state2, time_decay) + (ab @ state2) + kv
@@ -161,7 +163,7 @@ class Rwkv7SelfAttention(nn.Module):
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
 
-        x = x + ((receptance * key * self.r_k).sum(dim=-1, keepdim=True) * value).view(seq_length, self.hidden_size)
+        x = x + ((receptance * key * self.r_k).sum(dim=-1, keepdim=True) * value.view(seq_length, self.num_heads, self.head_size)).view(seq_length, self.hidden_size)
         x = self.mul_attention(x, gate)
         x = self.output(x)
 
