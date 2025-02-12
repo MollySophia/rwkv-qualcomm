@@ -338,9 +338,9 @@ GraphStatus wkv6Impl(TensorType& out_0,
    * Please check in SDK documentation for more information.
    */
 
-  int seq_length = k.dim(1);
   int num_heads = in_3.dim(1);
   int head_size = in_3.dim(2);
+  int seq_length = k.dim(2) / num_heads;
 
 #ifdef USE_HVX
   if (k.get_dtype() == DType::Float32) {

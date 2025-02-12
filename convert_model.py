@@ -244,11 +244,18 @@ if type(model) == list:
         if args.wkv_customop:
             from torch.onnx.symbolic_helper import _get_tensor_sizes
             from torch.onnx import register_custom_op_symbolic
-            op_name = "rwkv::wkv_chunk" if parser_args.prefill_model else "rwkv::wkv"
+            if args.version == 7:
+                op_name = "rwkv::wkv7"
+            elif args.version == 6:
+                op_name = "rwkv::wkv6"
+            else:
+                assert "Unsupported version"
             def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay):
-                out1, out2 = g.op(op_name, k, v, r, state2, time_first, time_decay, outputs=2)
-                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([seq_length, _get_tensor_sizes(k)[0], 1, args.head_size])),\
-                 out2.setType(k.type().with_dtype(torch.float32).with_sizes([1, _get_tensor_sizes(k)[0], args.head_size, args.head_size]))
+                n_head = state2.type().sizes()[0]
+                head_size = state2.type().sizes()[1]
+                out1, out2 = g.op("rwkv::wkv6", k, v, r, state2, time_first, time_decay, outputs=2)
+                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+                    out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
             register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
 
         torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
@@ -273,7 +280,7 @@ if type(model) == list:
             states_layout = "NONTRIVIAL"
         else:
             states_layout = "NFC"
-        converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
+        converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += ' --input_layout "in" "NFC"'
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
@@ -350,7 +357,7 @@ else:
         states_layout = "NONTRIVIAL"
     else:
         states_layout = "NFC"
-    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bw {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
+    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i onnx/{args.MODEL_NAME.split('/')[-1]}.onnx --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
     converter_cmd += ' --input_layout "in" "NFC"'
     if USE_QNN_QUANT:
         converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides onnx/{args.MODEL_NAME.split('/')[-1]}_quant_override.json --input_list {parser_args.calib_data_path}/input_list.txt"
