@@ -162,8 +162,9 @@ class Rwkv7SelfAttention(nn.Module):
             kv = self.matmul_kv(value.view(seq_length, self.num_heads, self.head_size, 1), key.unsqueeze(-2))
             time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
             if seq_length == 1:
-                ab = self.matmul_ab((-kk).view(self.num_heads, self.head_size, 1), (kk * a).view(self.num_heads, 1, self.head_size))
-                state2_out = self.mul_time_decay(state2, time_decay) + (state2 @ ab) + kv
+                b = (kk * a).view(seq_length, self.num_heads, 1, self.head_size)
+                a = (-kk).view(seq_length, self.num_heads, self.head_size, 1)
+                state2_out = self.mul_time_decay(state2, time_decay) + (state2 @ a) @ b + kv
                 x = (state2_out @ receptance.unsqueeze(-1)).view(seq_length, self.num_heads, 1, self.head_size)
             else:
                 kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
