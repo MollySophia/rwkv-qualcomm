@@ -154,11 +154,36 @@ class Rwkv7SelfAttention(nn.Module):
 
         # kernel
         if self.custom_wkv:
-            b = (kk * a).reshape(seq_length * self.num_heads, self.head_size)
-            a = (-kk).reshape(seq_length * self.num_heads, self.head_size)
-            time_decay = time_decay.reshape(seq_length * self.num_heads, self.head_size)
-            receptance = receptance.view(seq_length * self.num_heads, self.head_size)
-            x, state2_out = self.wkv_func(receptance, time_decay, key.reshape(seq_length * self.num_heads, self.head_size), value.reshape(seq_length * self.num_heads, self.head_size), a, b, state2)
+            if seq_length == 1:
+                b = (kk * a).reshape(self.num_heads, self.head_size)
+                a = (-kk).reshape(self.num_heads, self.head_size)
+                time_decay = time_decay.reshape(self.num_heads, self.head_size)
+                receptance = receptance.view(self.num_heads, self.head_size)
+                k = key.reshape(self.num_heads, self.head_size)
+                v = value.reshape(self.num_heads, self.head_size)
+
+                key_split = torch.split(k, self.num_heads//4, dim=0)
+                value_split = torch.split(v, self.num_heads//4, dim=0)
+                receptance_split = torch.split(receptance, self.num_heads//4, dim=0)
+                time_decay_split = torch.split(time_decay, self.num_heads//4, dim=0)
+                a_split = torch.split(a, self.num_heads//4, dim=0)
+                b_split = torch.split(b, self.num_heads//4, dim=0)
+                if (len(state2.shape) == 3):
+                    state2_split = torch.split(state2, self.num_heads//4, dim=0)
+                else:
+                    state2_split = torch.split(state2, self.num_heads//4, dim=1)
+                x0, state2_out0 = self.wkv_func(receptance_split[0], time_decay_split[0], key_split[0], value_split[0], a_split[0], b_split[0], state2_split[0])
+                x1, state2_out1 = self.wkv_func(receptance_split[1], time_decay_split[1], key_split[1], value_split[1], a_split[1], b_split[1], state2_split[1])
+                x2, state2_out2 = self.wkv_func(receptance_split[2], time_decay_split[2], key_split[2], value_split[2], a_split[2], b_split[2], state2_split[2])
+                x3, state2_out3 = self.wkv_func(receptance_split[3], time_decay_split[3], key_split[3], value_split[3], a_split[3], b_split[3], state2_split[3])
+
+                x = torch.cat([x0, x1, x2, x3], dim=0)
+                state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=0)
+            else:
+                b = (kk * a).reshape(seq_length * self.num_heads, self.head_size)
+                a = (-kk).reshape(seq_length * self.num_heads, self.head_size)
+                time_decay = time_decay.reshape(seq_length * self.num_heads, self.head_size)
+                x, state2_out = self.wkv_func(receptance.view(seq_length * self.num_heads, self.head_size), time_decay, key.reshape(seq_length * self.num_heads, self.head_size), value.reshape(seq_length * self.num_heads, self.head_size), a, b, state2)
         else:
             kv = self.matmul_kv(value.view(seq_length, self.num_heads, self.head_size, 1), key.unsqueeze(-2))
             time_decay = time_decay.view(seq_length, self.num_heads, 1, self.head_size)
@@ -184,7 +209,7 @@ class Rwkv7SelfAttention(nn.Module):
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
 
-        x = x + ((receptance * key * self.r_k).sum(dim=-1, keepdim=True) * value.view(seq_length, self.num_heads, self.head_size)).view(seq_length, self.hidden_size)
+        x = x + ((receptance.view(seq_length, self.num_heads, self.head_size) * key * self.r_k).sum(dim=-1, keepdim=True) * value.view(seq_length, self.num_heads, self.head_size)).view(seq_length, self.hidden_size)
         x = self.mul_attention(x, gate)
         x = self.output(x)
 
