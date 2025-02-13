@@ -3,6 +3,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 import rwkv_src.elemwise_ops as op
 
+custom_norm_wrapper_src = """
+#include <torch/extension.h>
+#include <torch/script.h>
+
+torch::Tensor l2norm(torch::Tensor x) {
+    return x / (x.norm(2, -1, true) + 1e-12);
+}
+
+TORCH_LIBRARY(customop, m) {
+    m.def("l2norm", &l2norm);
+}
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+}
+"""
+
+_ = torch.utils.cpp_extension.load_inline(
+    name='extension', cpp_sources=[custom_norm_wrapper_src])
+
 class Rwkv7SelfAttention(nn.Module):
     def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False):
         super().__init__()
@@ -122,7 +141,7 @@ class Rwkv7SelfAttention(nn.Module):
         time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
 
         kk = key * self.k_k
-        kk = torch.nn.functional.normalize(kk, dim=-1, p=2.0)
+        kk = torch.ops.customop.l2norm(kk)
         key = key * (1 + (a-1) * self.k_a)
 
         if self.layer_id == 0:

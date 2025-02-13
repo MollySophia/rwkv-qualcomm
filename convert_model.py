@@ -9,6 +9,7 @@ import copy
 from pathlib import Path
 import onnx
 from onnx import shape_inference
+from torch.onnx import register_custom_op_symbolic
 
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
@@ -75,22 +76,19 @@ else:
     qnn_tools_target = 'x86_64-linux-clang'
 
 def quant_override(model):
-    def calc_quant_override_v6(model, layer_begin):
+    def calc_quant_override_v6(model, layer_begin, custom_wkv):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
         act_int_override = [{"bitwidth": 16, "dtype": "int"}]
+        if custom_wkv:
+            float_node_names = ["wkv", "Concat"]
+        else:
+            float_node_names = ["matmul_kv", "mul_time_decay", "add_time_decay1", "ln", "wkv"]
         for i in range(len(graph.node)):
-            if "matmul_kv" in graph.node[i].name \
-                or "mul_time_decay" in graph.node[i].name \
-                or "add_time_decay1" in graph.node[i].name \
-                or "ln" in graph.node[i].name \
-                or "wkv" in graph.node[i].name:
+            if any([x in graph.node[i].name for x in float_node_names]):
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
-                if "wkv" in graph.node[i].name:
-                    for j in graph.node[i].input:
-                        encodings_dict['activation_encodings'][j] = float_override
             if "add_time_first" in graph.node[i].name:
                 for j in graph.node[i].input:
                     if "state" in j:
@@ -135,7 +133,7 @@ def quant_override(model):
 
         return encodings_dict
 
-    def calc_quant_override_v7(model, layer_begin):
+    def calc_quant_override_v7(model, layer_begin, custom_wkv):
         encodings_dict = {'activation_encodings': {}, 'param_encodings': {}}
         graph = model.graph
         float_override = [{"bitwidth": parser_args.qnn_float_width, "dtype": "float"}]
@@ -191,17 +189,17 @@ def quant_override(model):
         for i in range(len(model)):
             onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
             if args.version == 7:
-                encodings_dict = calc_quant_override_v7(onnx_model, model[i].layer_begin)
+                encodings_dict = calc_quant_override_v7(onnx_model, model[i].layer_begin, args.wkv_customop)
             else:
-                encodings_dict = calc_quant_override_v6(onnx_model, model[i].layer_begin)
+                encodings_dict = calc_quant_override_v6(onnx_model, model[i].layer_begin, args.wkv_customop)
             with open("onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}/" + "quant_override.json", 'w') as encoding_json:
                 json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
     else:
         onnx_model = onnx.load("onnx/" + args.MODEL_NAME.split("/")[-1] + ".onnx")
         if args.version == 7:
-            encodings_dict = calc_quant_override_v7(onnx_model, 0)
+            encodings_dict = calc_quant_override_v7(onnx_model, 0, args.wkv_customop)
         else:
-            encodings_dict = calc_quant_override_v6(onnx_model, 0)
+            encodings_dict = calc_quant_override_v6(onnx_model, 0, args.wkv_customop)
         with open("onnx/" + args.MODEL_NAME.split("/")[-1] + "_quant_override.json", 'w') as encoding_json:
             json.dump(encodings_dict, encoding_json, sort_keys=True, indent=4)
 
@@ -242,8 +240,6 @@ if type(model) == list:
                 inputs['v_first'] = torch.zeros(seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
 
         if args.wkv_customop:
-            from torch.onnx.symbolic_helper import _get_tensor_sizes
-            from torch.onnx import register_custom_op_symbolic
             if args.version == 7:
                 op_name = "rwkv::wkv7"
             elif args.version == 6:
@@ -257,6 +253,10 @@ if type(model) == list:
                 return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
                     out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
             register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
+
+        def norm(g, self):
+            return g.op("LpNormalization", self, p_i=2, axis_i=-1)
+        register_custom_op_symbolic('customop::l2norm', norm, 4)
 
         torch.onnx.export(model[i], inputs, dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx", input_names=input_names, output_names=output_names, opset_version=17)
         shape_inference.infer_shapes_path(dirname + "/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}.onnx")
