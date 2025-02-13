@@ -29,14 +29,14 @@
 #### Converting an A16W8 model
 - `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
 - Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
-- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6`
+- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6 --qnn_float_width 16` (**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
 - The act_bitwidth and weights_bitwidth default to 16 and 8 respectively.
 - Note: Please keep the `chunks` parameter the same in both scripts.
 
 ### Converting an A16W4 model
 - `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
 - Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
-- Convert the model file: `--linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings` (The quantization encodings are either from the pre-calculated ones ([GDrive](https://drive.google.com/drive/folders/1IXp6FwdiZjV4fn8HXRUoGHM91WzvEwqj?usp=drive_link)), or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))
+- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6 --linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings --qnn_float_width 16` (The quantization encodings are either from the pre-calculated ones ([GDrive](https://drive.google.com/drive/folders/1IXp6FwdiZjV4fn8HXRUoGHM91WzvEwqj?usp=drive_link)), or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))(**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
 - Some large Linear modules are quantized to 4-bit weights, while some are kept 8-bit for better accuracy.
 - Note: Please keep the `chunks` parameter the same in both scripts.
 
@@ -123,16 +123,6 @@ Average tokens per second: 42.4368
 | --- | --- | --- | --- |
 | RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 47.6698 | 5.09183,65.4182% |
 | RWKV v6 7B   | a16w4 | 12.9782 | TODO |
-
-#### Obsolete data in previous versions for comparison:
-| Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
-| --- | --- | --- | --- |
-| RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 32.6703| 4.65837,66.7378% |
-| RWKV v6 1.6B | a16w8 | 26.0707| 4.59243,67.3006% |
-| RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
-| RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 17.3968 | 4.46606,68.8725% |
-- RWKV-5-World-0.4B-v2-20231113-ctx4096, fp16: ```Average tokens per second: 50.7313```
-- RWKV-5-ABC-82M-v1-20230901-ctx1024, fp16: ```Average tokens per second: 142.286```
 
 ## TODO
 - [x] Add demo code for running inference on the device.
