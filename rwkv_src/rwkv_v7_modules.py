@@ -133,7 +133,7 @@ class Rwkv7SelfAttention(nn.Module):
         xa = x + self.x_a * sx
         xg = x + self.x_g * sx
 
-        receptance = self.receptance(xr).view(seq_length, self.num_heads, self.head_size)
+        receptance = self.receptance(xr)
         key = self.key(xk).view(seq_length, self.num_heads, self.head_size)
         value = self.value(xv)
         gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
@@ -157,6 +157,7 @@ class Rwkv7SelfAttention(nn.Module):
             b = (kk * a).reshape(seq_length * self.num_heads, self.head_size)
             a = (-kk).reshape(seq_length * self.num_heads, self.head_size)
             time_decay = time_decay.reshape(seq_length * self.num_heads, self.head_size)
+            receptance = receptance.view(seq_length * self.num_heads, self.head_size)
             x, state2_out = self.wkv_func(receptance, time_decay, key.reshape(seq_length * self.num_heads, self.head_size), value.reshape(seq_length * self.num_heads, self.head_size), a, b, state2)
         else:
             kv = self.matmul_kv(value.view(seq_length, self.num_heads, self.head_size, 1), key.unsqueeze(-2))
@@ -165,7 +166,7 @@ class Rwkv7SelfAttention(nn.Module):
                 b = (kk * a).view(seq_length, self.num_heads, 1, self.head_size)
                 a = (-kk).view(seq_length, self.num_heads, self.head_size, 1)
                 state2_out = self.mul_time_decay(state2, time_decay) + (state2 @ a) @ b + kv
-                x = (state2_out @ receptance.unsqueeze(-1)).view(seq_length, self.num_heads, 1, self.head_size)
+                x = (state2_out @ receptance.view(seq_length, self.num_heads, self.head_size, 1)).view(seq_length, self.num_heads, 1, self.head_size)
             else:
                 kv = kv.view(seq_length, self.num_heads, self.head_size, self.head_size)
                 b = (kk * a).view(seq_length, self.num_heads, 1, self.head_size)

@@ -142,10 +142,11 @@ def quant_override(model):
             if "matmul_kv" in graph.node[i].name \
                 or "mul_time_decay" in graph.node[i].name \
                 or "matmul_ab" in graph.node[i].name \
+                or "wkv" in graph.node[i].name \
                 or ("ln" in graph.node[i].name and not "ln_x" in graph.node[i].name):
                 for j in graph.node[i].output:
                     encodings_dict['activation_encodings'][j] = float_override
-                if "ln" in graph.node[i].name and not "ln_x" in graph.node[i].name:
+                if "ln" in graph.node[i].name and not "ln_x" in graph.node[i].name or "wkv" in graph.node[i].name:
                     for j in graph.node[i].input:
                         encodings_dict['activation_encodings'][j] = float_override
 
@@ -240,19 +241,21 @@ if type(model) == list:
                 inputs['v_first'] = torch.zeros(seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
 
         if args.wkv_customop:
-            if args.version == 7:
-                op_name = "rwkv::wkv7"
-            elif args.version == 6:
-                op_name = "rwkv::wkv6"
-            else:
-                assert "Unsupported version"
-            def onnx_custom_wkv(g, k, v, r, state2, time_first, time_decay):
+            def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
                 n_head = state2.type().sizes()[0]
                 head_size = state2.type().sizes()[1]
                 out1, out2 = g.op("rwkv::wkv6", k, v, r, state2, time_first, time_decay, outputs=2)
                 return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
                     out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
-            register_custom_op_symbolic(op_name, onnx_custom_wkv, 9)
+
+            def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
+                n_head = state.type().sizes()[0]
+                head_size = state.type().sizes()[1]
+                out1, out2 = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=2)
+                return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+                    out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
+            register_custom_op_symbolic("rwkv::wkv6", onnx_custom_wkv6, 9)
+            register_custom_op_symbolic("rwkv::wkv7", onnx_custom_wkv7, 9)
 
         def norm(g, self):
             return g.op("LpNormalization", self, p_i=2, axis_i=-1)
@@ -276,10 +279,10 @@ if type(model) == list:
     for i in range(len(model)):
         dirname = "onnx/" + args.MODEL_NAME.split("/")[-1] + f"_chunk{i+1}of{len(model)}"
         os.path.exists(dirname) or os.mkdir(dirname)
-        if os.name == 'nt':
-            states_layout = "NONTRIVIAL"
-        else:
-            states_layout = "NFC"
+        # if os.name == 'nt':
+        states_layout = "NONTRIVIAL"
+        # else:
+        #     states_layout = "NFC"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += ' --input_layout "in" "NFC"'
         if USE_QNN_QUANT:
