@@ -103,22 +103,24 @@ static inline int32_t float_to_int(float scale)
 static void wkv7_hvx_f(const int seq_length, const int num_heads, const int head_size,
                   float *out_0,
                   float *out_1,
+                  const float *r,
+                  const float *w,
                   const float *k,
                   const float *v,
-                  const float *r,
-                  const float *in_3,
-                  const float *tf,
-                  const float *td) {
+                  const float *a,
+                  const float *b
+                  const float *state_in) {
   HVX_Vector *outptr = (HVX_Vector *)out_0;
-  const float *v_ptr = v;
   const float *r_ptr = r;
+  const float *w_ptr = w;
   const float *k_ptr = k;
-  const float *td_ptr = td;
+  const float *v_ptr = v;
+  const float *a_ptr = a;
+  const float *b_ptr = b;
 
   for (int t = 0; t < seq_length; t++) {
     HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out_1) : (HVX_Vector *)(in_3);
     HVX_Vector *out_state_ptr = (HVX_Vector *)(out_1);
-    const float *tf_ptr = tf;
 
     for (int h = 0; h < num_heads; h++) {
       HVX_Vector v_vec_0 = *(HVX_Vector *)v_ptr;
@@ -297,25 +299,34 @@ static void wkv7_naive(const int seq_length, const int num_heads, const int head
                   const T *a,
                   const T *b,
                   const T *state) {
-  memset(out_0, 0, sizeof(T) * seq_length * num_heads * head_size);
-  // for (int t = 0; t < seq_length; t++) {
-  //   T * state_in = t > 0 ? out_1 : (T*)state;
-  //   for (int h = 0; h < num_heads; h++) {
-  //     for (int i = 0; i < head_size; i++) {
-  //       auto k_val = k[t * num_heads * head_size + h * head_size + i];
-  //       auto r_val = r[t * num_heads * head_size + h * head_size + i];
-  //       auto td_val = td[t * num_heads * head_size + h * head_size + i];
-  //       auto tf_val = tf[h * head_size + i];
-  //       for (int j = 0; j < head_size; j++) {
-  //         auto v_val = v[t * num_heads * head_size + h * head_size + j];
-  //         auto kv_val = k_val * v_val;
-  //         auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
-  //         out_0[t * num_heads * head_size + h * head_size + j] += r_val * (kv_val * tf_val + prev_state_val);
-  //         out_1[h * head_size * head_size + i * head_size + j] = prev_state_val * td_val + kv_val;
-  //       }
-  //     }
-  //   }
-  // }
+
+  for (int t = 0; t < seq_length; t++) {
+    T * state_in = t > 0 ? out_1 : (T*)state;
+    for (int h = 0; h < num_heads; h++) {
+      for (int i = 0; i < head_size; i++) {
+        auto v_val = v[t * num_heads * head_size + h * head_size + i];
+
+        T sa = 0, result = 0;
+        for (int j = 0; j < head_size; j++) {
+          sa += a[t * num_heads * head_size + h * head_size + j] * state_in[h * head_size * head_size + i * head_size + j];
+        }
+
+        for (int j = 0; j < head_size; j++) {
+          auto r_val = r[t * num_heads * head_size + h * head_size + j];
+          auto w_val = w[t * num_heads * head_size + h * head_size + j];
+          auto k_val = k[t * num_heads * head_size + h * head_size + j];
+          auto b_val = b[t * num_heads * head_size + h * head_size + j];
+          auto kv_val = k_val * v_val;
+
+          auto state_val = state_in[h * head_size * head_size + i * head_size + j];
+          state_val = state_val * w_val + kv_val + sa * b_val;
+          out_1[h * head_size * head_size + i * head_size + j] = state_val;
+          result += r_val * state_val;
+        }
+        out_0[t * num_heads * head_size + h * head_size + i] = result;
+      }
+    }
+  }
 }
 
 #endif

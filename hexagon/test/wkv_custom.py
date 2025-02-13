@@ -35,19 +35,19 @@ std::tuple<torch::Tensor, torch::Tensor> wkv7(
     auto head_size = state2.size(1);
     int seq_length = k.size(0) / num_head;
 
-    w = w.reshape({seq_length, num_head, head_size, 1});
-    k = k.reshape({seq_length, num_head, head_size, 1});
-    v = v.reshape({seq_length, num_head, 1, head_size});
-    r = r.reshape({seq_length, num_head, 1, head_size});
-    b = b.reshape({seq_length, num_head, head_size, 1});
-    a = a.reshape({seq_length, num_head, 1, head_size});
+    w = w.reshape({seq_length, num_head, 1, head_size});
+    k = k.reshape({seq_length, num_head, 1, head_size});
+    v = v.reshape({seq_length, num_head, head_size, 1});
+    r = r.reshape({seq_length, num_head, head_size, 1});
+    b = b.reshape({seq_length, num_head, 1, head_size});
+    a = a.reshape({seq_length, num_head, head_size, 1});
 
-    auto kv = torch::matmul(k, v);
-    auto ab = torch::matmul(b, a);
+    auto kv = torch::matmul(v, k);
+    auto ab = torch::matmul(a, b);
     std::vector<torch::Tensor> x;
     for (int i = 0; i < seq_length; i++) {
-        state2 = w[i] * state2 + kv[i] + torch::matmul(ab[i], state2);
-        x.push_back(torch::matmul(r[i], state2));
+        state2 = w[i] * state2 + kv[i] + torch::matmul(state2, ab[i]);
+        x.push_back(torch::matmul(state2, r[i]));
     }
     auto x_tensor = torch::stack(x, 0).reshape({seq_length * num_head, head_size});
 

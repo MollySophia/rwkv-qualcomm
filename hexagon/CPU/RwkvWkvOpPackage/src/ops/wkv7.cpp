@@ -37,7 +37,6 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   int head_size = operation->getInput(6)->currentDimensions[1];
   int seq_length = operation->getInput(0)->currentDimensions[0] / num_heads;
 
-  memset(output, 0, seq_length * num_heads * head_size * sizeof(float));
   for (int t = 0; t < seq_length; t++) {
     if (t > 0) state_in = state_out;
     for (int h = 0; h < num_heads; h++) {
@@ -55,9 +54,9 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
           auto k_val = k[t * num_heads * head_size + h * head_size + j];
           auto b_val = b[t * num_heads * head_size + h * head_size + j];
           auto kv_val = k_val * v_val;
-          auto prev_state_val = state_in[h * head_size * head_size + i * head_size + j];
-          state_out[h * head_size * head_size + i * head_size + j] = prev_state_val * w_val + kv_val + sa * b_val;
-          result += state_out[h * head_size * head_size + i * head_size + j] * r_val;
+          auto state_val = state_in[h * head_size * head_size + i * head_size + j] * w_val + kv_val + sa * b_val;
+          result += state_val * r_val;
+          state_out[h * head_size * head_size + i * head_size + j] = state_val;
         }
         output[t * num_heads * head_size + h * head_size + i] = result;
       }
@@ -68,7 +67,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 }
 
 Qnn_ErrorHandle_t finalize(const CustomOp* operation) {
-  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
   QNN_CUSTOM_BE_ENSURE_EQ(operation->numOutput(), 2, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   /**

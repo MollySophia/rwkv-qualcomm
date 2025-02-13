@@ -125,7 +125,7 @@ def test_wkv7_cpu(n_head, head_size, seq_length):
     k = torch.rand(seq_length * n_head, head_size)
     v = torch.rand(seq_length * n_head, head_size)
     r = torch.rand(seq_length * n_head, head_size)
-    w = torch.rand(seq_length * n_head, head_size)
+    w = torch.exp(-0.606531 * torch.sigmoid(torch.rand(seq_length * n_head, head_size)))
     kk = torch.nn.functional.normalize(torch.rand(seq_length * n_head, head_size), p=2, dim=-1)
     a = torch.rand(seq_length * n_head, head_size)
     state = torch.rand(n_head, head_size, head_size)
@@ -153,6 +153,8 @@ def test_wkv7_cpu(n_head, head_size, seq_length):
         print(torch_output)
     elif not torch.allclose(qnn_state, torch_state, rtol=1e-5, atol=1e-5):
         print(f"!!! wkv7 cpu length={seq_length} state mismatch!!!")
+        print(qnn_state[0])
+        print(torch_state[0])
     else:
         print(f"!!! wkv7 cpu length={seq_length} output passed")
 
@@ -162,11 +164,11 @@ def test_wkv7_htp(n_head, head_size, seq_length):
     k = torch.rand(seq_length * n_head, head_size)
     v = torch.rand(seq_length * n_head, head_size)
     r = torch.rand(seq_length * n_head, head_size)
-    w = torch.rand(seq_length * n_head, head_size)
+    w = torch.exp(-0.606531 * torch.sigmoid(torch.rand(seq_length * n_head, head_size)))
+    kk = torch.nn.functional.normalize(torch.rand(seq_length * n_head, head_size), p=2, dim=-1)
     a = torch.rand(seq_length * n_head, head_size)
-    b = torch.rand(seq_length * n_head, head_size)
     state = torch.rand(n_head, head_size, head_size)
-    inputs = (r, w, k, v, a, b, state)
+    inputs = (r, w, k, v, -kk, kk * a, state)
     print("!!! converting test graph")
     torch.onnx.export(gen_graph, inputs, "test_wkv.onnx", output_names=["output", "state"], opset_version=17)
     subprocess.call("qnn-onnx-converter -i test_wkv.onnx --input_layout state.1 NONTRIVIAL --op_package_config ../RwkvWkvOpPackageHTP.xml", stdout=cmd_stdout, stderr=cmd_stderr, shell=True)
@@ -186,8 +188,12 @@ def test_wkv7_htp(n_head, head_size, seq_length):
     torch_output, torch_state = gen_graph(*inputs)
     if not torch.allclose(qnn_output, torch_output, rtol=1e-5, atol=1e-5):
         print(f"!!! wkv7 htp length={seq_length} output mismatch!!!")
+        print(qnn_output)
+        print(torch_output)
     elif not torch.allclose(qnn_state, torch_state, rtol=1e-5, atol=1e-5):
         print(f"!!! wkv7 htp length={seq_length} state mismatch!!!")
+        print(qnn_state[0])
+        print(torch_state[0])
     else:
         print(f"!!! wkv7 htp length={seq_length} output passed")
 
