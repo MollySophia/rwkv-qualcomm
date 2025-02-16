@@ -41,22 +41,6 @@ void rwkv_app::split(std::vector<std::string> &splitString,
   }
 }
 
-rwkv_app::ProfilingLevel rwkv_app::parseProfilingLevel(std::string profilingLevelString) {
-  std::transform(profilingLevelString.begin(),
-                 profilingLevelString.end(),
-                 profilingLevelString.begin(),
-                 ::tolower);
-  ProfilingLevel parsedProfilingLevel = ProfilingLevel::INVALID;
-  if (profilingLevelString == "off") {
-    parsedProfilingLevel = ProfilingLevel::OFF;
-  } else if (profilingLevelString == "basic") {
-    parsedProfilingLevel = ProfilingLevel::BASIC;
-  } else if (profilingLevelString == "detailed") {
-    parsedProfilingLevel = ProfilingLevel::DETAILED;
-  }
-  return parsedProfilingLevel;
-}
-
 bool rwkv_app::deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src) {
   if (nullptr == dst || nullptr == src) {
     QNN_ERROR("Received nullptr");
@@ -306,29 +290,3 @@ bool rwkv_app::copyMetadataToGraphsInfo(const QnnSystemContext_BinaryInfo_t *bin
   return false;
 }
 
-QnnLog_Level_t rwkv_app::parseLogLevel(std::string logLevelString) {
-  QNN_FUNCTION_ENTRY_LOG;
-  std::transform(logLevelString.begin(), logLevelString.end(), logLevelString.begin(), ::tolower);
-  QnnLog_Level_t parsedLogLevel = QNN_LOG_LEVEL_MAX;
-  if (logLevelString == "error") {
-    parsedLogLevel = QNN_LOG_LEVEL_ERROR;
-  } else if (logLevelString == "warn") {
-    parsedLogLevel = QNN_LOG_LEVEL_WARN;
-  } else if (logLevelString == "info") {
-    parsedLogLevel = QNN_LOG_LEVEL_INFO;
-  } else if (logLevelString == "verbose") {
-    parsedLogLevel = QNN_LOG_LEVEL_VERBOSE;
-  } else if (logLevelString == "debug") {
-    parsedLogLevel = QNN_LOG_LEVEL_DEBUG;
-  }
-  QNN_FUNCTION_EXIT_LOG;
-  return parsedLogLevel;
-}
-
-unsigned int rwkv_app::parseNumInferences(std::string numString) {
-  unsigned int num = 0;
-  std::stringstream numStream;
-  numStream << numString;
-  numStream >> num;
-  return num;
-}
