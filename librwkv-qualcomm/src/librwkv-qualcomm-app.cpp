@@ -581,16 +581,16 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createPowerConfigId() {
     QnnDevice_Infrastructure_t deviceInfra = nullptr;
     Qnn_ErrorHandle_t devErr = m_qnnFunctionPointers.qnnInterface.deviceGetInfrastructure(&deviceInfra);
     if (devErr != QNN_SUCCESS) {
-        QNN_ERROR("device error");
-        return StatusCode::FAILURE;
-      }
+      QNN_ERROR("device error");
+      return StatusCode::FAILURE;
+    }
     QnnHtpDevice_Infrastructure_t *htpInfra = static_cast<QnnHtpDevice_Infrastructure_t *>(deviceInfra);
     QnnHtpDevice_PerfInfrastructure_t perfInfra = htpInfra->perfInfra;
     Qnn_ErrorHandle_t perfInfraErr = perfInfra.createPowerConfigId(deviceId, coreId, &powerConfigId);
     if (perfInfraErr != QNN_SUCCESS) {
-        QNN_ERROR("createPowerConfigId failed");
-        return StatusCode::FAILURE;
-      }
+      QNN_ERROR("createPowerConfigId failed");
+      return StatusCode::FAILURE;
+    }
     return StatusCode::SUCCESS;
 }
 
