@@ -238,7 +238,7 @@ if type(model) == list:
 
             if i != 0:
                 input_names += ['v_first_in']
-                inputs['v_first'] = torch.zeros(seq_length, args.n_embd, dtype=torch.float16 if fp16 else torch.float32)
+                inputs['v_first'] = torch.zeros(seq_length, args.n_head, args.head_size, dtype=torch.float16 if fp16 else torch.float32)
 
         if args.wkv_customop:
             def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
@@ -285,6 +285,8 @@ if type(model) == list:
         #     states_layout = "NFC"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {dirname}/{args.MODEL_NAME.split('/')[-1]}_chunk{i+1}of{len(model)}.onnx --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += ' --input_layout "in" "NFC"'
+        if args.version == 7:
+            converter_cmd += ' --input_layout "v_first_in" "NONTRIVIAL"'
         if USE_QNN_QUANT:
             converter_cmd += f" --use_per_row_quantization --use_per_channel_quantization --act_bitwidth {ACT_BITWIDTH} --weights_bitwidth {WEIGHTS_BITWIDTH} --quantization_overrides {dirname}/quant_override.json --input_list {parser_args.calib_data_path}/input_list_chunk{i}.txt"
         if model_args.wkv_customop:

@@ -120,7 +120,7 @@ class Wkv7(nn.Module):
                 kv = self.matmul_kv(v, k)
                 x = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=k.device, dtype=kv.dtype)
                 for i in range(seq_length):
-                    state2 = self.apply_time_decay(state2, w[i, :, :, :]) + (state2 @ a[i, :, :, :] @ b[i, :, :, :]) + kv[i, :, :, :]
+                    state2 = self.apply_time_decay(state2, w[i, :, :, :].exp()) + (state2 @ a[i, :, :, :] @ b[i, :, :, :]) + kv[i, :, :, :]
                     x[i, :, :, :] = state2 @ r[i, :, :, :]
                 state2_out = state2
                 x = x.view(seq_length, self.num_heads, 1, self.head_size)
@@ -266,7 +266,7 @@ class Rwkv7SelfAttention(nn.Module):
 
         receptance = self.receptance(xr).view(seq_length, self.num_heads, self.head_size)
         key = self.key(xk).view(seq_length, self.num_heads, self.head_size)
-        value = self.value(xv)
+        value = self.value(xv).view(seq_length, self.num_heads, self.head_size)
         gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
         a = self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa))).view(seq_length, self.num_heads, self.head_size)
         time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
@@ -283,7 +283,7 @@ class Rwkv7SelfAttention(nn.Module):
         if self.layer_id == 0:
             v_first = value
         else:
-            value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv)))))
+            value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv)).view(seq_length, self.num_heads, self.head_size))))
 
         b = self.get_b(kk, a)
         a = self.get_a(kk)
@@ -294,7 +294,7 @@ class Rwkv7SelfAttention(nn.Module):
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
 
-        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value.view(seq_length, self.num_heads, self.head_size)).view(seq_length, self.hidden_size)
+        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value).view(seq_length, self.hidden_size)
         x = self.add_x_residual(x , rkv)
         x = self.mul_gate(x, gate)
         x = self.output(x)
