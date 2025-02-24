@@ -200,11 +200,16 @@ output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cpu", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
+dummy_input_prefill = get_dummy_input_for_rwkv_causal_llm(1, 128, "cpu", model.args)
+dummy_input_prefill = (dummy_input_prefill['in0'], dummy_input_prefill['state'])
+
 filename = 'quantized_test'
+prefill_filename = 'quantized_test_prefill'
 output_path = './tmp'
 
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
+sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names, 'output_names': output_names})
 
 # set corresponding state_in/out to the same parameters if quantized
 import json

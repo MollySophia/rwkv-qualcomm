@@ -10,6 +10,7 @@ def main():
     parser.add_argument('--use_optrace', action='store_true', help='Use optrace profiling')
     parser.add_argument('--wkv_customop', action='store_true', help='Use wkv custom op')
     parser.add_argument('--output_name', type=str, default=None, help='Output name for the binary file')
+    parser.add_argument('--prefill', action='store_true', help='Include prefill model too')
     args = parser.parse_args()
     qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
     if not qnn_sdk_root:
@@ -28,11 +29,17 @@ def main():
             model_path = str(args.model_lib).split('chunk')[0] + f"chunk{i}of{num_chunks}.so"
             print(f"Processing chunk {model_path}")
             model_name = model_path.split('/')[-1].replace('.so', '')
-            dump_htp_config(args.platform, [model_name], model_path.replace('.so', '_htp_config.json'), old_qnn)
+            model_list = [model_name]
+            if args.prefill:
+                model_list.append(model_name.replace("chunk", "prefill_chunk"))
+                print(f"Weights sharing enabled. Processing prefill model {model_list[-1]} as well")
+            dump_htp_config(args.platform, model_list, model_path.replace('.so', '_htp_config.json'), old_qnn, args.prefill)
             dump_htp_link_config(model_path.replace('.so', '_htp_link.json'), qnn_sdk_root)
             convert_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-context-binary-generator"
             convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
             convert_cmd += f" --model {model_path}"
+            if args.prefill:
+                convert_cmd += "," + model_path.replace("chunk", "prefill_chunk")
             convert_cmd += f" --output_dir {args.output_path}"
             convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name + f'_chunk{i}of{num_chunks}'}"
             convert_cmd += f" --config_file {model_path.replace('.so', '_htp_link.json')}"
@@ -46,11 +53,18 @@ def main():
 
     else:
         model_name = str(args.model_lib).split('/')[-1].replace('.so', '')
-        dump_htp_config(args.platform, [model_name], str(args.model_lib).replace('.so', '_htp_config.json'), old_qnn)
+        print(f"Processing model {model_name}")
+        model_list = [model_name]
+        if args.prefill:
+            model_list.append(model_name + '_prefill')
+            print(f"Weights sharing enabled. Processing prefill model {model_list[-1]} as well")
+        dump_htp_config(args.platform, model_list, str(args.model_lib).replace('.so', '_htp_config.json'), old_qnn, args.prefill)
         dump_htp_link_config(str(args.model_lib).replace('.so', '_htp_link.json'), qnn_sdk_root)
         convert_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-context-binary-generator"
         convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
         convert_cmd += f" --model {args.model_lib}"
+        if args.prefill:
+            convert_cmd += "," + str(args.model_lib).replace('.so', '_prefill.so')
         convert_cmd += f" --output_dir {args.output_path}"
         convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name}"
         convert_cmd += f" --config_file {str(args.model_lib).replace('.so', '_htp_link.json')}"

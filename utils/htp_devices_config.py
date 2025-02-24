@@ -19,7 +19,7 @@ htp_devices = {
     }
 }
 
-def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn = False):
+def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn = False, weights_sharing=False):
     if not soc_name in htp_devices.keys():
         raise ValueError(f"Invalid SoC name: {soc_name}")
     if graph_names is None or len(graph_names) == 0:
@@ -47,6 +47,9 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
     }
     if not old_qnn:
         config["graphs"] = [config["graphs"]]
+
+    if weights_sharing:
+        config["context"] = {"weight_sharing_enabled": True}
 
     with open(output_path, "w") as f:
         json.dump(config, f, indent=4)
