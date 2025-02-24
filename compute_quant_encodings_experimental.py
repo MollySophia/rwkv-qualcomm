@@ -63,6 +63,11 @@ def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
     out1, out2 = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=2)
     return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
         out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
+
+def norm(g, self):
+    return g.op("LpNormalization", self, p_i=2, axis_i=-1)
+
+register_custom_op_symbolic('customop::l2norm', norm, 4)
 register_custom_op_symbolic("rwkv::wkv6", onnx_custom_wkv6, 9)
 register_custom_op_symbolic("rwkv::wkv7", onnx_custom_wkv7, 9)
 
