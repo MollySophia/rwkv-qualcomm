@@ -34,6 +34,7 @@ from aimet_common.quantsim_config.utils import get_path_for_per_channel_config
 from aimet_torch.quantsim import QuantizationSimModel
 from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
 from aimet_torch.v2.nn import QuantizationMixin
+from aimet_torch.v2 import quantization as Q
 
 @QuantizationMixin.implements(Wkv7)
 class QuantizedWkv7(QuantizationMixin, Wkv7):
@@ -69,21 +70,24 @@ dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cuda", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
 sim = QuantizationSimModel(model, dummy_input=dummy_input,
-                           quant_scheme=QuantScheme.post_training_tf,
+                           quant_scheme=QuantScheme.post_training_tf_enhanced,
                            default_param_bw=8,
                            default_output_bw=16,
                         #    config_file=get_path_for_per_channel_config(),
                            config_file="/home/molly/miniconda3/envs/py310/lib/python3.10/site-packages/aimet_common/quantsim_config/backend_aware_htp_quantsim_config_v75.json",
-                        #    in_place=True)
+                        #    in_place=True,
 )
 
-# uncomment here to use float16 for layernorms
-# mp_configurator = MixedPrecisionConfigurator(sim)
-# for block in sim.model.blocks:
-#     mp_configurator.set_precision(block.att.ln_1, activation='fp16', param={'weight': 'fp16'})
-#     mp_configurator.set_precision(block.ffn.ln_2, activation='fp16', param={'weight': 'fp16'})
+mp_configurator = MixedPrecisionConfigurator(sim)
+for block in sim.model.blocks:
+    # uncomment here to use float16 for layernorms
+    # mp_configurator.set_precision(block.att.ln_1, activation='fp16', param={'weight': 'fp16'})
+    # mp_configurator.set_precision(block.ffn.ln_2, activation='fp16', param={'weight': 'fp16'})
 
-# mp_configurator.apply()
+    # somehow it doesn't want to quantize ffn.key Linear by default
+    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
+
+mp_configurator.apply()
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -153,8 +157,8 @@ print(xacc/xcnt)
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
 
 # 4.336, 0.68 for 300 samples v7 1.5B fp32
-# 5.09, 0.65 for 300 samples v7 1.5B a16w8 in AIMET quantsim
-# 5.29, 0.64 for 300 samples v7 1.5B a16w8 on actual hardware
+# 4.91, 0.64 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
+# 5.17, 0.64 for 300 samples v7 1.5B a16w8 on actual hardware
 
 sim.model.to("cpu")
 torch.cuda.empty_cache()
@@ -164,5 +168,22 @@ output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*
 
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cpu", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
-os.path.exists('./tmp') or os.makedirs('./tmp')
-sim.export(path='./tmp', filename_prefix='quantized_test', dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
+
+filename = 'quantized_test'
+output_path = './tmp'
+
+os.path.exists(output_path) or os.makedirs(output_path)
+sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
+
+# set corresponding state_in/out to the same parameters if quantized
+import json
+with open(output_path + '/' + filename + '.encodings', 'r') as f:
+    encodings = json.load(f)
+
+keys = list(encodings['activation_encodings'].keys())
+for key in keys:
+    if 'state' in key and 'out' in key:
+        encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
+
+with open(output_path + '/' + filename + '.encodings', 'w') as f:
+    json.dump(encodings, f)
