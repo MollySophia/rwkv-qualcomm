@@ -32,6 +32,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 _ = torch.utils.cpp_extension.load_inline(
     name='extension', cpp_sources=[custom_norm_wrapper_src])
 
+class L2Norm(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x):
+        return torch.ops.customop.l2norm(x)
+
 class Wkv7(nn.Module):
     def __init__(self, num_heads, head_size, custom_wkv=False):
         super().__init__()
@@ -270,7 +277,7 @@ class Rwkv7SelfAttention(nn.Module):
         self.mix_rkv                = Multiply()
         self.reduce_sum             = Sum()
         
-        # self.l2norm                 = Normalize()
+        self.l2norm                 = L2Norm()
 
         self.get_a                  = Neg()
         self.get_b                  = Multiply()
@@ -309,8 +316,8 @@ class Rwkv7SelfAttention(nn.Module):
             time_decay = self.scale_w(-0.606531, self.sigmoid_w(time_decay))
 
         kk = self.mix_kk(key, self.k_k)
-        kk = torch.ops.customop.l2norm(kk)
-        # kk = self.l2norm(kk, p=2, dim=-1, eps=1e-12)
+        # kk = torch.ops.customop.l2norm(kk)
+        kk = self.l2norm(kk)
         key = self.mix_ka_mul_key(key, self.mix_ka_add(1, self.mix_ka_mul_a(self.mix_ka_sub(a, 1), self.k_a)))
 
         if self.layer_id == 0:

@@ -1,6 +1,6 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
-from rwkv_src.rwkv_v7_modules import Wkv7
+from rwkv_src.rwkv_v7_modules import Wkv7, L2Norm
 import types
 import torch
 import torch.nn as nn
@@ -48,6 +48,30 @@ class QuantizedWkv7(QuantizationMixin, Wkv7):
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         # not quantizing wkv module
         return super().forward(seq_length, r, w, k, v, a, b, state2)
+
+@QuantizationMixin.implements(L2Norm)
+class QuantizedL2Norm(QuantizationMixin, L2Norm):
+    def __quant_init__(self):
+        super().__quant_init__()
+
+        # Declare the number of input/output quantizers
+        self.input_quantizers = torch.nn.ModuleList([None])
+        self.output_quantizers = torch.nn.ModuleList([None])
+
+    def forward(self, x):
+        # Quantize input tensors
+        if self.input_quantizers[0]:
+            x = self.input_quantizers[0](x)
+
+        # Run forward with quantized inputs and parameters
+        with self._patch_quantized_parameters():
+            ret = super().forward(x)
+
+        # Quantize output tensors
+        if self.output_quantizers[0]:
+            ret = self.output_quantizers[0](ret)
+
+        return ret
 
 from torch.onnx import register_custom_op_symbolic
 def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
@@ -127,6 +151,8 @@ sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataload
 
 sim.model.eval()
 
+# print(sim)
+
 lambada_texts = None
 with open("assets/lambada_test.txt") as f:
     lambada_texts = ''.join(f.readlines()).split('|')
@@ -191,4 +217,4 @@ for key in keys:
         encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
 
 with open(output_path + '/' + filename + '.encodings', 'w') as f:
-    json.dump(encodings, f)
+    json.dump(encodings, f, indent=4)
