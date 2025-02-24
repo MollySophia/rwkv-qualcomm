@@ -21,7 +21,7 @@ def get_dummy_state_kvcache(batch_size, model_cfg, device):
     head_size = embed_dim // num_heads
 
     state_0 = (batch_size, embed_dim)
-    state_1 = (batch_size, num_heads, head_size, head_size)
+    state_1 = (num_heads, head_size, head_size)
     state_2 = (batch_size, embed_dim)
  
     state = []

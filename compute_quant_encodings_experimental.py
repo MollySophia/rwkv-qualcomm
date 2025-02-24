@@ -77,10 +77,11 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
                         #    in_place=True)
 )
 
+# uncomment here to use float16 for layernorms
 # mp_configurator = MixedPrecisionConfigurator(sim)
 # for block in sim.model.blocks:
-#     mp_configurator.set_precision(block.att.ln_1, activation='fp16')
-#     mp_configurator.set_precision(block.ffn.ln_2, activation='fp16')
+#     mp_configurator.set_precision(block.att.ln_1, activation='fp16', param={'weight': 'fp16'})
+#     mp_configurator.set_precision(block.ffn.ln_2, activation='fp16', param={'weight': 'fp16'})
 
 # mp_configurator.apply()
 
@@ -150,7 +151,10 @@ print(xacc/xcnt)
 
 # 12.279, 0.52 for 300 samples v7 0.1B fp32
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
+
 # 4.336, 0.68 for 300 samples v7 1.5B fp32
+# 5.09, 0.65 for 300 samples v7 1.5B a16w8 in AIMET quantsim
+# 5.29, 0.64 for 300 samples v7 1.5B a16w8 on actual hardware
 
 sim.model.to("cpu")
 torch.cuda.empty_cache()

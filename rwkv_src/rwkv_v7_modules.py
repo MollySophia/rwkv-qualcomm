@@ -45,6 +45,22 @@ class Wkv7(nn.Module):
         self.matmul_r = MatMul()
         self.add_kv = Add()
         self.add_sab = Add()
+        # self.split_r = Split()
+        # self.split_w = Split()
+        # self.split_k = Split()
+        # self.split_v = Split()
+        # self.split_a = Split()
+        # self.split_b = Split()
+        # self.split_state = Split()
+        self.reshape_r = Reshape()
+        self.reshape_w = Reshape()
+        self.reshape_k = Reshape()
+        self.reshape_v = Reshape()
+        self.reshape_a = Reshape()
+        self.reshape_b = Reshape()
+
+        # self.concat_x = Concat(0)
+        # self.concat_state = Concat(0)
 
         if custom_wkv:
             # for adding the onnx nodes
@@ -55,30 +71,47 @@ class Wkv7(nn.Module):
 
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
-            b = b.reshape(seq_length*self.num_heads, self.head_size)
-            a = a.reshape(seq_length*self.num_heads, self.head_size)
-            w = w.reshape(seq_length*self.num_heads, self.head_size)
-            r = r.reshape(seq_length*self.num_heads, self.head_size)
-            k = k.reshape(seq_length*self.num_heads, self.head_size)
-            v = v.reshape(seq_length*self.num_heads, self.head_size)
-            if seq_length == 1:
-                k_split = torch.split(k, self.num_heads//4, dim=0)
-                v_split = torch.split(v, self.num_heads//4, dim=0)
-                r_split = torch.split(r, self.num_heads//4, dim=0)
-                w_split = torch.split(w, self.num_heads//4, dim=0)
-                a_split = torch.split(a, self.num_heads//4, dim=0)
-                b_split = torch.split(b, self.num_heads//4, dim=0)
+            # b = b.reshape(seq_length*self.num_heads, self.head_size)
+            # a = a.reshape(seq_length*self.num_heads, self.head_size)
+            # w = w.reshape(seq_length*self.num_heads, self.head_size)
+            # r = r.reshape(seq_length*self.num_heads, self.head_size)
+            # k = k.reshape(seq_length*self.num_heads, self.head_size)
+            # v = v.reshape(seq_length*self.num_heads, self.head_size)
+            r = self.reshape_r(r, [seq_length*self.num_heads, self.head_size])
+            w = self.reshape_w(w, [seq_length*self.num_heads, self.head_size])
+            k = self.reshape_k(k, [seq_length*self.num_heads, self.head_size])
+            v = self.reshape_v(v, [seq_length*self.num_heads, self.head_size])
+            a = self.reshape_a(a, [seq_length*self.num_heads, self.head_size])
+            b = self.reshape_b(b, [seq_length*self.num_heads, self.head_size])
+            # if seq_length == 1:
+            if False:
+                # k_split = torch.split(k, self.num_heads//4, dim=0)
+                # v_split = torch.split(v, self.num_heads//4, dim=0)
+                # r_split = torch.split(r, self.num_heads//4, dim=0)
+                # w_split = torch.split(w, self.num_heads//4, dim=0)
+                # a_split = torch.split(a, self.num_heads//4, dim=0)
+                # b_split = torch.split(b, self.num_heads//4, dim=0)
+                k_split = self.split_k(k, self.num_heads//4, dim=0)
+                v_split = self.split_v(v, self.num_heads//4, dim=0)
+                r_split = self.split_r(r, self.num_heads//4, dim=0)
+                w_split = self.split_w(w, self.num_heads//4, dim=0)
+                a_split = self.split_a(a, self.num_heads//4, dim=0)
+                b_split = self.split_b(b, self.num_heads//4, dim=0)
                 if (len(state2.shape) == 3):
-                    state2_split = torch.split(state2, self.num_heads//4, dim=0)
+                    # state2_split = torch.split(state2, self.num_heads//4, dim=0)
+                    state2_split = self.split_state(state2, self.num_heads//4, dim=0)
                 else:
-                    state2_split = torch.split(state2, self.num_heads//4, dim=1)
+                    # state2_split = torch.split(state2, self.num_heads//4, dim=1)
+                    state2_split = self.split_state(state2, self.num_heads//4, dim=1)
                 x0, state2_out0 = self.wkv_func(r_split[0], w_split[0], k_split[0], v_split[0], a_split[0], b_split[0], state2_split[0])
                 x1, state2_out1 = self.wkv_func(r_split[1], w_split[1], k_split[1], v_split[1], a_split[1], b_split[1], state2_split[1])
                 x2, state2_out2 = self.wkv_func(r_split[2], w_split[2], k_split[2], v_split[2], a_split[2], b_split[2], state2_split[2])
                 x3, state2_out3 = self.wkv_func(r_split[3], w_split[3], k_split[3], v_split[3], a_split[3], b_split[3], state2_split[3])
 
-                x = torch.cat([x0, x1, x2, x3], dim=0)
-                state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=0)
+                # x = torch.cat([x0, x1, x2, x3], dim=0)
+                # state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=0)
+                x = self.concat_x(x0, x1, x2, x3)
+                state2_out = self.concat_state(state2_out0, state2_out1, state2_out2, state2_out3)
             else:
                 x, state2_out = self.wkv_func(r, w, k, v, a, b, state2)
         else:
