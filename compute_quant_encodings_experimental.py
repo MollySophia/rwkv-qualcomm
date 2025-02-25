@@ -102,8 +102,7 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
                            quant_scheme=QuantScheme.post_training_tf_enhanced,
                            default_param_bw=8,
                            default_output_bw=16,
-                        #    config_file=get_path_for_per_channel_config(),
-                           config_file="/home/molly/miniconda3/envs/py310/lib/python3.10/site-packages/aimet_common/quantsim_config/backend_aware_htp_quantsim_config_v75.json",
+                           config_file="quantizers/configs/htp_quantsim_config_v75.json",
                         #    in_place=True,
 )
 
@@ -112,6 +111,9 @@ for block in sim.model.blocks:
     # uncomment here to use float16 for layernorms
     # mp_configurator.set_precision(block.att.ln_1, activation='fp16', param={'weight': 'fp16'})
     # mp_configurator.set_precision(block.ffn.ln_2, activation='fp16', param={'weight': 'fp16'})
+
+    # TODO
+    # mp_configurator.set_precision(block.ffn.value, activation='int16', param={'weight': 'int4'})
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)

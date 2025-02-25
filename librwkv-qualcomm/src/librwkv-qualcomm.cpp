@@ -318,11 +318,11 @@ StatusCode QnnRwkvGetOutput(QnnRwkvBackend_t backend, int outputIdx, float* outp
 
     // int output_num = QnnRwkvGetOutputNum(backend);
     // if (outputIdx == output_num - 1) {
-        int graph_id = 0, tensor_id = outputIdx;
-        if (app->m_graphsCount > 1) {
-            graph_id = app->m_graphsCount - 1;
-            tensor_id = app->m_graphsInfo[graph_id]->numOutputTensors - 1;
-        }
+        // int graph_id = 0, tensor_id = outputIdx;
+        // if (app->m_graphsCount > 1) {
+        int graph_id = app->m_graphsCount - 1;
+        int tensor_id = app->m_outputIdx[graph_id];
+        // }
 
         if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][tensor_id]) == QNN_DATATYPE_FLOAT_32) {
             memcpy(outputBuffer, QNN_TENSOR_GET_CLIENT_BUF(app->m_outputTensors[graph_id][tensor_id]).data, outputSize * sizeof(float));
