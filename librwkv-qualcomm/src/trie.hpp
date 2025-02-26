@@ -259,7 +259,7 @@ class TRIE : public std::enable_shared_from_this<TRIE> {
         uint8_t ch;
         std::vector<std::shared_ptr<TRIE>> to;
         std::unordered_set<int> values; // Store integer values
-        std::shared_ptr<TRIE> front;
+        std::weak_ptr<TRIE> front;
 
     public:
         // Constructor
@@ -333,7 +333,7 @@ class TRIE : public std::enable_shared_from_this<TRIE> {
         // Represent the TRIE as a string (for debugging purposes)
         std::string to_string() const {
             std::string result;
-            for (auto fr = shared_from_this(); fr != nullptr; fr = fr->front) { // Directly use shared_ptr for parent
+            for (auto fr = shared_from_this(); fr != nullptr; fr = fr->front.lock()) {
                 if (fr->ch != 0) {
                     result = std::string(1, static_cast<char>(fr->ch)) + result;
                 }
@@ -388,6 +388,12 @@ class TRIE_TOKENIZER {
                 root->add(x, 0, idx);
             }
             _inited = true;
+        }
+
+        ~TRIE_TOKENIZER() {
+            idx2token.clear();
+            token2idx.clear();
+            root.reset();
         }
 
         void testStringToBytes(const std::string& str) {
