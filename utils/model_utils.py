@@ -215,3 +215,26 @@ def split_onnx(onnxfile, modelname, num_splits, output_dir='./', split_embedding
     # print('Names_to_split', names_to_split)
     assert num_splits == len(names_to_split)+1, f"Failed to split into {num_splits} pieces!"
     return split_onnx_by_names(onnxfile, modelname, *names_to_split, output_dir=output_dir, onnxmodel=onnxmodel)
+
+from torch.onnx import register_custom_op_symbolic
+def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
+    n_head = state2.type().sizes()[0]
+    head_size = state2.type().sizes()[1]
+    out1, out2 = g.op("rwkv::wkv6", k, v, r, state2, time_first, time_decay, outputs=2)
+    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+        out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
+
+def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
+    n_head = state.type().sizes()[0]
+    head_size = state.type().sizes()[1]
+    out1, out2 = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=2)
+    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+        out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
+
+def norm(g, self):
+    return g.op("LpNormalization", self, p_i=2, axis_i=-1)
+
+def register_customop_symbols():
+    register_custom_op_symbolic('customop::l2norm', norm, 4)
+    register_custom_op_symbolic("rwkv::wkv6", onnx_custom_wkv6, 9)
+    register_custom_op_symbolic("rwkv::wkv7", onnx_custom_wkv7, 9)

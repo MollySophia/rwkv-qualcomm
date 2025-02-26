@@ -60,6 +60,7 @@ class RWKV_Block(nn.Module):
     def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0, custom_wkv=False):
         super().__init__()
         self.version = version
+        self.layer_id = layer_id
         self.layer_offset = layer_id - layer_begin
         if self.version == 7:
             self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
@@ -73,9 +74,15 @@ class RWKV_Block(nn.Module):
 
     def forward(self, x, state, v_first=None):
         if self.version == 7:
-            x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
-            x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
-            return x, state, v_first
+            if self.layer_id == 0:
+                x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
+                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+                return x, state, v_first
+            else:
+                x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
+                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+                return x, state
+            
         else:
             x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
             x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
@@ -99,7 +106,7 @@ class RWKV_RNN(torch.nn.Module):
 
         if self.args.version == 7:
             self.args.RESCALE_LAYER = 0
-        
+
         if chunk_idx == 0:
             print("Model version:", self.args.version)
             print("n_layer:", self.args.n_layer)
@@ -159,7 +166,10 @@ class RWKV_RNN(torch.nn.Module):
 
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
-                    x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first=v_first)
+                    if i == 0:
+                        x, state, v_first = self.blocks[i-self.layer_begin](x, state)
+                    else:
+                        x, state = self.blocks[i-self.layer_begin](x, state, v_first)
                 else:
                     x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:
@@ -171,10 +181,10 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.head(x)
             else:
                 x = x.view(batch_size, seq_length, self.args.n_embd)
-            if (not self.args.version == 7) or self.chunk_idx == self.chunks - 1:
-                return x, state
-            else:
+            if self.args.version == 7 and self.chunk_idx == 0 and self.layer_end < self.args.n_layer:
                 return x, state, v_first
+            else:
+                return x, state
 
 iteration_count = 0
 def run_prompt(model, context, length=150, seq_length=1, generate_samples=False, samples_output=None, tokenizer=None, TEMPERATURE=1.0, TOP_P=0.8, TOP_K=128):

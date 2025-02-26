@@ -114,7 +114,7 @@ class QnnRwkvApp {
   std::vector<int> m_inputIdx;
   std::vector<int> m_outputIdx;
   std::vector<int> m_vfirstInIdx;
-  std::vector<int> m_vfirstOutIdx;
+  int m_vfirstOutIdx;
 
   qnn_wrapper_api::GraphConfigInfo_t **m_graphConfigsInfo = nullptr;
   uint32_t m_graphConfigsInfoCount;

@@ -339,7 +339,10 @@ class Rwkv7SelfAttention(nn.Module):
         x = self.mul_gate(x, gate)
         x = self.output(x)
 
-        return self.add_attention(last_x, x), state1_out, state2_out, v_first
+        if self.layer_id == 0:
+            return self.add_attention(last_x, x), state1_out, state2_out, v_first
+        else:
+            return self.add_attention(last_x, x), state1_out, state2_out
 
 class Rwkv7FeedForward(nn.Module):
     def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0):

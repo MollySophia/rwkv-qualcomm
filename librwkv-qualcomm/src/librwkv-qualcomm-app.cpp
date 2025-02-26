@@ -713,7 +713,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
       m_inputIdx.push_back(-1);
       m_outputIdx.push_back(-1);
       m_vfirstInIdx.push_back(-1);
-      m_vfirstOutIdx.push_back(-1);
 
       for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
         QNN_INFO("Input Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_inputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]));
@@ -746,8 +745,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         std::string outputName = std::string(QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]));
         if (outputName == "out") {
           m_outputIdx[graph_id] = i;
-        } else if (outputName == "v_first_out") {
-          m_vfirstOutIdx[graph_id] = i;
+        } else if (graph_id == 0 && outputName == "v_first_out") {
+          m_vfirstOutIdx = i;
         }
 
         std::vector<size_t> dims;
@@ -822,8 +821,9 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
 
       if (m_vfirstInIdx[graph_id] != -1) {
         auto tmp = getQnnTensorClientBuf(&m_inputTensors[graph_id][m_vfirstInIdx[graph_id]]);
-        setQnnTensorClientBuf(&m_inputTensors[graph_id][m_vfirstInIdx[graph_id]], getQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_vfirstOutIdx[graph_id - 1]]));
-        setQnnTensorClientBuf(&m_outputTensors[graph_id - 1][m_vfirstOutIdx[graph_id - 1]], tmp);
+        auto tensor_to_swap = graph_id == 1 ? &m_outputTensors[0][m_vfirstOutIdx] : &m_inputTensors[graph_id-1][m_vfirstInIdx[graph_id-1]];
+        setQnnTensorClientBuf(&m_inputTensors[graph_id][m_vfirstInIdx[graph_id]], getQnnTensorClientBuf(tensor_to_swap));
+        setQnnTensorClientBuf(tensor_to_swap, tmp);
       }
     }
     std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
