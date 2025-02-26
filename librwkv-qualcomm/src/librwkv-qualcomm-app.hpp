@@ -23,6 +23,10 @@ enum class StatusCode {
 
 const int max_chunks = 8;
 
+typedef void *(*RpcMemAllocFn_t)(int, uint32_t, int);
+typedef void (*RpcMemFreeFn_t)(void *);
+typedef int (*RpcMemToFdFn_t)(void *);
+
 class QnnRwkvApp {
  public:
   QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
@@ -54,8 +58,6 @@ class QnnRwkvApp {
 
   StatusCode execute(int token);
 
-  void copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src);
-
   StatusCode registerOpPackages();
 
   StatusCode createFromBinary(uint8_t *binary, size_t binarySize);
@@ -80,6 +82,8 @@ class QnnRwkvApp {
 
   StatusCode verifyFailReturnStatus(Qnn_ErrorHandle_t errCode);
 
+  void fillQuantizedTensor(float value, Qnn_Tensor_t tensor);
+
   virtual ~QnnRwkvApp();
 
   std::vector<half_float::half> m_lastOutput;
@@ -102,6 +106,7 @@ class QnnRwkvApp {
   uint32_t m_graphsCount;
   void *m_backendLibraryHandle;
   void *m_modelHandle;
+  void *m_libCdspHandle;
   iotensor::IOTensor m_ioTensor;
   Qnn_Tensor_t *m_inputTensors[max_chunks] = {nullptr};
   Qnn_Tensor_t *m_outputTensors[max_chunks] = {nullptr};
@@ -123,6 +128,10 @@ class QnnRwkvApp {
   Qnn_DeviceHandle_t m_deviceHandle   = nullptr;
 
   std::chrono::duration<double> m_lastInferenceTime;
+
+  RpcMemAllocFn_t rpcmem_alloc = nullptr;
+  RpcMemFreeFn_t rpcmem_free = nullptr;
+  RpcMemToFdFn_t rpcmem_to_fd = nullptr;
 };
 }  // namespace rwkv_app
 }  // namespace tools

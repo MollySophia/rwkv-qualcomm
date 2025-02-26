@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dlfcn.h>
 #endif
 #include "half.hpp"
 #include "DataUtil.hpp"
@@ -24,6 +25,7 @@
 #include "IOTensor.hpp"
 #include "DynamicLoadUtil.hpp"
 #include "PAL/DynamicLoading.hpp"
+#include <stdlib.h>
 
 #include <HTP/QnnHtpPerfInfrastructure.h>
 #include <QnnInterface.h>
@@ -32,7 +34,11 @@
 #include <HTP/QnnHtpContext.h>
 #include <QnnContext.h>
 
+#ifndef _WIN32
+#define USE_MMAP 1
+#else
 #define USE_MMAP 0
+#endif
 
 using namespace qnn;
 using namespace qnn::tools;
@@ -54,6 +60,22 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
       m_isContextCreated(false) {
   m_embedding = embedding;
   m_outputPath = defaultOutputPath;
+
+#ifndef _WIN32
+  m_libCdspHandle = dlopen("libcdsprpc.so", RTLD_NOW | RTLD_LOCAL);
+  if (m_libCdspHandle != nullptr) {
+    rpcmem_alloc = (RpcMemAllocFn_t)dlsym(m_libCdspHandle, "rpcmem_alloc");
+    rpcmem_free = (RpcMemFreeFn_t)dlsym(m_libCdspHandle, "rpcmem_free");
+    rpcmem_to_fd = (RpcMemToFdFn_t)dlsym(m_libCdspHandle, "rpcmem_to_fd");
+    if (nullptr == rpcmem_alloc || nullptr == rpcmem_free || nullptr == rpcmem_to_fd) {
+      dlclose(m_libCdspHandle);
+      m_libCdspHandle = nullptr;
+      rpcmem_alloc = nullptr;
+      rpcmem_free = nullptr;
+      rpcmem_to_fd = nullptr;
+    }
+  }
+#endif
   return;
 }
 
@@ -83,6 +105,11 @@ rwkv_app::QnnRwkvApp::~QnnRwkvApp() {
 
   if (m_modelHandle)
     pal::dynamicloading::dlClose(m_modelHandle);
+
+#ifndef _WIN32
+  if (m_libCdspHandle)
+    dlclose(m_libCdspHandle);
+#endif
 
   // Terminate backend
   if (m_isBackendInitialized && nullptr != m_qnnFunctionPointers.qnnInterface.backendFree) {
@@ -446,6 +473,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     }
   }
 
+  buffer.clear();
+
   m_graphsCount = 0;
   for (auto i : graphCounts) {
     m_graphsCount += i;
@@ -632,8 +661,18 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::setPowerConfig() {
     powerConfig.dcvsV3Config.coreVoltageCornerTarget = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
     powerConfig.dcvsV3Config.coreVoltageCornerMax    = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
 
+    QnnHtpPerfInfrastructure_PowerConfig_t powerConfigHMX;
+    memset(&powerConfigHMX, 0, sizeof(powerConfigHMX));
+    powerConfigHMX.option                     = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_HMX_V2;
+    powerConfigHMX.hmxV2Config.hmxPickDefault = 0;
+    powerConfigHMX.hmxV2Config.hmxPerfMode    = QNN_HTP_PERF_INFRASTRUCTURE_CLK_PERF_HIGH;
+
+    powerConfigHMX.hmxV2Config.hmxVoltageCornerMin    = DCVS_EXP_VCORNER_TUR;
+    powerConfigHMX.hmxV2Config.hmxVoltageCornerTarget = DCVS_EXP_VCORNER_TUR;
+    powerConfigHMX.hmxV2Config.hmxVoltageCornerMax    = DCVS_EXP_VCORNER_TUR;
+
     // Set power config with different performance parameters
-    const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&powerConfig, NULL};
+    const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&powerConfig, &powerConfigHMX, NULL};
 
     Qnn_ErrorHandle_t perfInfraErr = perfInfra.setPowerConfig(powerConfigId, powerConfigs);
     if (perfInfraErr != QNN_SUCCESS) {
@@ -699,6 +738,35 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::setRpcLatencyAndPolling() {
     return StatusCode::SUCCESS;
 }
 
+void rwkv_app::QnnRwkvApp::fillQuantizedTensor(float value, Qnn_Tensor_t tensor) {
+  std::vector<size_t> dims;
+  for (int j = 0; j < QNN_TENSOR_GET_RANK(tensor); j++) {
+    dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(tensor) + j));
+  }
+
+  float fpzero = 0.0;
+  auto dtype = QNN_TENSOR_GET_DATA_TYPE(tensor);
+  if (dtype == QNN_DATATYPE_UFIXED_POINT_8) {
+    uint8_t qtzero = 0;
+    datautil::floatToTfN<uint8_t>(&qtzero, &fpzero,
+        QNN_TENSOR_GET_QUANT_PARAMS(tensor).scaleOffsetEncoding.offset,
+        QNN_TENSOR_GET_QUANT_PARAMS(tensor).scaleOffsetEncoding.scale,
+        1);
+    for (int j = 0; j < datautil::calculateElementCount(dims); j++) {
+      ((uint8_t*)QNN_TENSOR_GET_CLIENT_BUF(tensor).data)[j] = qtzero;
+    }
+  } else if (dtype == QNN_DATATYPE_UFIXED_POINT_16) {
+    uint16_t qtzero = 0;
+    datautil::floatToTfN<uint16_t>(&qtzero, &fpzero,
+        QNN_TENSOR_GET_QUANT_PARAMS(tensor).scaleOffsetEncoding.offset,
+        QNN_TENSOR_GET_QUANT_PARAMS(tensor).scaleOffsetEncoding.scale,
+        1);
+    for (int j = 0; j < datautil::calculateElementCount(dims); j++) {
+      ((uint16_t*)QNN_TENSOR_GET_CLIENT_BUF(tensor).data)[j] = qtzero;
+    }
+  }
+}
+
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
   if (nullptr == m_inputTensors[0] || nullptr == m_outputTensors[0]) {
     for (int graph_id = 0; graph_id < m_graphsCount; graph_id++) {
@@ -733,12 +801,10 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_32)
           memset(QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(float));
         else {
-          float *ptr = new float[datautil::calculateElementCount(dims)];
-          memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
-          m_ioTensor.copyFromFloatToNative(ptr, &m_inputTensors[graph_id][i]);
-          delete[] ptr;
+          fillQuantizedTensor(0.0, m_inputTensors[graph_id][i]);
         }
       }
+
       for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
         QNN_INFO("Output Tensor %d : %s Type: %d", i, QNN_TENSOR_GET_NAME(m_outputTensors[graph_id][i]), QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]));
 
@@ -758,10 +824,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         else if (QNN_TENSOR_GET_DATA_TYPE(m_outputTensors[graph_id][i]) == QNN_DATATYPE_FLOAT_32)
           memset(QNN_TENSOR_GET_CLIENT_BUF(m_outputTensors[graph_id][i]).data, 0, datautil::calculateElementCount(dims) * sizeof(float));
         else {
-          float *ptr = new float[datautil::calculateElementCount(dims)];
-          memset(ptr, 0, datautil::calculateElementCount(dims) * sizeof(float));
-          m_ioTensor.copyFromFloatToNative(ptr, &m_outputTensors[graph_id][i]);
-          delete[] ptr;
+          fillQuantizedTensor(0.0, m_outputTensors[graph_id][i]);
         }
       }
 
@@ -807,8 +870,17 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
     } else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_32) {
       float *ptr = (float*)QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0][0]).data;
       memcpy(ptr, m_embedding[token].data(), m_embedding[token].size() * sizeof(float));
-    } else {
-      m_ioTensor.copyFromFloatToNative(m_embedding[token].data(), &m_inputTensors[0][0]);
+    } else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_UFIXED_POINT_16) {
+      std::vector<size_t> dims;
+      for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[0][0]); j++) {
+        dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[0][0]) + j));
+      }
+
+      datautil::floatToTfN<uint16_t>(static_cast<uint16_t*>(QNN_TENSOR_GET_CLIENT_BUF(m_inputTensors[0][0]).data),
+                                      m_embedding[token].data(),
+                                      QNN_TENSOR_GET_QUANT_PARAMS(m_inputTensors[0][0]).scaleOffsetEncoding.offset,
+                                      QNN_TENSOR_GET_QUANT_PARAMS(m_inputTensors[0][0]).scaleOffsetEncoding.scale,
+                                      datautil::calculateElementCount(dims));
     }
   }
 
@@ -864,64 +936,3 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeGraphs() {
   m_graphsInfo = nullptr;
   return StatusCode::SUCCESS;
 }
-
-void rwkv_app::QnnRwkvApp::copyTensor(Qnn_Tensor_t *dst, Qnn_Tensor_t *src) {
-    std::vector<size_t> dims;
-    for (int i = 0; i < QNN_TENSOR_GET_RANK(dst); i++) {
-      dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(dst) + i));
-    }
-
-    if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_16 &&
-      QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_16)
-      pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
-                            datautil::calculateElementCount(dims) * sizeof(uint16_t),
-                            QNN_TENSOR_GET_CLIENT_BUF(src).data,
-                            datautil::calculateElementCount(dims) * sizeof(uint16_t));
-    else if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_32 &&
-      QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_32)
-      pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
-                            datautil::calculateElementCount(dims) * sizeof(float),
-                            QNN_TENSOR_GET_CLIENT_BUF(src).data,
-                            datautil::calculateElementCount(dims) * sizeof(float));
-    else if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_INT_16 &&
-      QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_INT_16) {
-      pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
-                            datautil::calculateElementCount(dims) * sizeof(int16_t),
-                            QNN_TENSOR_GET_CLIENT_BUF(src).data,
-                            datautil::calculateElementCount(dims) * sizeof(int16_t));
-    }
-    else {
-      float *buffer;
-      if (QNN_TENSOR_GET_DATA_TYPE(src) == QNN_DATATYPE_FLOAT_16) {
-        half_float::half *ptr = (half_float::half*)QNN_TENSOR_GET_CLIENT_BUF(src).data;
-        buffer = (float*)malloc(datautil::calculateElementCount(dims) * sizeof(float));
-        for (int i = 0; i < datautil::calculateElementCount(dims); i++) {
-          buffer[i] = float(ptr[i]);
-        }
-      } else if (QNN_TENSOR_GET_DATA_TYPE(src) != QNN_DATATYPE_FLOAT_32) {
-        m_ioTensor.convertToFloat(&buffer, src);
-      } else {
-        buffer = (float*)malloc(datautil::calculateElementCount(dims) * sizeof(float));
-        pal::StringOp::memscpy(buffer,
-                              datautil::calculateElementCount(dims) * sizeof(float),
-                              QNN_TENSOR_GET_CLIENT_BUF(src).data,
-                              datautil::calculateElementCount(dims) * sizeof(float));
-      }
-
-      if (QNN_TENSOR_GET_DATA_TYPE(dst) == QNN_DATATYPE_FLOAT_16) {
-        half_float::half *ptr = (half_float::half*)QNN_TENSOR_GET_CLIENT_BUF(dst).data;
-        for (int i = 0; i < datautil::calculateElementCount(dims); i++) {
-          ptr[i] = half_float::half(buffer[i]);
-          free(buffer);
-        }
-      } else if (QNN_TENSOR_GET_DATA_TYPE(dst) != QNN_DATATYPE_FLOAT_32) {
-        m_ioTensor.copyFromFloatToNative(buffer, dst);
-        free(buffer);
-      } else {
-        pal::StringOp::memscpy(QNN_TENSOR_GET_CLIENT_BUF(dst).data,
-                              datautil::calculateElementCount(dims) * sizeof(float),
-                              buffer,
-                              datautil::calculateElementCount(dims) * sizeof(float));
-      }
-    }
-  };

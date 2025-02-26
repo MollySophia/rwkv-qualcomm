@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     }
 
     std::vector<size_t> shape;
-    QnnRwkvGetOutputShape(backend, QnnRwkvGetOutputNum(backend) - 1, shape);
+    QnnRwkvGetVocabSize(backend, shape);
     int64_t elemcount = 1;
     for (auto dim : shape) {
         elemcount *= dim;
@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, output.data(), output.size());
+        QnnRwkvCopyLogitsOutput(backend, output.data(), output.size());
         auto probs = softmax(output);
         for (int i = 0; i < target_ids.size(); i++) {
             auto output_id = std::max_element(probs.begin(), probs.end()) - probs.begin();
@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
                 std::cerr << "QnnRwkvExecute failed" << std::endl;
                 return EXIT_FAILURE;
             }
-            QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, output.data(), output.size());
+            QnnRwkvCopyLogitsOutput(backend, output.data(), output.size());
             probs = softmax(output);
         }
 

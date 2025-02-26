@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
   }
 
   std::vector<size_t> shape;
-  QnnRwkvGetOutputShape(backend, QnnRwkvGetOutputNum(backend) - 1, shape);
+  QnnRwkvGetVocabSize(backend, shape);
   int64_t elemcount = 1;
   for (auto dim : shape) {
     elemcount *= dim;
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
   }
 
-  QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, logits.data(), logits.size());
+  QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
 
   int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
   std::cout << prompt;
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
     }
-    QnnRwkvGetOutput(backend, QnnRwkvGetOutputNum(backend) - 1, logits.data(), logits.size());
+    QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
     inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
     for (auto &x : occurences) {
       logits[x.first] -=

@@ -49,6 +49,7 @@ def main():
             if args.wkv_customop:
                 convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
 
+            convert_cmd += " --input_output_tensor_mem_type memhandle"
             os.system(convert_cmd)
 
     else:
@@ -74,6 +75,7 @@ def main():
         if args.wkv_customop:
                 convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
 
+        convert_cmd += " --input_output_tensor_mem_type memhandle"
         os.system(convert_cmd)
 
 if __name__ == '__main__':
