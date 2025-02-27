@@ -25,7 +25,7 @@ parser.add_argument('--prefill_model', action='store_true', help='Convert model 
 parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
 parser_args = parser.parse_args()
 
-seq_length = 32 if parser_args.prefill_model else 1
+seq_length = 128 if parser_args.prefill_model else 1
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
@@ -117,7 +117,10 @@ if type(model) == list:
                 input_names += ['v_first_in']
                 inputs += [torch.zeros(seq_length, args.n_head, args.head_size, dtype=input_dtype)]
 
-        onnx_output_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
+        if parser_args.prefill_model:
+            onnx_output_path = f"{dirname}/{filename}_prefill_chunk{i+1}of{len(model)}.onnx"
+        else:
+            onnx_output_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
         OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model[i], tuple(inputs),
             False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
         print(f"onnx model chunk{i} saved to {onnx_output_path}")
@@ -125,7 +128,10 @@ if type(model) == list:
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
         dirname = "onnx/" + filename + f"_chunk{i+1}of{len(model)}"
-        onnx_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
+        if parser_args.prefill_model:
+            onnx_path = f"{dirname}/{filename}_prefill_chunk{i+1}of{len(model)}.onnx"
+        else:
+            onnx_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
         os.path.exists(dirname) or os.mkdir(dirname)
 
         states_layout = "NONTRIVIAL"
@@ -148,15 +154,17 @@ if type(model) == list:
         os.system(converter_cmd)
 
         print("Compiling QNN model library...")
-        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {os.getcwd()}/{dirname}/{filename}_chunk{i+1}of{len(model)}.cpp -b {os.getcwd()}/{dirname}/{filename}_chunk{i+1}of{len(model)}.bin"
+        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_path.replace('.onnx', '.cpp')} -b {onnx_path.replace('.onnx', '.bin')}"
         if os.name == 'nt':
             compiling_cmd = "python " + compiling_cmd
         os.system(compiling_cmd)
 else:
     args = model.args
     filename = args.MODEL_NAME.split("/")[-1]
+    dirname = "onnx/" + filename
+    os.path.exists(dirname) or os.mkdir(dirname)
     if not args.USE_EMBEDDING:
-        model.emb_weight.cpu().numpy().astype(np.float16 if args.fp16 else np.float32).tofile("onnx/" + filename + ".emb")
+        model.emb_weight.cpu().numpy().astype(np.float16 if args.fp16 else np.float32).tofile(dirname + '/' + filename + ".emb")
     input_dtype = torch.float16 if args.fp16 else torch.float32
 
     in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)]
@@ -165,13 +173,17 @@ else:
     input_names = ['in'] + [f'state{i}_in' for i in range(3*args.n_layer)]
     output_names = ['out'] + [f'state{i}_out' for i in range(3*args.n_layer)]
 
-    OnnxSaver.create_onnx_model_with_pytorch_layer_names(f"onnx/{filename}.onnx", model, (in0, states),
+    if parser_args.prefill_model:
+        onnx_output_path = f"{dirname}/{filename}_prefill.onnx"
+    else:
+        onnx_output_path = f"{dirname}/{filename}.onnx"
+    OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
-    print(f"onnx model saved to onnx/" + filename + ".onnx")
+    print(f"onnx model saved to {onnx_output_path}")
 
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
-    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i onnx/{filename}.onnx --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
+    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_output_path} --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
 
     if parser_args.quant_encodings:
         converter_cmd += f" --quantization_overrides {str(parser_args.quant_encodings)} --float_fallback"
@@ -184,7 +196,7 @@ else:
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")
-    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {os.getcwd()}/onnx/{filename}.cpp -b {os.getcwd()}/onnx/{filename}.bin"
+    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_output_path.replace('.onnx', '.cpp')} -b {onnx_output_path.replace('.onnx', '.bin')}"
     if os.name == 'nt':
         compiling_cmd = "python " + compiling_cmd
     print(compiling_cmd)

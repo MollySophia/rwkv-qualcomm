@@ -41,7 +41,10 @@ def main():
             if args.prefill:
                 convert_cmd += "," + model_path.replace("chunk", "prefill_chunk")
             convert_cmd += f" --output_dir {args.output_path}"
-            convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name + f'_chunk{i}of{num_chunks}'}"
+            output_name = model_name.replace('lib', '') if args.output_name is None else args.output_name + f'_chunk{i}of{num_chunks}'
+            if args.prefill:
+                output_name = output_name.replace('_chunk', '_combined_chunk')
+            convert_cmd += f" --binary_file {output_name}"
             convert_cmd += f" --config_file {model_path.replace('.so', '_htp_link.json')}"
             if args.use_optrace:
                 convert_cmd += " --profiling_level detailed --profiling_option optrace"
@@ -67,7 +70,10 @@ def main():
         if args.prefill:
             convert_cmd += "," + str(args.model_lib).replace('.so', '_prefill.so')
         convert_cmd += f" --output_dir {args.output_path}"
-        convert_cmd += f" --binary_file {model_name.replace('lib', '') if args.output_name is None else args.output_name}"
+        output_name = model_name.replace('lib', '') if args.output_name is None else args.output_name
+        if args.prefill:
+            output_name += "_combined"
+        convert_cmd += f" --binary_file {output_name}"
         convert_cmd += f" --config_file {str(args.model_lib).replace('.so', '_htp_link.json')}"
         if args.use_optrace:
             convert_cmd += " --profiling_level detailed --profiling_option optrace"
