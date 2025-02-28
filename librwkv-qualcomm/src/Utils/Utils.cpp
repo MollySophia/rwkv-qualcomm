@@ -135,7 +135,7 @@ bool rwkv_app::copyTensorsInfo(const Qnn_Tensor_t *tensorsInfoSrc,
 }
 
 bool rwkv_app::copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoSrc,
-                                  qnn_wrapper_api::GraphInfo_t *graphInfoDst) {
+                                  GraphInfo_t *graphInfoDst) {
   graphInfoDst->graphName = nullptr;
   if (graphInfoSrc->graphName) {
     graphInfoDst->graphName =
@@ -164,7 +164,7 @@ bool rwkv_app::copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoS
 }
 
 bool rwkv_app::copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoSrc,
-                                  qnn_wrapper_api::GraphInfo_t *graphInfoDst) {
+                                  GraphInfo_t *graphInfoDst) {
   graphInfoDst->graphName = nullptr;
   if (graphInfoSrc->graphName) {
     graphInfoDst->graphName =
@@ -194,7 +194,7 @@ bool rwkv_app::copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoS
 
 bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
                                 const uint32_t numGraphs,
-                                qnn_wrapper_api::GraphInfo_t **&graphsInfo) {
+                                GraphInfo_t **&graphsInfo) {
   QNN_FUNCTION_ENTRY_LOG;
   if (!graphsInput) {
     QNN_ERROR("Received nullptr for graphsInput.");
@@ -202,9 +202,9 @@ bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
   }
   auto returnStatus = true;
   graphsInfo =
-      (qnn_wrapper_api::GraphInfo_t **)calloc(numGraphs, sizeof(qnn_wrapper_api::GraphInfo_t *));
-  qnn_wrapper_api::GraphInfo_t *graphInfoArr =
-      (qnn_wrapper_api::GraphInfo_t *)calloc(numGraphs, sizeof(qnn_wrapper_api::GraphInfo_t));
+      (GraphInfo_t **)calloc(numGraphs, sizeof(GraphInfo_t *));
+  GraphInfo_t *graphInfoArr =
+      (GraphInfo_t *)calloc(numGraphs, sizeof(GraphInfo_t));
   if (nullptr == graphsInfo || nullptr == graphInfoArr) {
     QNN_ERROR("Failure to allocate memory for *graphInfo");
     returnStatus = false;
@@ -229,9 +229,9 @@ bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
             free(graphsInfo[gIdx]->graphName);
             graphsInfo[gIdx]->graphName = nullptr;
           }
-          qnn_wrapper_api::freeQnnTensors(graphsInfo[gIdx]->inputTensors,
+          freeQnnTensors(graphsInfo[gIdx]->inputTensors,
                                           graphsInfo[gIdx]->numInputTensors);
-          qnn_wrapper_api::freeQnnTensors(graphsInfo[gIdx]->outputTensors,
+          freeQnnTensors(graphsInfo[gIdx]->outputTensors,
                                           graphsInfo[gIdx]->numOutputTensors);
         }
       }
@@ -245,7 +245,7 @@ bool rwkv_app::copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
 }
 
 bool rwkv_app::copyMetadataToGraphsInfo(const QnnSystemContext_BinaryInfo_t *binaryInfo,
-                                          qnn_wrapper_api::GraphInfo_t **&graphsInfo,
+                                          GraphInfo_t **&graphsInfo,
                                           uint32_t &graphsCount) {
   if (nullptr == binaryInfo) {
     QNN_ERROR("binaryInfo is nullptr.");

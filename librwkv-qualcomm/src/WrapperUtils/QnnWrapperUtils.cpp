@@ -11,7 +11,7 @@
 #include "QnnTypeMacros.hpp"
 #include "QnnWrapperUtils.hpp"
 
-qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeQnnTensor(Qnn_Tensor_t &tensor) {
+ModelError_t freeQnnTensor(Qnn_Tensor_t &tensor) {
   // free all pointer allocations in struct
   free((void *)QNN_TENSOR_GET_NAME(tensor));
   free(QNN_TENSOR_GET_DIMENSIONS(tensor));
@@ -28,7 +28,7 @@ qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeQnnTensor(Qnn_Tensor_t &tenso
   return MODEL_NO_ERROR;
 }
 
-qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeQnnTensors(Qnn_Tensor_t *&tensors,
+ModelError_t freeQnnTensors(Qnn_Tensor_t *&tensors,
                                                               uint32_t numTensors) {
   // free all pointer allocations in struct
   for (size_t i = 0; i < numTensors; i++) {
@@ -38,7 +38,7 @@ qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeQnnTensors(Qnn_Tensor_t *&ten
   return MODEL_NO_ERROR;
 }
 
-qnn_wrapper_api::ModelError_t qnn_wrapper_api::freeGraphsInfo(GraphInfoPtr_t **graphsInfo,
+ModelError_t freeGraphsInfo(GraphInfoPtr_t **graphsInfo,
                                                               uint32_t numGraphs) {
   if (graphsInfo == nullptr || *graphsInfo == nullptr) {
     return MODEL_TENSOR_ERROR;

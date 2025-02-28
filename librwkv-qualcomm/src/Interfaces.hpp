@@ -9,19 +9,19 @@ namespace tools {
 namespace rwkv_app {
 
 // Graph Related Function Handle Types
-typedef qnn_wrapper_api::ModelError_t (*ComposeGraphsFnHandleType_t)(
+typedef ModelError_t (*ComposeGraphsFnHandleType_t)(
     Qnn_BackendHandle_t,
     QNN_INTERFACE_VER_TYPE,
     Qnn_ContextHandle_t,
-    const qnn_wrapper_api::GraphConfigInfo_t **,
+    const GraphConfigInfo_t **,
     const uint32_t,
-    qnn_wrapper_api::GraphInfo_t ***,
+    GraphInfo_t ***,
     uint32_t *,
     bool,
     QnnLog_Callback_t,
     QnnLog_Level_t);
-typedef qnn_wrapper_api::ModelError_t (*FreeGraphInfoFnHandleType_t)(
-    qnn_wrapper_api::GraphInfo_t ***, uint32_t);
+typedef ModelError_t (*FreeGraphInfoFnHandleType_t)(
+    GraphInfo_t ***, uint32_t);
 
 typedef struct QnnFunctionPointers {
   ComposeGraphsFnHandleType_t composeGraphsFnHandle;

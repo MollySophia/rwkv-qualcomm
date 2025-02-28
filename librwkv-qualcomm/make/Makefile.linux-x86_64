@@ -32,7 +32,7 @@ INCLUDES += -I$(SRC_DIR) -I$(SRC_DIR_LOG) -I$(SRC_DIR_UTILS) -I$(SRC_DIR_WRAPPER
 
 # set compiler flags
 # pthread is needed for AIC and HTP-MCP Backend
-COMMON_CXXFLAGS = -std=c++11 -fno-rtti -fPIC -Wall -Werror -pg -pthread $(INCLUDES)
+COMMON_CXXFLAGS = -std=c++20 -fno-rtti -fPIC -Wall -Werror -pg -pthread $(INCLUDES)
 COMMON_LDFLAGS = -shared -s -fPIC -pthread
 
 ifdef QNN_DEBUG_ENABLE

@@ -26,12 +26,9 @@ StatusCode QnnRwkvCopyLogitsOutput(QnnRwkvBackend_t backend, float* outputBuffer
 
 StatusCode QnnRwkvExecute(QnnRwkvBackend_t backend, int token);
 
-// WIP
 StatusCode QnnRwkvExecuteSequence(QnnRwkvBackend_t backend, std::vector<int> tokens);
 
 double QnnRwkvGetLastInferenceTime(QnnRwkvBackend_t backend);
-
-StatusCode QnnRwkvCopyStatesInPlace(QnnRwkvBackend_t backend);
 
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
 

@@ -23,10 +23,6 @@ enum class StatusCode {
 
 const int max_chunks = 8;
 
-typedef void *(*RpcMemAllocFn_t)(int, uint32_t, int);
-typedef void (*RpcMemFreeFn_t)(void *);
-typedef int (*RpcMemToFdFn_t)(void *);
-
 class QnnRwkvApp {
  public:
   QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
@@ -58,6 +54,8 @@ class QnnRwkvApp {
 
   StatusCode execute(int token);
 
+  StatusCode executeSequence(std::vector<int> &tokens);
+
   StatusCode registerOpPackages();
 
   StatusCode createFromBinary(uint8_t *binary, size_t binarySize);
@@ -78,11 +76,13 @@ class QnnRwkvApp {
 
   StatusCode createDevice();
 
+  size_t getQnnDatatypeSize(Qnn_DataType_t dataType);
+
   StatusCode freeDevice();
 
   StatusCode verifyFailReturnStatus(Qnn_ErrorHandle_t errCode);
 
-  void fillQuantizedTensor(float value, Qnn_Tensor_t tensor);
+  void fillQuantizedTensor(float value, Qnn_Tensor_t *tensor);
 
   virtual ~QnnRwkvApp();
 
@@ -102,16 +102,17 @@ class QnnRwkvApp {
   QnnBackend_Config_t **m_backendConfig = nullptr;
   Qnn_ContextHandle_t m_context[max_chunks] = {nullptr};
   QnnContext_Config_t **m_contextConfig = nullptr;
-  qnn_wrapper_api::GraphInfo_t **m_graphsInfo;
-  uint32_t m_graphsCount;
+  GraphInfo_t **m_decodeGraphsInfo;
+  GraphInfo_t **m_prefillGraphsInfo;
+  uint32_t m_decodeGraphsCount;
+  uint32_t m_prefillGraphsCount;
   void *m_backendLibraryHandle;
   void *m_modelHandle;
-  void *m_libCdspHandle;
-  iotensor::IOTensor m_ioTensor;
+  IOTensor *m_ioTensor;
   Qnn_Tensor_t *m_inputTensors[max_chunks] = {nullptr};
   Qnn_Tensor_t *m_outputTensors[max_chunks] = {nullptr};
   std::vector<std::vector<float>> m_embedding = {};
-  bool m_inferenced = false;
+  bool m_tensorsInitialized = false;
   bool m_isBackendInitialized;
   bool m_isContextCreated;
 
@@ -121,17 +122,13 @@ class QnnRwkvApp {
   std::vector<int> m_vfirstInIdx;
   int m_vfirstOutIdx;
 
-  qnn_wrapper_api::GraphConfigInfo_t **m_graphConfigsInfo = nullptr;
+  GraphConfigInfo_t **m_graphConfigsInfo = nullptr;
   uint32_t m_graphConfigsInfoCount;
   Qnn_LogHandle_t m_logHandle         = nullptr;
   Qnn_BackendHandle_t m_backendHandle = nullptr;
   Qnn_DeviceHandle_t m_deviceHandle   = nullptr;
 
   std::chrono::duration<double> m_lastInferenceTime;
-
-  RpcMemAllocFn_t rpcmem_alloc = nullptr;
-  RpcMemFreeFn_t rpcmem_free = nullptr;
-  RpcMemToFdFn_t rpcmem_to_fd = nullptr;
 };
 }  // namespace rwkv_app
 }  // namespace tools

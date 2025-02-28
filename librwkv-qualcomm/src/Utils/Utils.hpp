@@ -28,18 +28,18 @@ void split(std::vector<std::string> &splitString,
            const char separator);
 
 bool copyMetadataToGraphsInfo(const QnnSystemContext_BinaryInfo_t *binaryInfo,
-                              qnn_wrapper_api::GraphInfo_t **&graphsInfo,
+                              GraphInfo_t **&graphsInfo,
                               uint32_t &graphsCount);
 
 bool copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
                     const uint32_t numGraphs,
-                    qnn_wrapper_api::GraphInfo_t **&graphsInfo);
+                    GraphInfo_t **&graphsInfo);
 
 bool copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoSrc,
-                      qnn_wrapper_api::GraphInfo_t *graphInfoDst);
+                      GraphInfo_t *graphInfoDst);
 
 bool copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoSrc,
-                      qnn_wrapper_api::GraphInfo_t *graphInfoDst);
+                      GraphInfo_t *graphInfoDst);
 
 bool copyTensorsInfo(const Qnn_Tensor_t *tensorsInfoSrc,
                      Qnn_Tensor_t *&tensorWrappers,
