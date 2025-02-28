@@ -215,21 +215,21 @@ StatusCode QnnRwkvCopyLogitsOutput(QnnRwkvBackend_t backend, float* outputBuffer
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
     int graph_id = app->m_decodeGraphsCount - 1;
-    int tensor_id = app->m_outputIdx[graph_id];
+    auto tensor = (Qnn_Tensor_t*)app->m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
 
-    void *buffer = app->m_ioTensor->getBuffer(&app->m_outputTensors[graph_id][tensor_id]);
+    void *buffer = app->m_ioTensor->getBuffer(tensor);
 
-    if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][tensor_id]) == QNN_DATATYPE_FLOAT_32) {
+    if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_32) {
         memcpy(outputBuffer, buffer, outputSize * sizeof(float));
-    } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][tensor_id]) == QNN_DATATYPE_FLOAT_16) {
+    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_16) {
         half_float::half *ptr = (half_float::half*)buffer;
         for (int i = 0; i < outputSize; i++) {
             outputBuffer[i] = ptr[i];
         }
-    } else if (QNN_TENSOR_GET_DATA_TYPE(app->m_outputTensors[graph_id][tensor_id]) == QNN_DATATYPE_UFIXED_POINT_16) {
+    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_UFIXED_POINT_16) {
         datautil::tfNToFloat<uint16_t>(outputBuffer, reinterpret_cast<uint16_t*>(buffer),
-            QNN_TENSOR_GET_QUANT_PARAMS(app->m_outputTensors[graph_id][tensor_id]).scaleOffsetEncoding.offset,
-            QNN_TENSOR_GET_QUANT_PARAMS(app->m_outputTensors[graph_id][tensor_id]).scaleOffsetEncoding.scale,
+            QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.offset,
+            QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.scale,
             outputSize);
     } else {
         LOG_ERROR("Unsupported data type");
@@ -247,10 +247,10 @@ StatusCode QnnRwkvGetVocabSize(QnnRwkvBackend_t backend, std::vector<size_t>& sh
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     shape.clear();
     int graph_id = app->m_decodeGraphsCount - 1;
-    int tensor_id = app->m_outputIdx[graph_id];
+    auto tensor = (Qnn_Tensor_t*)app->m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
 
-    for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_outputTensors[graph_id][tensor_id]); i++) {
-        shape.push_back(*(QNN_TENSOR_GET_DIMENSIONS(app->m_outputTensors[graph_id][tensor_id]) + i));
+    for (int i = 0; i < QNN_TENSOR_GET_RANK(*tensor); i++) {
+        shape.push_back(*(QNN_TENSOR_GET_DIMENSIONS(*tensor) + i));
     }
     return StatusCode::SUCCESS;
 }
@@ -274,16 +274,10 @@ StatusCode QnnRwkvExecuteSequence(QnnRwkvBackend_t backend, std::vector<int> tok
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
-    // TODO: Implement prefill graph logic
-    std::chrono::duration<double> duration_invoke;
-    for (int token : tokens) {
-        if (rwkv_app::StatusCode::SUCCESS != app->execute(token)) {
-            LOG_ERROR("Execution failure");
-            return StatusCode::FAILURE;
-        }
-        duration_invoke += app->m_lastInferenceTime;
+    if (rwkv_app::StatusCode::SUCCESS != app->executeSequence(tokens)) {
+        LOG_ERROR("Execution failure");
+        return StatusCode::FAILURE;
     }
-    app->m_lastInferenceTime = duration_invoke;
     return StatusCode::SUCCESS;
 }
 

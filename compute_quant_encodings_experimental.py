@@ -135,36 +135,36 @@ sim.model.eval()
 
 # print(sim)
 
-lambada_texts = None
-with open("assets/lambada_test.txt") as f:
-    lambada_texts = ''.join(f.readlines()).split('|')
+# lambada_texts = None
+# with open("assets/lambada_test.txt") as f:
+#     lambada_texts = ''.join(f.readlines()).split('|')
 
-xsum = 0
-xacc = 0
-xcnt = 0
-with torch.no_grad():
-    for text in tqdm(lambada_texts[:300]):
-        if len(text) == 0:
-            continue
-        targets = tokenizer.encode(' ' + text.split(' ')[-1])
-        state = get_dummy_state_kvcache(1, model_args, model.device)
-        input_data = torch.LongTensor([[0] + tokenizer.encode(text)]).to(model.device)
-        logits, _ = sim.model(input_data, state)
-        # logits, _ = model(input_data, state)
-        logits = logits[:, -1-len(targets):-1, :]
-        logits = torch.nn.functional.softmax(logits, dim=-1)
-        results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
-        if type(results) == int:
-            results = [results]
-        if results == targets:
-            xacc += 1
+# xsum = 0
+# xacc = 0
+# xcnt = 0
+# with torch.no_grad():
+#     for text in tqdm(lambada_texts[:300]):
+#         if len(text) == 0:
+#             continue
+#         targets = tokenizer.encode(' ' + text.split(' ')[-1])
+#         state = get_dummy_state_kvcache(1, model_args, model.device)
+#         input_data = torch.LongTensor([[0] + tokenizer.encode(text)]).to(model.device)
+#         logits, _ = sim.model(input_data, state)
+#         # logits, _ = model(input_data, state)
+#         logits = logits[:, -1-len(targets):-1, :]
+#         logits = torch.nn.functional.softmax(logits, dim=-1)
+#         results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
+#         if type(results) == int:
+#             results = [results]
+#         if results == targets:
+#             xacc += 1
 
-        for i in range(len(targets)):
-            xsum += logits[0, i, targets[i]].log().item()
-        xcnt += 1
+#         for i in range(len(targets)):
+#             xsum += logits[0, i, targets[i]].log().item()
+#         xcnt += 1
 
-print(math.exp(-xsum/xcnt))
-print(xacc/xcnt)
+# print(math.exp(-xsum/xcnt))
+# print(xacc/xcnt)
 
 # 12.279, 0.52 for 300 samples v7 0.1B fp32
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
@@ -179,6 +179,9 @@ torch.cuda.empty_cache()
 input_names = ['in'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
 
+input_names_prefill = ['in_prefill'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
+output_names_prefill = ['out_prefill'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
+
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cpu", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
@@ -191,7 +194,7 @@ output_path = './tmp'
 
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
-sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names, 'output_names': output_names})
+sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
 
 # set corresponding state_in/out to the same parameters if quantized
 import json
@@ -205,3 +208,13 @@ for key in keys:
 
 with open(output_path + '/' + filename + '.encodings', 'w') as f:
     json.dump(encodings, f, indent=4)
+
+with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
+    encodings_prefill = json.load(f)
+
+for k in keys:
+    if 'state' in k:
+        encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
+
+with open(output_path + '/' + prefill_filename + '.encodings', 'w') as f:
+    json.dump(encodings_prefill, f, indent=4)

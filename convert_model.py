@@ -72,12 +72,14 @@ if type(model) == list:
             in0 = torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)
 
         inputs = [in0, [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]]
-        input_names = ['in'] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
-        output_names = ['out'] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
+        input_name = ('in' if not parser_args.prefill_model else 'in_prefill') + f'_chunk{i+1}'
+        output_name = ('out' if not parser_args.prefill_model else 'out_prefill') + f'_chunk{i+1}'
+        input_names = [input_name] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
+        output_names = [output_name] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
 
         if i == 0:
             encodings_chunk = copy.deepcopy(encodings_all)
-            encodings_chunk["activation_encodings"]["out"] = encodings_all["activation_encodings"][f'/blocks.{model[1].layer_begin-1}/ffn/add_feed_forward/Add_output_0']
+            encodings_chunk["activation_encodings"][output_name] = encodings_all["activation_encodings"][f'/blocks.{model[1].layer_begin-1}/ffn/add_feed_forward/Add_output_0']
             with open(f"{dirname}/quant_encodings_chunk{i}.encodings", "w") as f:
                 json.dump(encodings_chunk, f, sort_keys=True, indent=4)
         else:
@@ -112,9 +114,9 @@ if type(model) == list:
 
         if args.version == 7:
             if i == 0:
-                output_names += ['v_first_out']
+                output_names += [('v_first_out' if not parser_args.prefill_model else 'v_first_out_prefill') + f'_chunk{i+1}']
             else:
-                input_names += ['v_first_in']
+                input_names += [('v_first_in' if not parser_args.prefill_model else 'v_first_in_prefill') + f'_chunk{i+1}']
                 inputs += [torch.zeros(seq_length, args.n_head, args.head_size, dtype=input_dtype)]
 
         if parser_args.prefill_model:
@@ -140,7 +142,7 @@ if type(model) == list:
         if args.version == 7:
             converter_cmd += ' --input_layout "v_first_in" "NONTRIVIAL"'
         if i != 0:
-            converter_cmd += ' --input_layout "in" "NFC"'
+            converter_cmd += f' --input_layout "{input_name}" "NFC"'
 
         if parser_args.quant_encodings:
             converter_cmd += f" --quantization_overrides {dirname}/quant_encodings_chunk{i}.encodings --float_fallback"
@@ -170,8 +172,10 @@ else:
     in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)]
     states = get_dummy_state_kvcache(1, args, model.device)
 
-    input_names = ['in'] + [f'state{i}_in' for i in range(3*args.n_layer)]
-    output_names = ['out'] + [f'state{i}_out' for i in range(3*args.n_layer)]
+    input_name = 'in' if not parser_args.prefill_model else 'in_prefill'
+    output_name  = 'out' if not parser_args.prefill_model else 'out_prefill'
+    input_names = [input_name] + [f'state{i}_in' for i in range(3*args.n_layer)]
+    output_names = [output_name] + [f'state{i}_out' for i in range(3*args.n_layer)]
 
     if parser_args.prefill_model:
         onnx_output_path = f"{dirname}/{filename}_prefill.onnx"

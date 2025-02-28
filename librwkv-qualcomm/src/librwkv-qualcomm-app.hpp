@@ -111,22 +111,25 @@ class QnnRwkvApp {
   IOTensor *m_ioTensor;
   Qnn_Tensor_t *m_inputTensors[max_chunks] = {nullptr};
   Qnn_Tensor_t *m_outputTensors[max_chunks] = {nullptr};
+  Qnn_Tensor_t *m_prefillInputTensors[max_chunks] = {nullptr};
+  Qnn_Tensor_t *m_prefillOutputTensors[max_chunks] = {nullptr};
   std::vector<std::vector<float>> m_embedding = {};
   bool m_tensorsInitialized = false;
   bool m_isBackendInitialized;
   bool m_isContextCreated;
-
-  std::vector<std::vector<int>> m_stateCopyMap;
-  std::vector<int> m_inputIdx;
-  std::vector<int> m_outputIdx;
-  std::vector<int> m_vfirstInIdx;
-  int m_vfirstOutIdx;
 
   GraphConfigInfo_t **m_graphConfigsInfo = nullptr;
   uint32_t m_graphConfigsInfoCount;
   Qnn_LogHandle_t m_logHandle         = nullptr;
   Qnn_BackendHandle_t m_backendHandle = nullptr;
   Qnn_DeviceHandle_t m_deviceHandle   = nullptr;
+
+  std::vector<std::unordered_map<std::string, void*>> m_decodeGraphsTensorNameToTensorPointer;
+  std::vector<std::unordered_map<std::string, size_t>> m_decodeGraphsTensorNameToSize;
+  std::vector<std::unordered_map<std::string, void*>> m_prefillGraphsTensorNameToTensorPointer;
+  std::vector<std::unordered_map<std::string, size_t>> m_prefillGraphsTensorNameToSize;
+
+  int m_prefillSequenceLength = 0;
 
   std::chrono::duration<double> m_lastInferenceTime;
 };

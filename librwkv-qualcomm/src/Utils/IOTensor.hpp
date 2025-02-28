@@ -63,6 +63,14 @@ class IOTensor {
       Qnn_ContextHandle_t contextHandle,
       std::unordered_map<std::string, Qnn_Tensor_t*> sharedTensorMap);
 
+  bool setupOutputWithSharedTensors(
+      Qnn_Tensor_t** tensors,
+      std::unordered_map<std::string, void*>& tensorNameToTensorPointer,
+      const GraphInfo_t& graphInfo,
+      std::unordered_map<std::string, size_t>& tensorsSize,
+      Qnn_ContextHandle_t contextHandle,
+      std::unordered_map<std::string, Qnn_Tensor_t*> sharedTensorMap);
+
   bool tearDownTensors(Qnn_Tensor_t* tensors, uint32_t tensorCount);
 
   bool tearDownTensors(std::vector<Qnn_Tensor_t*>& tensors, uint32_t tensorCount);

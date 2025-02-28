@@ -268,6 +268,67 @@ bool IOTensor::setupInputWithSharedTensors(
   return returnStatus;
 }
 
+bool IOTensor::setupOutputWithSharedTensors(
+    Qnn_Tensor_t** tensors,
+    std::unordered_map<std::string, void*>& tensorNameToTensorPointer,
+    const GraphInfo_t& graphInfo,
+    std::unordered_map<std::string, size_t>& tensorsSize,
+    Qnn_ContextHandle_t contextHandle,
+    std::unordered_map<std::string, Qnn_Tensor_t*> sharedTensorMap) {
+  uint32_t tensorCount          = graphInfo.numOutputTensors;
+  TensorWrapper* tensorWrappers = graphInfo.outputTensors;
+  if (nullptr == tensorWrappers) {
+    QNN_ERROR("tensorWrappers is nullptr");
+    return false;
+  }
+
+  if (0 == tensorCount) {
+    QNN_DEBUG("tensor count is 0. Nothing to setup.");
+    return true;
+  }
+
+  *tensors = (Qnn_Tensor_t*)calloc(1, tensorCount * sizeof(Qnn_Tensor_t));
+  if (nullptr == *tensors) {
+    QNN_ERROR("mem alloc failed for *tensors");
+    return false;
+  }
+
+  bool returnStatus = true;
+  for (size_t tensorIdx = 0; tensorIdx < tensorCount; tensorIdx++) {
+    Qnn_Tensor_t wrapperTensor = GET_TENSOR_WRAPPER_TENSOR(tensorWrappers[tensorIdx]);
+    auto wrapperTensorName     = std::string(GET_TENSOR_WRAPPER_NAME(tensorWrappers[tensorIdx]));
+    if (true == returnStatus) {
+      (*tensors)[tensorIdx] = QNN_TENSOR_INIT;
+      returnStatus          = deepCopyQnnTensorInfo(((*tensors) + tensorIdx), &wrapperTensor);
+    }
+    if (true == returnStatus) {
+      if (sharedTensorMap.find(wrapperTensorName) == sharedTensorMap.end()) {
+        size_t tensorDataSize = tensorsSize[wrapperTensorName];
+        QNN_INFO("IoTensor :: Create Buffer for Tensor %s Size: %zu", wrapperTensorName.c_str(), tensorDataSize);
+        returnStatus =
+            m_bufferManager->allocateTensorBuffer(((*tensors) + tensorIdx), tensorDataSize);
+      } else {
+        std::string outputName = QNN_TENSOR_GET_NAME(sharedTensorMap[wrapperTensorName]);
+        QNN_INFO("IoTensor :: Reuse Buffer %s for Tensor %s",
+                  outputName.c_str(),
+                  wrapperTensorName.c_str());
+        returnStatus = m_bufferManager->useSameMemory(((*tensors) + tensorIdx),
+                                                      sharedTensorMap[wrapperTensorName]);
+      }
+    }
+    if (true != returnStatus) {
+      QNN_ERROR("Failure in setupTensors, cleaning up resources");
+      tearDownTensors(*tensors, tensorIdx);
+      *tensors = nullptr;
+      QNN_ERROR("Failure in setupTensors, done cleaning up resources");
+      break;
+    } else {
+      tensorNameToTensorPointer.insert({wrapperTensorName, ((*tensors) + tensorIdx)});
+    }
+  }
+  return returnStatus;
+}
+
 bool IOTensor::mapFusedBufferOffset(
     GraphInfo_t* graph_info,
     Qnn_ContextHandle_t context_handle,

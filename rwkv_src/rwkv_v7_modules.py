@@ -282,6 +282,10 @@ class Rwkv7SelfAttention(nn.Module):
         self.get_a                  = Neg()
         self.get_b                  = Multiply()
 
+        self.concat_shift = Concat(1)
+        self.shift_gather1 = CustomGather()
+        self.shift_gather2 = CustomGather()
+        self.state_reshape = Reshape()
         self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv)
     
     def forward(self, x, state1, state2, v_first):
@@ -293,9 +297,10 @@ class Rwkv7SelfAttention(nn.Module):
             state1_out = x
             sx = self.sub_shifted(state1, x)
         else:
-            past = torch.cat([state1.unsqueeze(1), x[:, :-1, :]], dim=1)
+            state1_out = self.shift_gather1(x, torch.LongTensor([-1]).to(x.device), 1)
+            past = self.shift_gather2(x, torch.LongTensor([i for i in range(seq_length-1)]).to(x.device), 1)
+            past = self.concat_shift(self.state_reshape(state1, [1, 1, -1]), past)
             sx = self.sub_shifted(past, x)
-            state1_out = x[:, -1, :]
 
         xr = self.lerp_add_r(x, self.lerp_mul_r(sx, self.x_r))
         xw = self.lerp_add_w(x, self.lerp_mul_w(sx, self.x_w))
@@ -345,12 +350,12 @@ class Rwkv7SelfAttention(nn.Module):
             return self.add_attention(last_x, x), state1_out, state2_out
 
 class Rwkv7FeedForward(nn.Module):
-    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, layer_total=0):
         super().__init__()
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id
         self.hidden_size = hidden_size
-
+        self.layer_total = layer_total
         self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
 
         self.key = nn.Linear(hidden_size, intermediate_size, bias=False)
@@ -369,18 +374,42 @@ class Rwkv7FeedForward(nn.Module):
         self.pow                    = Pow()
         self.add_feed_forward       = Add()
 
+        self.concat_shift = Concat(1)
+        self.shift_gather1 = CustomGather()
+        self.shift_gather2 = CustomGather()
+        if self.layer_id == self.layer_total - 1:
+            self.shift_gather3 = CustomGather()
+            self.shift_gather4 = CustomGather()
+            self.shift_split = Split()
+        self.state_reshape = Reshape()
+        self.layer_total = layer_total
     def forward(self, x, state):
-        last_x = x
-        x = self.ln_2(x)
         batch_size, seq_length, _ = x.size()
-        assert batch_size == 1
-        if seq_length == 1:
-            state_out = x
-            sx = self.sub_shifted(state, x)
+        if self.layer_id == self.layer_total - 1:
+            if seq_length == 1:
+                last_x = x
+                x = self.ln_2(x)
+                state_out = x
+                sx = self.sub_shifted(state, x)
+            else:
+                last_x = self.shift_gather4(x, torch.LongTensor([-1]).to(x.device), 1)
+                x = self.shift_gather3(x, torch.LongTensor([-2, -1]).to(x.device), 1)
+                x = self.ln_2(x)
+                past, state_out = self.shift_split(x, 1, dim=1)
+                sx = self.sub_shifted(past, state_out)
+                x = state_out
         else:
-            past = torch.cat([state.unsqueeze(1), x[:, :-1, :]], dim=1)
-            sx = self.sub_shifted(past, x)
-            state_out = x[:, -1, :]
+            last_x = x
+            x = self.ln_2(x)
+            assert batch_size == 1
+            if seq_length == 1:
+                state_out = x
+                sx = self.sub_shifted(state, x)
+            else:
+                state_out = self.shift_gather1(x, torch.LongTensor([-1]).to(x.device), 1)
+                past = self.shift_gather2(x, torch.LongTensor([i for i in range(seq_length-1)]).to(x.device), 1)
+                past = self.concat_shift(self.state_reshape(state, [1, 1, -1]), past)
+                sx = self.sub_shifted(past, x)
 
         xk = self.add_x_k(x, self.mul_x_k(sx, self.x_k))
 
