@@ -9,7 +9,7 @@ std::tuple<torch::Tensor, torch::Tensor> wkv6(
     state2 = state2.squeeze(0);
     auto num_head = state2.size(0);
     auto head_size = state2.size(1);
-    int seq_length = k.size(0) / num_head;
+    int seq_length = k.size(0);
 
     k = k.reshape({seq_length, num_head, head_size, 1});
     v = v.reshape({seq_length, num_head, 1, head_size});
@@ -22,7 +22,7 @@ std::tuple<torch::Tensor, torch::Tensor> wkv6(
         wkv.push_back(torch::matmul(r[i], (time_first * kv[i] + state2)));
         state2 = time_decay[i] * state2 + kv[i];
     }
-    auto wkv_tensor = torch::stack(wkv, 0).reshape({seq_length * num_head, head_size});
+    auto wkv_tensor = torch::stack(wkv, 0).reshape({seq_length, num_head, head_size});
 
     return std::make_tuple(wkv_tensor, state2);
 }
@@ -33,7 +33,7 @@ std::tuple<torch::Tensor, torch::Tensor> wkv7(
     state2 = state2.squeeze(0);
     auto num_head = state2.size(0);
     auto head_size = state2.size(1);
-    int seq_length = k.size(0) / num_head;
+    int seq_length = k.size(0);
 
     w = w.reshape({seq_length, num_head, 1, head_size});
     k = k.reshape({seq_length, num_head, 1, head_size});
@@ -49,8 +49,7 @@ std::tuple<torch::Tensor, torch::Tensor> wkv7(
         state2 = w[i] * state2 + kv[i] + torch::matmul(state2, ab[i]);
         x.push_back(torch::matmul(state2, r[i]));
     }
-    auto x_tensor = torch::stack(x, 0).reshape({seq_length * num_head, head_size});
-
+    auto x_tensor = torch::stack(x, 0).reshape({seq_length, num_head, head_size});
     return std::make_tuple(x_tensor, state2);
 }
 

@@ -35,6 +35,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 
   int num_heads = operation->getInput(6)->currentDimensions[0];
   int head_size = operation->getInput(6)->currentDimensions[1];
+  // int seq_length = operation->getInput(0)->currentDimensions[0];
   int seq_length = operation->getInput(0)->currentDimensions[0] / num_heads;
 
   for (int t = 0; t < seq_length; t++) {

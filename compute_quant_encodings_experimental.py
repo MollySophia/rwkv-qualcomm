@@ -23,15 +23,20 @@ model_args.fp16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
+model_args.split_wkv = True
+model_args.output_last = False
 
 model_args.MODEL_NAME = str(args_parser.model)
 
 model = RWKV_RNN(model_args)
 model_args = model.args
 
+from aimet_common import quantsim
 from aimet_common.defs import QuantScheme
 from aimet_common.quantsim_config.utils import get_path_for_per_channel_config
 from aimet_torch.quantsim import QuantizationSimModel
+from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
+from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, QuantizeDequantize
 from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
 from aimet_torch.v2.nn import QuantizationMixin
 from aimet_torch.v2 import quantization as Q
@@ -94,6 +99,17 @@ for block in sim.model.blocks:
 
     # TODO
     # mp_configurator.set_precision(block.ffn.value, activation='int16', param={'weight': 'int4'})
+    # block.ffn.value.param_quantizers['weight'] = QuantizeDequantize(shape=(2048, 16),
+    #                                                              bitwidth=4,
+    #                                                              symmetric=True,
+    #                                                              block_size=(-1, -1))
+
+    # set_grouped_blockwise_quantization_for_weights(
+    #     sim, block.ffn.value, bitwidth=4, symmetric=True, decompressed_bw=8, block_size=, block_grouping=-1
+    # )
+
+    block.att.wkv7.split_state.input_quantizers[0] = None
+    block.att.wkv7.concat_state.output_quantizers[0] = None
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
@@ -129,11 +145,27 @@ def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[An
             if batch >= num_batches:
                 break
 
+sim.model.to("cuda")
+
+# for block in sim.model.blocks:
+#     # set_activation_quantizers_to_float(sim=sim, arg=[block.ffn.value], dtype=torch.float16)
+#     set_blockwise_quantization_for_weights(sim=sim,
+#                                               arg=[block.ffn.value],
+#                                               bitwidth=4,
+#                                               symmetric=True,
+#                                               block_size=128)
+
 sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataloader)
 
-sim.model.eval()
+# for block in sim.model.blocks:
+#     set_grouped_blockwise_quantization_for_weights(
+#         sim, block.ffn.value, bitwidth=4, symmetric=True, decompressed_bw=8, block_size=64, block_grouping=-1
+#     )
 
 # print(sim)
+# quit()
+
+# sim.model.eval()
 
 # lambada_texts = None
 # with open("assets/lambada_test.txt") as f:
@@ -146,12 +178,23 @@ sim.model.eval()
 #     for text in tqdm(lambada_texts[:300]):
 #         if len(text) == 0:
 #             continue
-#         targets = tokenizer.encode(' ' + text.split(' ')[-1])
+
+#         src_text = text.rsplit(' ', 1)[0]
+#         target_text = " " + text.rsplit(' ', 1)[1]
+#         targets = tokenizer.encode(target_text)
 #         state = get_dummy_state_kvcache(1, model_args, model.device)
-#         input_data = torch.LongTensor([[0] + tokenizer.encode(text)]).to(model.device)
-#         logits, _ = sim.model(input_data, state)
-#         # logits, _ = model(input_data, state)
-#         logits = logits[:, -1-len(targets):-1, :]
+#         input_data = torch.LongTensor([[0] + tokenizer.encode(src_text)]).to(model.device)
+#         logits_list = []
+#         logits, state = sim.model(input_data, state)
+#         # logits, state = model(input_data, state)
+#         logits = logits[:, -1, :]
+#         for token in tokenizer.encode(target_text):
+#             logits = logits.reshape(1, -1, logits.shape[-1])
+#             logits_list.append(logits)
+#             logits, state = sim.model(torch.LongTensor([[token]]).to(model.device), state)
+#             # logits, state = model(torch.LongTensor([[token]]).to(model.device), state)
+
+#         logits = torch.cat(logits_list, dim=1)
 #         logits = torch.nn.functional.softmax(logits, dim=-1)
 #         results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
 #         if type(results) == int:
@@ -192,6 +235,9 @@ filename = 'quantized_test'
 prefill_filename = 'quantized_test_prefill'
 output_path = './tmp'
 
+# for exporting Qualcomm's LPBQ parameters
+quantsim.encoding_version = '1.0.0'
+
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
 sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
@@ -201,20 +247,63 @@ import json
 with open(output_path + '/' + filename + '.encodings', 'r') as f:
     encodings = json.load(f)
 
-keys = list(encodings['activation_encodings'].keys())
-for key in keys:
-    if 'state' in key and 'out' in key:
-        encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
-
-with open(output_path + '/' + filename + '.encodings', 'w') as f:
-    json.dump(encodings, f, indent=4)
-
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-for k in keys:
-    if 'state' in k:
-        encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
+act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
+
+if False:
+    keys = list(encodings['activation_encodings'].keys())
+    for key in keys:
+        if 'state' in key and 'out' in key:
+            encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
+
+    for i in range(model_args.n_layer):
+        for j in range(4):
+            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
+                encodings['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
+        # try:
+        #     del encodings['activation_encodings'][f'state{3*i+1}_in']
+        #     del encodings['activation_encodings'][f'state{3*i+1}_out']
+        # except:
+        #     pass
+
+    for k in keys:
+        if 'state' in k:
+            encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
+
+    for i in range(model_args.n_layer):
+        for j in range(4):
+            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
+                encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
+        # try:
+        #     del encodings_prefill['activation_encodings'][f'state{3*i+1}_in']
+        #     del encodings_prefill['activation_encodings'][f'state{3*i+1}_out']
+        # except:
+        #     pass
+else:
+    for entry in encodings['activation_encodings']:
+        if 'state' in entry['name'] and 'out' in entry['name']:
+            idx = int(entry['name'].split('_')[0].replace('state', ''))
+            encodings_prefill['activation_encodings'].append(entry)
+            if idx % 3 == 0:
+                for n in encodings_prefill['activation_encodings']:
+                    if n['name'] == f'/blocks.{idx//3}/att/concat_shift/Concat_output_0':
+                        n['offset'] = entry['offset']
+                        n['scale'] = entry['scale']
+            if idx % 3 == 2:
+                for n in encodings_prefill['activation_encodings']:
+                    if n['name'] == f'/blocks.{idx//3}/ffn/concat_shift/Concat_output_0':
+                        n['offset'] = entry['offset']
+                        n['scale'] = entry['scale']
+            for n in encodings['activation_encodings']:
+                if n['name'] == entry['name'].replace('out', 'in'):
+                    n['offset'] = entry['offset']
+                    n['scale'] = entry['scale']
+                    encodings_prefill['activation_encodings'].append(n)
+
+with open(output_path + '/' + filename + '.encodings', 'w') as f:
+    json.dump(encodings, f, indent=4)
 
 with open(output_path + '/' + prefill_filename + '.encodings', 'w') as f:
     json.dump(encodings_prefill, f, indent=4)

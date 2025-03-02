@@ -1,17 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# try:
 from aimet_torch.v2.nn.modules.custom import *
 from aimet_torch.v2.quantization.tensor import DequantizedTensor
-
-# except:
-#     from rwkv_src.elemwise_ops import *
-
-# try:
-# from fla.ops.rwkv7 import fused_recurrent_rwkv7, chunk_rwkv7
-# except:
-    # pass
 
 custom_norm_wrapper_src = """
 #include <torch/extension.h>
@@ -40,11 +31,13 @@ class L2Norm(nn.Module):
         return torch.ops.customop.l2norm(x)
 
 class Wkv7(nn.Module):
-    def __init__(self, num_heads, head_size, custom_wkv=False):
+    def __init__(self, num_heads, head_size, custom_wkv=False, split_wkv=True):
         super().__init__()
         self.num_heads = num_heads
         self.head_size = head_size
         self.custom_wkv = custom_wkv
+        self.split_wkv = split_wkv
+
         self.apply_time_decay = Multiply()
         self.matmul_sa = MatMul()
         self.matmul_sab = MatMul()
@@ -52,13 +45,13 @@ class Wkv7(nn.Module):
         self.matmul_r = MatMul()
         self.add_kv = Add()
         self.add_sab = Add()
-        # self.split_r = Split()
-        # self.split_w = Split()
-        # self.split_k = Split()
-        # self.split_v = Split()
-        # self.split_a = Split()
-        # self.split_b = Split()
-        # self.split_state = Split()
+        self.split_r = Split()
+        self.split_w = Split()
+        self.split_k = Split()
+        self.split_v = Split()
+        self.split_a = Split()
+        self.split_b = Split()
+        self.split_state = Split()
         self.reshape_r = Reshape()
         self.reshape_w = Reshape()
         self.reshape_k = Reshape()
@@ -66,8 +59,8 @@ class Wkv7(nn.Module):
         self.reshape_a = Reshape()
         self.reshape_b = Reshape()
 
-        # self.concat_x = Concat(0)
-        # self.concat_state = Concat(0)
+        self.concat_x = Concat(1)
+        self.concat_state = Concat(0)
 
         if custom_wkv:
             # for adding the onnx nodes
@@ -78,45 +71,29 @@ class Wkv7(nn.Module):
 
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
-            # b = b.reshape(seq_length*self.num_heads, self.head_size)
-            # a = a.reshape(seq_length*self.num_heads, self.head_size)
-            # w = w.reshape(seq_length*self.num_heads, self.head_size)
-            # r = r.reshape(seq_length*self.num_heads, self.head_size)
-            # k = k.reshape(seq_length*self.num_heads, self.head_size)
-            # v = v.reshape(seq_length*self.num_heads, self.head_size)
-            r = self.reshape_r(r, [seq_length*self.num_heads, self.head_size])
-            w = self.reshape_w(w, [seq_length*self.num_heads, self.head_size])
-            k = self.reshape_k(k, [seq_length*self.num_heads, self.head_size])
-            v = self.reshape_v(v, [seq_length*self.num_heads, self.head_size])
-            a = self.reshape_a(a, [seq_length*self.num_heads, self.head_size])
-            b = self.reshape_b(b, [seq_length*self.num_heads, self.head_size])
-            # if seq_length == 1:
-            if False:
-                # k_split = torch.split(k, self.num_heads//4, dim=0)
-                # v_split = torch.split(v, self.num_heads//4, dim=0)
-                # r_split = torch.split(r, self.num_heads//4, dim=0)
-                # w_split = torch.split(w, self.num_heads//4, dim=0)
-                # a_split = torch.split(a, self.num_heads//4, dim=0)
-                # b_split = torch.split(b, self.num_heads//4, dim=0)
-                k_split = self.split_k(k, self.num_heads//4, dim=0)
-                v_split = self.split_v(v, self.num_heads//4, dim=0)
-                r_split = self.split_r(r, self.num_heads//4, dim=0)
-                w_split = self.split_w(w, self.num_heads//4, dim=0)
-                a_split = self.split_a(a, self.num_heads//4, dim=0)
-                b_split = self.split_b(b, self.num_heads//4, dim=0)
+            r = self.reshape_r(r, [seq_length, self.num_heads, self.head_size])
+            w = self.reshape_w(w, [seq_length, self.num_heads, self.head_size])
+            k = self.reshape_k(k, [seq_length, self.num_heads, self.head_size])
+            v = self.reshape_v(v, [seq_length, self.num_heads, self.head_size])
+            a = self.reshape_a(a, [seq_length, self.num_heads, self.head_size])
+            b = self.reshape_b(b, [seq_length, self.num_heads, self.head_size])
+
+            if self.split_wkv:
+                k_split = self.split_k(k, self.num_heads//4, dim=1)
+                v_split = self.split_v(v, self.num_heads//4, dim=1)
+                r_split = self.split_r(r, self.num_heads//4, dim=1)
+                w_split = self.split_w(w, self.num_heads//4, dim=1)
+                a_split = self.split_a(a, self.num_heads//4, dim=1)
+                b_split = self.split_b(b, self.num_heads//4, dim=1)
                 if (len(state2.shape) == 3):
-                    # state2_split = torch.split(state2, self.num_heads//4, dim=0)
                     state2_split = self.split_state(state2, self.num_heads//4, dim=0)
                 else:
-                    # state2_split = torch.split(state2, self.num_heads//4, dim=1)
                     state2_split = self.split_state(state2, self.num_heads//4, dim=1)
                 x0, state2_out0 = self.wkv_func(r_split[0], w_split[0], k_split[0], v_split[0], a_split[0], b_split[0], state2_split[0])
                 x1, state2_out1 = self.wkv_func(r_split[1], w_split[1], k_split[1], v_split[1], a_split[1], b_split[1], state2_split[1])
                 x2, state2_out2 = self.wkv_func(r_split[2], w_split[2], k_split[2], v_split[2], a_split[2], b_split[2], state2_split[2])
                 x3, state2_out3 = self.wkv_func(r_split[3], w_split[3], k_split[3], v_split[3], a_split[3], b_split[3], state2_split[3])
 
-                # x = torch.cat([x0, x1, x2, x3], dim=0)
-                # state2_out = torch.cat([state2_out0, state2_out1, state2_out2, state2_out3], dim=0)
                 x = self.concat_x(x0, x1, x2, x3)
                 state2_out = self.concat_state(state2_out0, state2_out1, state2_out2, state2_out3)
             else:
@@ -134,23 +111,6 @@ class Wkv7(nn.Module):
                 state2_out = self.add_kv(self.add_sab(self.apply_time_decay(state2, w), self.matmul_sab(self.matmul_sa(state2, a), b)), kv)
                 x = self.matmul_r(state2_out, r).view(seq_length, self.num_heads, 1, self.head_size)
             else:
-                # r = r.reshape(1, seq_length, self.num_heads, self.head_size)
-                # v = v.reshape(1, seq_length, self.num_heads, self.head_size)
-                # k = k.reshape(1, seq_length, self.num_heads, self.head_size)
-                # w = w.reshape(1, seq_length, self.num_heads, self.head_size)
-                # b = b.reshape(1, seq_length, self.num_heads, self.head_size)
-                # a = a.reshape(1, seq_length, self.num_heads, self.head_size)
-                # state2 = state2.reshape(1, self.num_heads, self.head_size, self.head_size).permute(0, 1, 3, 2).contiguous()
-
-                # x, state2_out = chunk_rwkv7(
-                #     r=r, w=w, k=k, v=v, a=a, b=b, scale=1.,
-                #     initial_state=state2, output_final_state=True,
-                #     cu_seqlens=None, head_first=False
-                # )
-
-                # x = x.view(seq_length, self.num_heads, 1, self.head_size)
-                # state2_out = state2_out.permute(0, 1, 3, 2).contiguous().view(self.num_heads, self.head_size, self.head_size)
-
                 r = r.view(seq_length, self.num_heads, self.head_size, 1)
                 v = v.view(seq_length, self.num_heads, self.head_size, 1)
                 k = k.view(seq_length, self.num_heads, 1, self.head_size)
@@ -160,7 +120,7 @@ class Wkv7(nn.Module):
                 kv = self.matmul_kv(v, k)
                 x = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=k.device, dtype=kv.dtype)
                 for i in range(seq_length):
-                    state2 = self.apply_time_decay(state2, w[i, :, :, :].exp()) + (state2 @ a[i, :, :, :] @ b[i, :, :, :]) + kv[i, :, :, :]
+                    state2 = self.apply_time_decay(state2, w[i, :, :, :]) + (state2 @ a[i, :, :, :] @ b[i, :, :, :]) + kv[i, :, :, :]
                     x[i, :, :, :] = state2 @ r[i, :, :, :]
                 state2_out = state2
                 x = x.view(seq_length, self.num_heads, 1, self.head_size)
@@ -169,7 +129,7 @@ class Wkv7(nn.Module):
 
 
 class Rwkv7SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False, split_wkv=True):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
@@ -177,6 +137,7 @@ class Rwkv7SelfAttention(nn.Module):
         self.head_size = head_size
         self.hidden_size = hidden_size
         self.custom_wkv = custom_wkv
+        self.split_wkv = split_wkv
 
         self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
@@ -286,7 +247,7 @@ class Rwkv7SelfAttention(nn.Module):
         self.shift_gather1 = CustomGather()
         self.shift_gather2 = CustomGather()
         self.state_reshape = Reshape()
-        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv)
+        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv, split_wkv=self.split_wkv)
     
     def forward(self, x, state1, state2, v_first):
         last_x = x
@@ -314,14 +275,11 @@ class Rwkv7SelfAttention(nn.Module):
         value = self.value(xv).view(seq_length, self.num_heads, self.head_size)
         gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
         a = self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa))).view(seq_length, self.num_heads, self.head_size)
+        # time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw))).view(seq_length, self.num_heads, self.head_size)
         time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
-        if seq_length == 1 or self.custom_wkv:
-            time_decay = self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay)))
-        else:
-            time_decay = self.scale_w(-0.606531, self.sigmoid_w(time_decay))
+        time_decay = self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay)))
 
         kk = self.mix_kk(key, self.k_k)
-        # kk = torch.ops.customop.l2norm(kk)
         kk = self.l2norm(kk)
         key = self.mix_ka_mul_key(key, self.mix_ka_add(1, self.mix_ka_mul_a(self.mix_ka_sub(a, 1), self.k_a)))
 
@@ -350,12 +308,13 @@ class Rwkv7SelfAttention(nn.Module):
             return self.add_attention(last_x, x), state1_out, state2_out
 
 class Rwkv7FeedForward(nn.Module):
-    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, layer_total=0):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, layer_total=0, output_last=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id
         self.hidden_size = hidden_size
         self.layer_total = layer_total
+        self.output_last = output_last
         self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
 
         self.key = nn.Linear(hidden_size, intermediate_size, bias=False)
@@ -385,7 +344,7 @@ class Rwkv7FeedForward(nn.Module):
         self.layer_total = layer_total
     def forward(self, x, state):
         batch_size, seq_length, _ = x.size()
-        if self.layer_id == self.layer_total - 1:
+        if self.output_last and self.layer_id == self.layer_total - 1:
             if seq_length == 1:
                 last_x = x
                 x = self.ln_2(x)

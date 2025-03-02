@@ -221,14 +221,14 @@ def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
     n_head = state2.type().sizes()[0]
     head_size = state2.type().sizes()[1]
     out1, out2 = g.op("rwkv::wkv6", k, v, r, state2, time_first, time_decay, outputs=2)
-    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], n_head, head_size])),\
         out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
 
 def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
     n_head = state.type().sizes()[0]
     head_size = state.type().sizes()[1]
     out1, out2 = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=2)
-    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], head_size])),\
+    return out1.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], n_head, head_size])),\
         out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
 
 def norm(g, self):

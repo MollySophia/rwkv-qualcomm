@@ -58,6 +58,23 @@ DEF_PACKAGE_OP((wkv7Impl<Tensor>), "wkv7")
  * HTP core provides some replacement functions for op package to use
  * for more information about optimization rules, please refer to HTP core documentations
  */
+// #define WKV_SPLIT_SIZE 8
+// DEF_PACKAGE_OPTIMIZATION(EARLY + 3,
+//   Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
+//   OK,
+//   AUTOSPLIT(1, "I", WKV_SPLIT_SIZE, 
+//     Op("wkv7", 
+//       TYPICAL_SLICE("r", "I"), 
+//       TYPICAL_SLICE("w", "I"), 
+//       TYPICAL_SLICE("k", "I"), 
+//       TYPICAL_SLICE("v", "I"), 
+//       TYPICAL_SLICE("a", "I"), 
+//       TYPICAL_SLICE("b", "I"), 
+//       // CHANGEDIM_SLICE("state_in", "I", 3)  // Use CHANGEDIM_SLICE for state since it has a different dimension layout
+//       TYPICAL_SLICE("b", "I"), 
+//     )
+//   )
+// )
 
 /*
  * op parameter order definitions
@@ -495,7 +512,7 @@ GraphStatus wkv7Impl(TensorType& out_0,
 
   int num_heads = state.dim(1);
   int head_size = state.dim(2);
-  int seq_length = k.dim(2) / num_heads;
+  int seq_length = k.dim(1);
 
 #ifdef USE_HVX
 // #if 0

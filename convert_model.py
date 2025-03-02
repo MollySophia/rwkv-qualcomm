@@ -33,6 +33,8 @@ model_args.fp16 = False
 model_args.wkv_customop = parser_args.wkv_customop
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 model_args.MODEL_NAME = str(parser_args.model)
+model_args.split_wkv = True
+model_args.output_last = True
 
 if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or parser_args.quant_encodings or 'x070' in model_args.MODEL_NAME:
     model_args.RESCALE_LAYER = 0
@@ -125,6 +127,7 @@ if type(model) == list:
             onnx_output_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
         OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model[i], tuple(inputs),
             False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
+        shape_inference.infer_shapes_path(onnx_output_path)
         print(f"onnx model chunk{i} saved to {onnx_output_path}")
 
     print("Converting and compiling QNN models...")
@@ -183,6 +186,7 @@ else:
         onnx_output_path = f"{dirname}/{filename}.onnx"
     OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
+    shape_inference.infer_shapes_path(onnx_output_path)
     print(f"onnx model saved to {onnx_output_path}")
 
     print("Converting to QNN model...")
