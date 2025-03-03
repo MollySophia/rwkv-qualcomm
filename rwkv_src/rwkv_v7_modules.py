@@ -98,6 +98,7 @@ class Wkv7(nn.Module):
                 state2_out = self.concat_state(state2_out0, state2_out1, state2_out2, state2_out3)
             else:
                 x, state2_out = self.wkv_func(r, w, k, v, a, b, state2)
+            x = x.view(seq_length, self.num_heads, 1, self.head_size)
         else:
             if seq_length == 1:
                 r = r.view(self.num_heads, self.head_size, 1)
