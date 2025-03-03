@@ -93,11 +93,11 @@ if type(model) == list:
                     encoding_block_id = int(k.split(".")[1]) if 'block' in k else args.n_layer-1
                 if any([f'state{j}' in k for j in range(3*model[i].layer_begin, 3*model[i].layer_end)] + [
                     (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end),
-                    k == '/blocks.0/att/Reshape_2_output_0',
+                    k == '/blocks.0/att/value/MatMul_output_0',
                     k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0'
                 ]):
-                    if k == '/blocks.0/att/Reshape_2_output_0':
-                        encodings_chunk["activation_encodings"][f'v_first_in_chunk{i+1}'] = v
+                    if k == '/blocks.0/att/value/MatMul_output_0':
+                        encodings_chunk["activation_encodings"][f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}'] = v
                     elif k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0':
                         encodings_chunk["activation_encodings"][input_name] = v
                     else:
@@ -143,7 +143,7 @@ if type(model) == list:
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_path} --float_bitwidth {parser_args.qnn_float_width} "
         converter_cmd += " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         if args.version == 7:
-            converter_cmd += ' --input_layout "v_first_in" "NONTRIVIAL"'
+            converter_cmd += f' --input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
         if i != 0:
             converter_cmd += f' --input_layout "{input_name}" "NFC"'
 
