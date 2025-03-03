@@ -1,5 +1,6 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
+from transformers import AutoConfig, AutoTokenizer
 from rwkv_src.rwkv_v7_modules import Wkv7, L2Norm
 import types
 import torch
@@ -44,6 +45,9 @@ from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
 from aimet_torch.v2.nn import QuantizationMixin
 from aimet_torch.v2 import quantization as Q
 
+from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
+from utils.dataset_builder import DatasetBuilder
+
 @QuantizationMixin.implements(Wkv7)
 class QuantizedWkv7(QuantizationMixin, Wkv7):
     def __quant_init__(self):
@@ -86,6 +90,7 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cuda", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
+model = model.eval()
 sim = QuantizationSimModel(model, dummy_input=dummy_input,
                            quant_scheme=QuantScheme.post_training_tf_enhanced,
                            default_param_bw=8,
@@ -99,20 +104,21 @@ for block in sim.model.blocks:
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
+    # block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
+    block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
+
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
 
 mp_configurator.apply()
+sim.model = sim.model.cuda()
 
-tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
+# tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
+tokenizer = AutoTokenizer.from_pretrained("RWKV/rwkv-5-world-1b5", trust_remote_code=True)
 
 from datasets import load_from_disk, load_dataset, IterableDataset
 from torch.utils.data import DataLoader, Dataset
 from typing import Any, Optional
-train_dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
-dataloader = DataLoader(
-    train_dataset, batch_size=5
-)
 
 def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
@@ -133,6 +139,53 @@ def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[An
             if batch >= num_batches:
                 break
 
+dataset_args = types.SimpleNamespace()
+dataset_args.calib_dataset_name = "wikitext"
+dataset_args.calib_dataset_config_name = "wikitext-2-raw-v1"
+dataset_args.dataset_cache_dir = "./dataset_cache"
+dataset_args.calib_dataset_split = None
+dataset_args.calib_dataset_preprocessor = "gpt2"
+dataset_args.eval_dataset_name = "wikitext"
+dataset_args.eval_dataset_config_name = "wikitext-103-raw-v1"
+dataset_args.eval_dataset_split = "test"
+dataset_args.eval_dataset_preprocessor = "gptq"
+dataset_args.num_calibration_batches = 20
+dataset_args.per_device_calib_batch_size = 1
+dataset_args.per_device_eval_batch_size = 1
+dataset_args.block_size = 1024
+dataset_args.seed = 42
+
+dataset_builder = DatasetBuilder(dataset_args)
+dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
+
+def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
+    model.eval()
+    with torch.no_grad():
+        state = get_dummy_state_kvcache(1, model_args, model.device)
+        model(forward_pass_args['input_ids'].to(model.device), state)
+
+def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
+    data_loader = forward_pass_args
+
+    num_batches = 10
+
+    model.eval()
+    with torch.no_grad():
+        for batch, input_data in tqdm(enumerate(data_loader)):
+            state = get_dummy_state_kvcache(1, model_args, model.device)
+            model(input_data['input_ids'].to(model.device), state)
+
+            if batch >= num_batches:
+                break
+
+params = SeqMseParams(num_batches=10,
+                      num_candidates=20,
+                      inp_symmetry='symqt',
+                      loss_fn='mse',
+                      forward_fn=pass_calibration_data_seq_mse)
+
+apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
+
 model = model.to('cpu')
 torch.cuda.empty_cache()
 sim.model = sim.model.cuda()
@@ -151,7 +204,7 @@ sim.model = sim.model.cuda()
 
 print(sim)
 
-sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataloader)
+sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
 
 sim.model.eval()
 
