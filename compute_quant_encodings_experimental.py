@@ -16,6 +16,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description='Compute param encodings for linear modules')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
+parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -164,7 +165,6 @@ sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataload
 #     )
 
 print(sim)
-# quit()
 
 sim.model.eval()
 
@@ -237,8 +237,9 @@ filename = 'quantized_test'
 prefill_filename = 'quantized_test_prefill'
 output_path = './tmp'
 
-# for exporting Qualcomm's LPBQ parameters
-quantsim.encoding_version = '1.0.0'
+if not args_parser.use_old_format:
+    # for exporting Qualcomm's LPBQ parameters
+    quantsim.encoding_version = '1.0.0'
 
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
@@ -252,7 +253,7 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-if False:
+if args_parser.use_old_format:
     act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
     keys = list(encodings['activation_encodings'].keys())
     for key in keys:
