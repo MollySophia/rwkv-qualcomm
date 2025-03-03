@@ -20,3 +20,4 @@ trace_output/
 test_wkv*
 test_data*
 QNN/
+v7_*_quant/

@@ -220,7 +220,7 @@ dummy_input_prefill = (dummy_input_prefill['in0'], dummy_input_prefill['state'])
 
 filename = model_args.MODEL_NAME.split('/')[-1].replace('.pth', '')
 prefill_filename = filename + '_prefill'
-output_path = './tmp' if args_parser.output_folder is None else args_parser.output_folder
+output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
 
 # if not args_parser.use_old_format:
 if False:
