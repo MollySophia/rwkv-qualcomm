@@ -22,7 +22,7 @@ args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = torch.cuda.is_available()
-model_args.fp16 = False
+model_args.fp16 = True
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
@@ -133,7 +133,9 @@ def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[An
             if batch >= num_batches:
                 break
 
-sim.model.to("cuda")
+model = model.to('cpu')
+torch.cuda.empty_cache()
+sim.model = sim.model.cuda()
 
 # NOTE: looks unusable with QNN yet
 # for block in sim.model.blocks:
