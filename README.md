@@ -1,9 +1,7 @@
 # Inference RWKV on Qualcomm HTP (Hexagon Tensor Processor) using QNN SDK
 
-## Note: The rwkv v7 part of this project is under heavy construction and not ready for use yet. ETA one week(from 2/24).
-
 ## Features
-- Support for RWKV v5, v6 and experimentally v7 models(WIP)
+- Support for RWKV v5, v6 and experimentally v7 models
 - Inference RWKV using QNN SDK, with Qualcomm CPU, GPU or HTP (Hexagon Tensor Processor) as the backend.
 - Support for whole-model float16 inference (since Qualcomm HTP cannot do float32 math).
 - Support for activation INT16 and weights INT8 quantized inference (with some key operations running with float16).
@@ -17,48 +15,39 @@
 - This project has been verified with:
     - QNN SDK 2.31.0
     - python==3.10 (as is recommended by QNN SDK documentation)
-    - onnx==1.16.1
-    - protobuf==3.20.2 (Mandatory for making both QNN's onnx-converter and onnx==1.16.1 working properly)
+    - onnx==1.17.0
+    - protobuf==5.29.3
     - torch==2.1.2
+    - aimet-torch==2.0.0
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
 ## Usage
 ### 1. Convert model weights to QNN model library file.
-
-#### Converting a FP16 model
-- `convert_model.py`: usage: convert_model.py [-h] [--chunks CHUNKS] [--use_qnn_quant] [--act_bitwidth ACT_BITWIDTH] [--weights_bitwidth WEIGHTS_BITWIDTH] [--ext_embedding] model
-- Convert the model: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 4`
-
 #### Converting an A16W8 model
-- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
-- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
-- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6 --qnn_float_width 16` (**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
+- `python compute_quant_encodings_experimental.py ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth`
+- The quantization encodings file will be in `tmp/quantized_test.encodings` and `tmp/quantized_test_prefill.encodings`
+- Convert the model file: `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --quant_encodings tmp/quantized_test.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
+- Convert the model file (prefill model with sequence length=128): `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --prefill_model --quant_encodings tmp/quantized_test_prefill.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices older than 8Gen3(SM8650)**)
 - The act_bitwidth and weights_bitwidth default to 16 and 8 respectively.
-- Note: Please keep the `chunks` parameter the same in both scripts.
 
 ### Converting an A16W4 model
-- `make_calibration_samples.py`: usage: make_calibration_samples.py [-h] [--ext_embedding] model output chunks
-- Make calibration samples: `python make_calibration_samples.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth ./samples_1b6 2`
-- Convert the model file: `python convert_model.py ../models/RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth --chunks 2 --use_qnn_quant --calib_data_path ./samples_1b6 --linear_param_encodings quant_encodings/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_mse_rwkv_gptq_exceptions_asym_torch_w4.encodings --qnn_float_width 16` (The quantization encodings are either from the pre-calculated ones ([GDrive](https://drive.google.com/drive/folders/1IXp6FwdiZjV4fn8HXRUoGHM91WzvEwqj?usp=drive_link)), or generated using AIMET. Refer to: [AIMET_quant.md](docs/AIMET_quant.md))(**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
-- Some large Linear modules are quantized to 4-bit weights, while some are kept 8-bit for better accuracy.
-- Note: Please keep the `chunks` parameter the same in both scripts.
-
-The outputs will be in ``lib/`` directory. The model library contains weights, as well as the functions to prepare the graph. This can either be called on device using libraries in ``lib/aarch64-android/``, or be prepared on the x86 host machine using ``lib/x86_64-linux-clang/`` to generate an HTP context cache. Qualcomm HTP has a limitation on the size of the model library file, so the model will be split into multiple chunks.
+**TODO**
 
 ### 2. Generate HTP context cache
-- `make_context_cache_binary.py`: usage: make_context_cache_binary.py [-h] model_lib output_path {SM8650,SM8550,SC8380}
+- `make_context_cache_binary.py`: usage: usage: make_context_cache_binary.py [-h] [--use_optrace] [--wkv_customop] [--output_name OUTPUT_NAME] [--prefill]
+                                    model_lib output_path {SM8650,SM8550,SC8380,SM8475}
 - Example:
 ```
-$ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.so output/ SM8650
+$ python make_context_cache_binary.py --prefill --wkv_customop lib/x86_64-linux-clang/libRWKV-x070-World-1.5B-v3-20250127-ctx4096.so output/ SM8650
 ```
 - The script will automatically process each of the chunks together.
-- The output would be in ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin`` and ``output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin``.
+- The output would be in ``output/RWKV-x070-World-1.5B-v3-20250127-ctx4096_combined.bin`` which has weight sharing enabled for prefill and decoding graphs.
 
 ### 3. Run inference on the device
 #### 3.1. Running on Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 - Build the demo code: ``make -C librwkv-qualcomm``
-- Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin /data/local/tmp/ && adb push output/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk2of2.bin /data/local/tmp/``
-- Push the tokenizer model to the device: ``adb push assets/brwkv_vocab_v20230424.txt /data/local/tmp/``
+- Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x070-World-1.5B-v3-20250127-ctx4096_combined.bin /data/local/tmp/``
+- Push the tokenizer model to the device: ``adb push assets/b_rwkv_vocab_v20230424.txt /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
 ```/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtp.so
 /opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpNetRunExtensions.so
@@ -67,14 +56,13 @@ $ python make_context_cache_binary.py ./lib/x86_64-linux-clang/libRWKV-x060-Worl
 /opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpV75Stub.so
 /opt/qcom/aistack/qairt/2.31.0.250130/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so
 ```
-- *If using external embedding, please push `onnx/RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.emb` to `/data/local/tmp/rwkv/` too.*
 - Finally run the demo code:
 ```
 adb shell
 $ cd /data/local/tmp
 $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/local/tmp
 $ # Specify the path to the first model chunk. The second chunk will be loaded automatically.
-$ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x060-World-1B6-v2.1-20240328-ctx4096_chunk1of2.bin
+$ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x070-World-1.5B-v3-20250127-ctx4096_combined.bin
 ```
 #### 3.2. Running on Qualcomm Snapdragon X Elite laptops
 - *TODO*
