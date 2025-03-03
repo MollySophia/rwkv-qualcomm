@@ -16,7 +16,8 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description='Compute param encodings for linear modules')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
-parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
+# parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
+parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -95,21 +96,6 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
 
 mp_configurator = MixedPrecisionConfigurator(sim)
 for block in sim.model.blocks:
-    # uncomment here to use float16 for layernorms
-    # mp_configurator.set_precision(block.att.ln_1, activation='fp16', param={'weight': 'fp16'})
-    # mp_configurator.set_precision(block.ffn.ln_2, activation='fp16', param={'weight': 'fp16'})
-
-    # TODO
-    # mp_configurator.set_precision(block.ffn.value, activation='int16', param={'weight': 'int4'})
-    # block.ffn.value.param_quantizers['weight'] = QuantizeDequantize(shape=(2048, 16),
-    #                                                              bitwidth=4,
-    #                                                              symmetric=True,
-    #                                                              block_size=(-1, -1))
-
-    # set_grouped_blockwise_quantization_for_weights(
-    #     sim, block.ffn.value, bitwidth=4, symmetric=True, decompressed_bw=8, block_size=, block_grouping=-1
-    # )
-
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
@@ -149,22 +135,21 @@ def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[An
 
 sim.model.to("cuda")
 
+# NOTE: looks unusable with QNN yet
 # for block in sim.model.blocks:
 #     # set_activation_quantizers_to_float(sim=sim, arg=[block.ffn.value], dtype=torch.float16)
-#     set_blockwise_quantization_for_weights(sim=sim,
-#                                               arg=[block.ffn.value],
-#                                               bitwidth=4,
-#                                               symmetric=True,
-#                                               block_size=128)
-
-sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataloader)
-
-# for block in sim.model.blocks:
+#     # set_blockwise_quantization_for_weights(sim=sim,
+#     #                                           arg=[block.ffn.value],
+#     #                                           bitwidth=4,
+#     #                                           symmetric=True,
+#     #                                           block_size=128)
 #     set_grouped_blockwise_quantization_for_weights(
-#         sim, block.ffn.value, bitwidth=4, symmetric=True, decompressed_bw=8, block_size=64, block_grouping=-1
+#         sim, [block.ffn.value], bitwidth=4, symmetric=True, decompressed_bw=8, block_size=128, block_grouping=-1
 #     )
 
 print(sim)
+
+sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataloader)
 
 sim.model.eval()
 
@@ -233,11 +218,12 @@ dummy_input = (dummy_input['in0'], dummy_input['state'])
 dummy_input_prefill = get_dummy_input_for_rwkv_causal_llm(1, 128, "cpu", model.args)
 dummy_input_prefill = (dummy_input_prefill['in0'], dummy_input_prefill['state'])
 
-filename = 'quantized_test'
-prefill_filename = 'quantized_test_prefill'
-output_path = './tmp'
+filename = model_args.MODEL_NAME.split('/')[-1].replace('.pth', '')
+prefill_filename = filename + '_prefill'
+output_path = './tmp' if args_parser.output_folder is None else args_parser.output_folder
 
-if not args_parser.use_old_format:
+# if not args_parser.use_old_format:
+if False:
     # for exporting Qualcomm's LPBQ parameters
     quantsim.encoding_version = '1.0.0'
 
@@ -253,7 +239,8 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-if args_parser.use_old_format:
+# if args_parser.use_old_format:
+if True:
     act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
     keys = list(encodings['activation_encodings'].keys())
     for key in keys:
