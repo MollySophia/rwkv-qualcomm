@@ -205,15 +205,13 @@ if args_parser.lambada_test:
 # 4.91, 0.64 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
 # 5.17, 0.64 for 300 samples v7 1.5B a16w8 on actual hardware
 
-sim.model.to("cpu")
-torch.cuda.empty_cache()
-
 input_names = ['in'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
 
 input_names_prefill = ['in_prefill'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names_prefill = ['out_prefill'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
 
+model.args.fp16 = False
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cpu", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
@@ -229,6 +227,8 @@ if False:
     # for exporting Qualcomm's LPBQ parameters
     quantsim.encoding_version = '1.0.0'
 
+sim.model = sim.model.to('cpu').float()
+torch.cuda.empty_cache()
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
 sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
