@@ -15,6 +15,7 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Compute param encodings for linear modules')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
+parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -162,52 +163,53 @@ sim.compute_encodings(pass_calibration_data, forward_pass_callback_args=dataload
 #         sim, block.ffn.value, bitwidth=4, symmetric=True, decompressed_bw=8, block_size=64, block_grouping=-1
 #     )
 
-# print(sim)
+print(sim)
 # quit()
 
-# sim.model.eval()
+sim.model.eval()
 
-# lambada_texts = None
-# with open("assets/lambada_test.txt") as f:
-#     lambada_texts = ''.join(f.readlines()).split('|')
+if args_parser.lambada_test:
+    lambada_texts = None
+    with open("assets/lambada_test.txt") as f:
+        lambada_texts = ''.join(f.readlines()).split('|')
 
-# xsum = 0
-# xacc = 0
-# xcnt = 0
-# with torch.no_grad():
-#     for text in tqdm(lambada_texts[:300]):
-#         if len(text) == 0:
-#             continue
+    xsum = 0
+    xacc = 0
+    xcnt = 0
+    with torch.no_grad():
+        for text in tqdm(lambada_texts[:300]):
+            if len(text) == 0:
+                continue
 
-#         src_text = text.rsplit(' ', 1)[0]
-#         target_text = " " + text.rsplit(' ', 1)[1]
-#         targets = tokenizer.encode(target_text)
-#         state = get_dummy_state_kvcache(1, model_args, model.device)
-#         input_data = torch.LongTensor([[0] + tokenizer.encode(src_text)]).to(model.device)
-#         logits_list = []
-#         logits, state = sim.model(input_data, state)
-#         # logits, state = model(input_data, state)
-#         logits = logits[:, -1, :]
-#         for token in tokenizer.encode(target_text):
-#             logits = logits.reshape(1, -1, logits.shape[-1])
-#             logits_list.append(logits)
-#             logits, state = sim.model(torch.LongTensor([[token]]).to(model.device), state)
-#             # logits, state = model(torch.LongTensor([[token]]).to(model.device), state)
+            src_text = text.rsplit(' ', 1)[0]
+            target_text = " " + text.rsplit(' ', 1)[1]
+            targets = tokenizer.encode(target_text)
+            state = get_dummy_state_kvcache(1, model_args, model.device)
+            input_data = torch.LongTensor([[0] + tokenizer.encode(src_text)]).to(model.device)
+            logits_list = []
+            logits, state = sim.model(input_data, state)
+            # logits, state = model(input_data, state)
+            logits = logits[:, -1, :]
+            for token in tokenizer.encode(target_text):
+                logits = logits.reshape(1, -1, logits.shape[-1])
+                logits_list.append(logits)
+                logits, state = sim.model(torch.LongTensor([[token]]).to(model.device), state)
+                # logits, state = model(torch.LongTensor([[token]]).to(model.device), state)
 
-#         logits = torch.cat(logits_list, dim=1)
-#         logits = torch.nn.functional.softmax(logits, dim=-1)
-#         results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
-#         if type(results) == int:
-#             results = [results]
-#         if results == targets:
-#             xacc += 1
+            logits = torch.cat(logits_list, dim=1)
+            logits = torch.nn.functional.softmax(logits, dim=-1)
+            results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
+            if type(results) == int:
+                results = [results]
+            if results == targets:
+                xacc += 1
 
-#         for i in range(len(targets)):
-#             xsum += logits[0, i, targets[i]].log().item()
-#         xcnt += 1
+            for i in range(len(targets)):
+                xsum += logits[0, i, targets[i]].log().item()
+            xcnt += 1
 
-# print(math.exp(-xsum/xcnt))
-# print(xacc/xcnt)
+    print(math.exp(-xsum/xcnt))
+    print(xacc/xcnt)
 
 # 12.279, 0.52 for 300 samples v7 0.1B fp32
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
@@ -250,9 +252,8 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
-
 if False:
+    act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
     keys = list(encodings['activation_encodings'].keys())
     for key in keys:
         if 'state' in key and 'out' in key:
@@ -301,6 +302,19 @@ else:
                     n['offset'] = entry['offset']
                     n['scale'] = entry['scale']
                     encodings_prefill['activation_encodings'].append(n)
+    for i in range(model_args.n_layer):
+        for j in range(4):
+            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
+                encodings['activation_encodings'].append({
+                    "name": f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}',
+                    "bw": 16,
+                    "dtype": "FLOAT",
+                })
+                encodings_prefill['activation_encodings'].append({
+                    "name": f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}',
+                    "bw": 16,
+                    "dtype": "FLOAT",
+                })
 
 with open(output_path + '/' + filename + '.encodings', 'w') as f:
     json.dump(encodings, f, indent=4)
