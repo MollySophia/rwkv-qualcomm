@@ -94,12 +94,15 @@ if type(model) == list:
                 if any([f'state{j}' in k for j in range(3*model[i].layer_begin, 3*model[i].layer_end)] + [
                     (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end),
                     k == '/blocks.0/att/value/MatMul_output_0',
-                    k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0'
+                    k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0',
+                    k == 'out'
                 ]):
                     if k == '/blocks.0/att/value/MatMul_output_0':
                         encodings_chunk["activation_encodings"][f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}'] = v
                     elif k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0':
                         encodings_chunk["activation_encodings"][input_name] = v
+                    elif k == 'out':
+                        encodings_chunk["activation_encodings"][output_name] = v
                     else:
                         encodings_chunk["activation_encodings"][k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")] = v
             for k, v in encodings_all["param_encodings"].items():
