@@ -124,6 +124,8 @@ class QnnRwkvApp {
   Qnn_BackendHandle_t m_backendHandle = nullptr;
   Qnn_DeviceHandle_t m_deviceHandle   = nullptr;
 
+  Qnn_Tensor_t *m_logitsOutputTensor = nullptr;
+
   std::vector<std::unordered_map<std::string, void*>> m_decodeGraphsTensorNameToTensorPointer;
   std::vector<std::unordered_map<std::string, size_t>> m_decodeGraphsTensorNameToSize;
   std::vector<std::unordered_map<std::string, void*>> m_prefillGraphsTensorNameToTensorPointer;

@@ -867,6 +867,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         if (tensorName.find("state") != std::string::npos) {
           sharedTensorMap[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id][tensorName.substr(0, tensorName.find("_in")) + "_out"];
         }
+        if (graph_id > 0) {
+          if (tensorName.find("v_first_in") != std::string::npos) {
+            sharedTensorMap[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[0]["v_first_out_chunk1"];
+          } else if (tensorName == "in_chunk" + std::to_string(graph_id + 1)) {
+            sharedTensorMap[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id - 1]["out_chunk" + std::to_string(graph_id)];
+          }
+        }
       }
 
       if (!m_ioTensor->setupInputWithSharedTensors(&m_inputTensors[graph_id], m_decodeGraphsTensorNameToTensorPointer[graph_id], graphInfo,
@@ -914,7 +921,11 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
           if (tensorName.find("state") != std::string::npos) {
             sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id][tensorName];
           } else if (tensorName == "out_prefill") {
-            sharedTensorMapPrefill["out_prefill"] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+            sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+            m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+          } else if (graph_id == m_prefillGraphsCount - 1 && tensorName.find("out_prefill_chunk") != std::string::npos) {
+            sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out_chunk" + std::to_string(graph_id+1)];
+            m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out_chunk" + std::to_string(graph_id+1)];
           }
         }
 
@@ -935,6 +946,14 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
           if (tensorName.find("state") != std::string::npos) {
             sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id][tensorName];
           }
+
+          if (graph_id > 0) {
+            if (tensorName.find("v_first_in") != std::string::npos) {
+              sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["v_first_out_prefill_chunk1"];
+            } else if (tensorName == "in_prefill_chunk" + std::to_string(graph_id + 1)) {
+              sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[graph_id - 1]["out_prefill_chunk" + std::to_string(graph_id)];
+            }
+          }
         }
 
         if (!m_ioTensor->setupOutputWithSharedTensors(&m_prefillOutputTensors[graph_id], m_prefillGraphsTensorNameToTensorPointer[graph_id], graphInfo,
@@ -951,7 +970,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
 
       }
 
-      auto tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_prefill"];
+      // auto tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_prefill"];
+      Qnn_Tensor_t *tensor = nullptr;
+      if (m_prefillGraphsTensorNameToTensorPointer[0].find("in_prefill") != m_prefillGraphsTensorNameToTensorPointer[0].end()) {
+        tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_prefill"];
+      } else if (m_prefillGraphsTensorNameToTensorPointer[0].find("in_prefill_chunk1") != m_prefillGraphsTensorNameToTensorPointer[0].end()) {
+        tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_prefill_chunk1"];
+      }
       m_prefillSequenceLength = 1;
       for (int i = 0; i < QNN_TENSOR_GET_RANK(*tensor); i++) {
         m_prefillSequenceLength *= *(QNN_TENSOR_GET_DIMENSIONS(*tensor) + i);

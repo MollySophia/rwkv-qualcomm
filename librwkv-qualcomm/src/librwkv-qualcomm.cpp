@@ -215,7 +215,7 @@ StatusCode QnnRwkvCopyLogitsOutput(QnnRwkvBackend_t backend, float* outputBuffer
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
     int graph_id = app->m_decodeGraphsCount - 1;
-    auto tensor = (Qnn_Tensor_t*)app->m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+    auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
 
     void *buffer = app->m_ioTensor->getBuffer(tensor);
 
@@ -247,7 +247,7 @@ StatusCode QnnRwkvGetVocabSize(QnnRwkvBackend_t backend, std::vector<size_t>& sh
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     shape.clear();
     int graph_id = app->m_decodeGraphsCount - 1;
-    auto tensor = (Qnn_Tensor_t*)app->m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+    auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
 
     for (int i = 0; i < QNN_TENSOR_GET_RANK(*tensor); i++) {
         shape.push_back(*(QNN_TENSOR_GET_DIMENSIONS(*tensor) + i));
