@@ -19,6 +19,7 @@ parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
 # parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
+parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -104,8 +105,9 @@ for block in sim.model.blocks:
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
-    # block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
-    # block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
+    if args_parser.use_w4_seq_mse:
+        # block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
+        block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
@@ -157,13 +159,14 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
             if batch >= num_batches:
                 break
 
-params = SeqMseParams(num_batches=10,
-                      num_candidates=20,
-                      inp_symmetry='symqt',
-                      loss_fn='mse',
-                      forward_fn=pass_calibration_data_seq_mse)
+if args_parser.use_w4_seq_mse:
+    params = SeqMseParams(num_batches=20,
+                        num_candidates=20,
+                        inp_symmetry='symqt',
+                        loss_fn='mse',
+                        forward_fn=pass_calibration_data_seq_mse)
 
-apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
+    apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
 
 model = model.to('cpu')
 torch.cuda.empty_cache()
@@ -236,8 +239,8 @@ if args_parser.lambada_test:
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
 
 # 4.336, 0.68 for 300 samples v7 1.5B fp32
-# 4.91, 0.64 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
-# 5.17, 0.64 for 300 samples v7 1.5B a16w8 on actual hardware
+# 4.86, 0.65 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
+# (TODO) for 300 samples v7 1.5B a16w8 on actual hardware
 
 input_names = ['in'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
