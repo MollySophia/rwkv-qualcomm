@@ -97,10 +97,8 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
                            default_param_bw=8,
                            default_output_bw=16,
                            config_file="quantizers/configs/htp_quantsim_config_v75_per_channel.json",
-                        #    in_place=True,
+                           in_place=True,
 )
-
-print(sim)
 
 mp_configurator = MixedPrecisionConfigurator(sim)
 for block in sim.model.blocks:
@@ -108,8 +106,12 @@ for block in sim.model.blocks:
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
     if args_parser.use_w4_seq_mse:
-        block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
-        block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
+        block.ffn.key.param_quantizers['weight'].shape = (block.ffn.key.weight.shape[0], 1)
+        block.ffn.key.param_quantizers['weight'].bitwidth = 4
+        block.ffn.key.param_quantizers['weight'].symmetric = True
+        block.ffn.value.param_quantizers['weight'].shape = (block.ffn.value.weight.shape[0], 1)
+        block.ffn.value.param_quantizers['weight'].bitwidth = 4
+        block.ffn.value.param_quantizers['weight'].symmetric = True
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
@@ -169,9 +171,7 @@ if args_parser.use_w4_seq_mse:
 
     apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
 
-model = model.to('cpu')
 torch.cuda.empty_cache()
-sim.model = sim.model.cuda()
 
 # NOTE: looks unusable with QNN yet
 # for block in sim.model.blocks:
@@ -189,7 +189,7 @@ print(sim)
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
 
-sim.model = sim.model.float()
+sim.model.float()
 model.args.fp16 = False
 sim.model.eval()
 
@@ -266,6 +266,9 @@ if False:
 
 sim.model = sim.model.to('cpu').float()
 torch.cuda.empty_cache()
+
+# why the fuck is it sticking to CUDA
+print(sim.model.device)
 os.path.exists(output_path) or os.makedirs(output_path)
 sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
 sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
