@@ -96,9 +96,11 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
                            quant_scheme=QuantScheme.post_training_tf_enhanced,
                            default_param_bw=8,
                            default_output_bw=16,
-                           config_file="quantizers/configs/htp_quantsim_config_v75.json",
+                           config_file="quantizers/configs/htp_quantsim_config_v75_per_channel.json",
                         #    in_place=True,
 )
+
+print(sim)
 
 mp_configurator = MixedPrecisionConfigurator(sim)
 for block in sim.model.blocks:
@@ -106,7 +108,7 @@ for block in sim.model.blocks:
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
     if args_parser.use_w4_seq_mse:
-        # block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
+        block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
         block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
@@ -131,7 +133,6 @@ dataset_args.eval_dataset_name = "wikitext"
 dataset_args.eval_dataset_config_name = "wikitext-103-raw-v1"
 dataset_args.eval_dataset_split = "test"
 dataset_args.eval_dataset_preprocessor = "gptq"
-dataset_args.num_calibration_batches = 20
 dataset_args.per_device_calib_batch_size = 1
 dataset_args.per_device_eval_batch_size = 1
 dataset_args.block_size = 1024
