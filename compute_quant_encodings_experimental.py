@@ -105,7 +105,7 @@ for block in sim.model.blocks:
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
     # block.ffn.key.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.key.weight.shape[0], 1), bitwidth=4, symmetric=True)
-    block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
+    # block.ffn.value.param_quantizers['weight'] = Q.affine.Quantize((block.ffn.value.weight.shape[0], 1), bitwidth=4, symmetric=True)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
@@ -113,31 +113,11 @@ for block in sim.model.blocks:
 mp_configurator.apply()
 sim.model = sim.model.cuda()
 
-# tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
-tokenizer = AutoTokenizer.from_pretrained("RWKV/rwkv-5-world-1b5", trust_remote_code=True)
+tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
 from datasets import load_from_disk, load_dataset, IterableDataset
 from torch.utils.data import DataLoader, Dataset
 from typing import Any, Optional
-
-def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
-    data_loader = forward_pass_args
-
-    num_batches = 6
-
-    model.eval()
-    with torch.no_grad():
-        for batch, input_data in tqdm(enumerate(data_loader)):
-            text = "\n\n".join(input_data['text'])
-            if len(text) == 0:
-                num_batches += 1
-                continue
-            state = get_dummy_state_kvcache(1, model_args, model.device)
-            input_data = torch.LongTensor([tokenizer.encode(text)]).to(model.device)
-            model(input_data, state)
-
-            if batch >= num_batches:
-                break
 
 dataset_args = types.SimpleNamespace()
 dataset_args.calib_dataset_name = "wikitext"
@@ -157,11 +137,10 @@ dataset_args.seed = 42
 
 dataset_builder = DatasetBuilder(dataset_args)
 dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
-
 def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     model.eval()
     with torch.no_grad():
-        state = get_dummy_state_kvcache(1, model_args, model.device)
+        state = get_dummy_state_kvcache(1, model.args, model.device)
         model(forward_pass_args['input_ids'].to(model.device), state)
 
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
@@ -172,7 +151,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
     model.eval()
     with torch.no_grad():
         for batch, input_data in tqdm(enumerate(data_loader)):
-            state = get_dummy_state_kvcache(1, model_args, model.device)
+            state = get_dummy_state_kvcache(1, model.args, model.device)
             model(input_data['input_ids'].to(model.device), state)
 
             if batch >= num_batches:
@@ -206,6 +185,8 @@ print(sim)
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
 
+sim.model = sim.model.float()
+model.args.fp16 = False
 sim.model.eval()
 
 if args_parser.lambada_test:
@@ -224,7 +205,7 @@ if args_parser.lambada_test:
             src_text = text.rsplit(' ', 1)[0]
             target_text = " " + text.rsplit(' ', 1)[1]
             targets = tokenizer.encode(target_text)
-            state = get_dummy_state_kvcache(1, model_args, model.device)
+            state = get_dummy_state_kvcache(1, model.args, model.device)
             input_data = torch.LongTensor([[0] + tokenizer.encode(src_text)]).to(model.device)
             logits_list = []
             logits, state = sim.model(input_data, state)
@@ -264,14 +245,13 @@ output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*
 input_names_prefill = ['in_prefill'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names_prefill = ['out_prefill'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
 
-model.args.fp16 = False
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cpu", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
 dummy_input_prefill = get_dummy_input_for_rwkv_causal_llm(1, 128, "cpu", model.args)
 dummy_input_prefill = (dummy_input_prefill['in0'], dummy_input_prefill['state'])
 
-filename = model_args.MODEL_NAME.split('/')[-1].replace('.pth', '')
+filename = model.args.MODEL_NAME.split('/')[-1].replace('.pth', '')
 prefill_filename = filename + '_prefill'
 output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
 
@@ -302,7 +282,7 @@ if True:
         if 'state' in key and 'out' in key:
             encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
 
-    for i in range(model_args.n_layer):
+    for i in range(model.args.n_layer):
         for j in range(4):
             for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
                 encodings['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
@@ -316,7 +296,7 @@ if True:
         if 'state' in k:
             encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
 
-    for i in range(model_args.n_layer):
+    for i in range(model.args.n_layer):
         for j in range(4):
             for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
                 encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
@@ -345,7 +325,7 @@ else:
                     n['offset'] = entry['offset']
                     n['scale'] = entry['scale']
                     encodings_prefill['activation_encodings'].append(n)
-    for i in range(model_args.n_layer):
+    for i in range(model.args.n_layer):
         for j in range(4):
             for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
                 encodings['activation_encodings'].append({

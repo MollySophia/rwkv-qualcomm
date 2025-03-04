@@ -37,8 +37,11 @@ def preprocess_split(dataset, tokenizer, block_size, column_name="text"):
 
     column_name = "text"
     def tokenize_fn(examples):
-        return tokenizer(examples[column_name], return_token_type_ids=False)
-    
+        # ret = tokenizer(examples[column_name], return_token_type_ids=False)
+        ret = {"input_ids": [tokenizer.encode(text) for text in examples[column_name]]}
+        ret["attention_mask"] = [[1] * len(input_ids) for input_ids in ret["input_ids"]]
+        return ret
+
     map_kwargs = { 
         "num_proc": None,
         "load_from_cache_file": True,
@@ -99,7 +102,8 @@ def get_column_name(dataset):
 
 def preprocess_gptq_split(dataset, tokenizer, block_size):
     column_name = get_column_name(dataset)
-    tokens = tokenizer("\n\n".join(dataset[column_name]), return_tensors="pt")
+    tokens = torch.LongTensor([tokenizer.encode("\n\n".join(dataset[column_name]))])
+    tokens = {"input_ids": tokens, "attention_mask": torch.ones_like(tokens)}
     dataset = CustomDataset(tokens, block_size)
     return dataset
 
