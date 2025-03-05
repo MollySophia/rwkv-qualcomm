@@ -245,6 +245,7 @@ if args_parser.lambada_test:
 
 # 4.336, 0.68 for 300 samples v7 1.5B fp32
 # 4.86, 0.65 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
+# 4.03, 0.676 for 300 samples v7 1.5B [ffn.key/value, att.output] a16w4 + others a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
 # (TODO) for 300 samples v7 1.5B a16w8 on actual hardware
 
 input_names = ['in'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
