@@ -105,7 +105,6 @@ torch.cuda.empty_cache()
 mp_configurator = MixedPrecisionConfigurator(sim)
 def set_linear_weight_quantizer_to_4bit(module):
     if module.param_quantizers['weight'] is not None:
-        module.param_quantizers['weight'].shape = (module.weight.shape[0], 1)
         module.param_quantizers['weight'].bitwidth = 4
         module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
@@ -121,6 +120,8 @@ for block in sim.model.blocks:
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
 mp_configurator.apply()
+
+print(sim)
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -154,7 +155,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 1
+    num_batches = 10
 
     model.eval()
     with torch.no_grad():
@@ -167,7 +168,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.use_w4_seq_mse:
     with torch.no_grad():
-        params = SeqMseParams(num_batches=1,
+        params = SeqMseParams(num_batches=20,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',
