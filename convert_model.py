@@ -1,5 +1,5 @@
 from rwkv_src.rwkv_model import RWKV_RNN, make_chunks
-from rwkv_src.rwkv_v7_modules import Wkv7, L2Norm
+from rwkv_src.rwkv_v7_modules_conv import Wkv7, L2Norm
 from utils.model_utils import register_customop_symbols, get_dummy_state_kvcache
 import types
 import os

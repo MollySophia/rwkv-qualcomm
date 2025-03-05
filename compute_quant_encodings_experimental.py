@@ -1,7 +1,7 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
 from transformers import AutoConfig, AutoTokenizer
-from rwkv_src.rwkv_v7_modules import Wkv7, L2Norm
+from rwkv_src.rwkv_v7_modules_conv import Wkv7, L2Norm
 import types
 import torch
 import torch.nn as nn
@@ -97,7 +97,7 @@ with torch.no_grad():
                             quant_scheme=QuantScheme.post_training_tf_enhanced,
                             default_param_bw=8,
                             default_output_bw=16,
-                            config_file="quantizers/configs/htp_quantsim_config_v75_per_channel.json",
+                            config_file="quantizers/configs/htp_quantsim_config_v75.json",
                             #    in_place=True,
     )
 torch.cuda.empty_cache()
@@ -154,7 +154,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 10
+    num_batches = 1
 
     model.eval()
     with torch.no_grad():
@@ -167,7 +167,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.use_w4_seq_mse:
     with torch.no_grad():
-        params = SeqMseParams(num_batches=20,
+        params = SeqMseParams(num_batches=1,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',

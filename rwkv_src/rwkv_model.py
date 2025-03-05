@@ -13,7 +13,7 @@ from tqdm import tqdm
 import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
-from rwkv_src.rwkv_v7_modules import Rwkv7SelfAttention, Rwkv7FeedForward
+from rwkv_src.rwkv_v7_modules_conv import Rwkv7SelfAttention, Rwkv7FeedForward
 
 def sample_logits(out, temperature=1.0, top_p=0.8, top_k=128):
     probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
@@ -146,8 +146,10 @@ class RWKV_RNN(torch.nn.Module):
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
-        self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
-        self.head.weight = nn.Parameter(w['head.weight'])
+        # self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
+        # self.head.weight = nn.Parameter(w['head.weight'])
+        self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
+        self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
 
         if self.args.fp16:
             self.half()
@@ -182,7 +184,7 @@ class RWKV_RNN(torch.nn.Module):
 
             if self.chunk_idx == self.chunks - 1:
                 x = self.ln_out(x)
-                x = self.head(x)
+                x = self.head(x.reshape(batch_size, -1, 1, self.args.n_embd).permute(0, 3, 2, 1)).permute(0, 3, 2, 1).reshape(batch_size, -1, self.args.vocab_size)
             else:
                 x = x.view(batch_size, seq_length, self.args.n_embd)
             if self.args.version == 7 and self.chunk_idx == 0 and self.layer_end < self.args.n_layer:
