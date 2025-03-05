@@ -103,17 +103,19 @@ with torch.no_grad():
 torch.cuda.empty_cache()
 
 mp_configurator = MixedPrecisionConfigurator(sim)
+def set_linear_weight_quantizer_to_4bit(module):
+    if module.param_quantizers['weight'] is not None:
+        module.param_quantizers['weight'].shape = (module.weight.shape[0], 1)
+        module.param_quantizers['weight'].bitwidth = 4
+        module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
     if args_parser.use_w4_seq_mse:
-        block.ffn.key.param_quantizers['weight'].shape = (block.ffn.key.weight.shape[0], 1)
-        block.ffn.key.param_quantizers['weight'].bitwidth = 4
-        block.ffn.key.param_quantizers['weight'].symmetric = True
-        block.ffn.value.param_quantizers['weight'].shape = (block.ffn.value.weight.shape[0], 1)
-        block.ffn.value.param_quantizers['weight'].bitwidth = 4
-        block.ffn.value.param_quantizers['weight'].symmetric = True
+        set_linear_weight_quantizer_to_4bit(block.ffn.key)
+        set_linear_weight_quantizer_to_4bit(block.ffn.value)
+        set_linear_weight_quantizer_to_4bit(block.att.output)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
