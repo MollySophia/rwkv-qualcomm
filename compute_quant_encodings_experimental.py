@@ -43,7 +43,7 @@ from aimet_torch.quantsim import QuantizationSimModel
 from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
 from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, QuantizeDequantize
 from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
-from aimet_torch.v2.nn import QuantizationMixin
+from aimet_torch.v2.nn import QuantizationMixin, BaseQuantizationMixin
 from aimet_torch.v2 import quantization as Q
 
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
@@ -91,14 +91,16 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cuda", model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
-model = model.eval()
-sim = QuantizationSimModel(model, dummy_input=dummy_input,
-                           quant_scheme=QuantScheme.post_training_tf_enhanced,
-                           default_param_bw=8,
-                           default_output_bw=16,
-                           config_file="quantizers/configs/htp_quantsim_config_v75_per_channel.json",
-                           in_place=True,
-)
+model.eval()
+with torch.no_grad():
+    sim = QuantizationSimModel(model, dummy_input=dummy_input,
+                            quant_scheme=QuantScheme.post_training_tf_enhanced,
+                            default_param_bw=8,
+                            default_output_bw=16,
+                            config_file="quantizers/configs/htp_quantsim_config_v75_per_channel.json",
+                            #    in_place=True,
+    )
+torch.cuda.empty_cache()
 
 mp_configurator = MixedPrecisionConfigurator(sim)
 for block in sim.model.blocks:
@@ -114,10 +116,9 @@ for block in sim.model.blocks:
         block.ffn.value.param_quantizers['weight'].symmetric = True
 
     # somehow it doesn't want to quantize ffn.key Linear by default
-    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False)
+    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
 mp_configurator.apply()
-sim.model = sim.model.cuda()
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -163,14 +164,16 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
                 break
 
 if args_parser.use_w4_seq_mse:
-    params = SeqMseParams(num_batches=20,
-                        num_candidates=20,
-                        inp_symmetry='symqt',
-                        loss_fn='mse',
-                        forward_fn=pass_calibration_data_seq_mse)
+    with torch.no_grad():
+        params = SeqMseParams(num_batches=20,
+                            num_candidates=20,
+                            inp_symmetry='symqt',
+                            loss_fn='mse',
+                            forward_fn=pass_calibration_data_seq_mse)
 
-    apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
+        apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
 
+model = model.to('cpu').float()
 torch.cuda.empty_cache()
 
 # NOTE: looks unusable with QNN yet
@@ -185,7 +188,6 @@ torch.cuda.empty_cache()
 #         sim, [block.ffn.value], bitwidth=4, symmetric=True, decompressed_bw=8, block_size=128, block_grouping=-1
 #     )
 
-print(sim)
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
 
@@ -264,14 +266,36 @@ if False:
     # for exporting Qualcomm's LPBQ parameters
     quantsim.encoding_version = '1.0.0'
 
-sim.model = sim.model.to('cpu').float()
+sim.model.to('cpu')
+for module in sim.model.modules():
+    module.to('cpu')
+
+for q in sim.qmodules():
+    for _, item in q.param_quantizers.items():
+        if item is not None:
+            item.min.to('cpu')
+            item.max.to('cpu')
+
 torch.cuda.empty_cache()
 
 # why the fuck is it sticking to CUDA
 print(sim.model.device)
 os.path.exists(output_path) or os.makedirs(output_path)
-sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
-sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
+# sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
+# sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
+
+sim.export_onnx_model_and_encodings(output_path, filename, model, sim.model,
+                                    dummy_input, {'input_names': input_names, 'output_names': output_names}, False,
+                                    sim._module_marker_map, sim._is_conditional,
+                                    sim._excluded_layer_names, quantizer_args=sim.quant_args,
+                                    export_model=True,
+                                    filename_prefix_encodings=filename)
+sim.export_onnx_model_and_encodings(output_path, prefill_filename, model, sim.model,
+                                    dummy_input_prefill, {'input_names': input_names, 'output_names': output_names}, False,
+                                    sim._module_marker_map, sim._is_conditional,
+                                    sim._excluded_layer_names, quantizer_args=sim.quant_args,
+                                    export_model=True,
+                                    filename_prefix_encodings=prefill_filename)
 
 # set corresponding state_in/out to the same parameters if quantized
 import json
