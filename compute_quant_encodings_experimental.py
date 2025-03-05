@@ -111,9 +111,18 @@ def set_linear_weight_quantizer_to_4bit(module):
         module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
     for name, module in block.att.named_modules():
-        if isinstance(module, Concat) or isinstance(module, Permute) or isinstance(module, Reshape):
-            module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+        try:
+            if "permute" in name or "reshape" in name or "concat" in name or "split" in name or "transpose" in name:
+                module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+        except:
+            pass
 
+    for name, module in block.ffn.named_modules():
+        try:
+            if "permute" in name or "reshape" in name or "concat" in name or "split" in name or "transpose" in name:
+                module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+        except:
+            pass
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
