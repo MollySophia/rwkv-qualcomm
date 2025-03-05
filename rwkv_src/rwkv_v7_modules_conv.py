@@ -254,6 +254,17 @@ class Rwkv7SelfAttention(nn.Module):
         self.transpose_x = Permute()
         self.reshape_sx = Reshape()
         self.transpose_sx = Permute()
+
+        self.reshape_r = Reshape()
+        self.reshape_w = Reshape()
+        self.reshape_k = Reshape()
+        self.reshape_v = Reshape()
+        self.reshape_a = Reshape()
+        self.permute_r = Permute()
+        self.permute_w = Permute()
+        self.permute_k = Permute()
+        self.permute_v = Permute()
+        self.permute_a = Permute()
     
     def forward(self, x, state1, state2, v_first):
         last_x = x

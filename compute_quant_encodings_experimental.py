@@ -45,6 +45,8 @@ from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, Quan
 from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
 from aimet_torch.v2.nn import QuantizationMixin, BaseQuantizationMixin
 from aimet_torch.v2 import quantization as Q
+from aimet_torch.v2.experimental import propagate_output_encodings
+from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape
 
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
@@ -108,6 +110,10 @@ def set_linear_weight_quantizer_to_4bit(module):
         module.param_quantizers['weight'].bitwidth = 4
         module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
+    for name, module in block.att.named_modules():
+        if isinstance(module, Concat) or isinstance(module, Permute) or isinstance(module, Reshape):
+            module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
 
@@ -119,6 +125,10 @@ for block in sim.model.blocks:
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
+sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 mp_configurator.apply()
 
 print(sim)
@@ -155,7 +165,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 10
+    num_batches = 1
 
     model.eval()
     with torch.no_grad():
@@ -168,7 +178,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.use_w4_seq_mse:
     with torch.no_grad():
-        params = SeqMseParams(num_batches=20,
+        params = SeqMseParams(num_batches=1,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',
@@ -193,6 +203,11 @@ torch.cuda.empty_cache()
 
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
+
+def condition(module: torch.nn.Module) -> bool:
+    return module.output_quantizers[0] is not None and any([isinstance(module, Concat), isinstance(module, Permute), isinstance(module, Reshape)])
+
+propagate_output_encodings(sim, condition)
 
 sim.model.float()
 model.args.fp16 = False
