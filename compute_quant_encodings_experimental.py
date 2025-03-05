@@ -121,6 +121,9 @@ for block in sim.model.blocks:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
         set_linear_weight_quantizer_to_4bit(block.ffn.value)
         set_linear_weight_quantizer_to_4bit(block.att.output)
+        set_linear_weight_quantizer_to_4bit(block.att.key)
+        set_linear_weight_quantizer_to_4bit(block.att.value)
+        set_linear_weight_quantizer_to_4bit(block.att.receptance)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
