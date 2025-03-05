@@ -165,7 +165,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 1
+    num_batches = 20
 
     model.eval()
     with torch.no_grad():
@@ -178,7 +178,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.use_w4_seq_mse:
     with torch.no_grad():
-        params = SeqMseParams(num_batches=1,
+        params = SeqMseParams(num_batches=20,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',
