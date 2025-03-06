@@ -144,12 +144,12 @@ class Rwkv7SelfAttention(nn.Module):
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
         self.D_GATE_LORA = state_dict[prefix + 'g1'].shape[-1]
 
-        self.x_r = nn.Parameter(state_dict[prefix + 'x_r'].reshape(1, -1, 1, 1))
-        self.x_w = nn.Parameter(state_dict[prefix + 'x_w'].reshape(1, -1, 1, 1))
-        self.x_k = nn.Parameter(state_dict[prefix + 'x_k'].reshape(1, -1, 1, 1))
-        self.x_v = nn.Parameter(state_dict[prefix + 'x_v'].reshape(1, -1, 1, 1))
-        self.x_a = nn.Parameter(state_dict[prefix + 'x_a'].reshape(1, -1, 1, 1))
-        self.x_g = nn.Parameter(state_dict[prefix + 'x_g'].reshape(1, -1, 1, 1))
+        self.x_r = nn.Parameter(state_dict[prefix + 'x_r'])
+        self.x_w = nn.Parameter(state_dict[prefix + 'x_w'])
+        self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
+        self.x_v = nn.Parameter(state_dict[prefix + 'x_v'])
+        self.x_a = nn.Parameter(state_dict[prefix + 'x_a'])
+        self.x_g = nn.Parameter(state_dict[prefix + 'x_g'])
 
         self.receptance = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
         self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'].view(hidden_size, hidden_size, 1, 1))
@@ -250,32 +250,39 @@ class Rwkv7SelfAttention(nn.Module):
         self.state_reshape = Reshape()
         self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv, split_wkv=self.split_wkv)
 
-        self.reshape_x = Reshape()
-        self.transpose_x = Permute()
-        self.reshape_sx = Reshape()
-        self.transpose_sx = Permute()
+        self.pre_reshape_r = Reshape()
+        self.pre_reshape_w = Reshape()
+        self.pre_reshape_k = Reshape()
+        self.pre_reshape_v = Reshape()
+        self.pre_reshape_a = Reshape()
+        self.pre_reshape_g = Reshape()
+        self.pre_permute_r = Permute()
+        self.pre_permute_w = Permute()
+        self.pre_permute_k = Permute()
+        self.pre_permute_v = Permute()
+        self.pre_permute_a = Permute()
+        self.pre_permute_g = Permute()
 
-        self.reshape_r = Reshape()
-        self.reshape_w = Reshape()
-        self.reshape_k = Reshape()
-        self.reshape_v = Reshape()
-        self.reshape_a = Reshape()
-        self.reshape_g = Reshape()
-        self.reshape_v1 = Reshape()
-        self.permute_r = Permute()
-        self.permute_w = Permute()
-        self.permute_k = Permute()
-        self.permute_v = Permute()
-        self.permute_a = Permute()
-        self.permute_g = Permute()
-        self.permute_v1 = Permute()
+        self.post_reshape_r = Reshape()
+        self.post_reshape_w = Reshape()
+        self.post_reshape_k = Reshape()
+        self.post_reshape_v = Reshape()
+        self.post_reshape_a = Reshape()
+        self.post_reshape_g = Reshape()
+        self.post_reshape_v1 = Reshape()
+        self.post_permute_r = Permute()
+        self.post_permute_w = Permute()
+        self.post_permute_k = Permute()
+        self.post_permute_v = Permute()
+        self.post_permute_a = Permute()
+        self.post_permute_g = Permute()
+        self.post_permute_v1 = Permute()
 
         self.pre_output_reshape = Reshape()
         self.pre_output_transpose = Permute()
         self.post_output_transpose = Permute()
         self.post_output_reshape = Reshape()
 
-    
     def forward(self, x, state1, state2, v_first):
         last_x = x
         x = self.ln_1(x)
@@ -290,15 +297,6 @@ class Rwkv7SelfAttention(nn.Module):
             past = self.concat_shift(self.state_reshape(state1, [1, 1, -1]), past)
             sx = self.sub_shifted(past, x)
 
-        if seq_length == 1:
-            x = self.reshape_x(x, [batch_size, self.hidden_size, 1, 1])
-            sx = self.reshape_sx(sx, [batch_size, self.hidden_size, 1, 1])
-        else:
-            x = self.reshape_x(x, [batch_size, -1, 1, self.hidden_size])
-            x = self.transpose_x(x, [0, 3, 2, 1])
-            sx = self.reshape_sx(sx, [batch_size, -1, 1, self.hidden_size])
-            sx = self.transpose_sx(sx, [0, 3, 2, 1])
-
         xr = self.lerp_add_r(x, self.lerp_mul_r(sx, self.x_r))
         xw = self.lerp_add_w(x, self.lerp_mul_w(sx, self.x_w))
         xk = self.lerp_add_k(x, self.lerp_mul_k(sx, self.x_k))
@@ -306,24 +304,41 @@ class Rwkv7SelfAttention(nn.Module):
         xa = self.lerp_add_a(x, self.lerp_mul_a(sx, self.x_a))
         xg = self.lerp_add_g(x, self.lerp_mul_g(sx, self.x_g))
 
-        if seq_length != 1:
-            receptance = self.reshape_r(self.permute_r(self.receptance(xr), [0, 3, 2, 1]), [seq_length, self.num_heads, self.head_size])
-            key = self.reshape_k(self.permute_k(self.key(xk), [0, 3, 2, 1]), [seq_length, self.num_heads, self.head_size])
-            value = self.reshape_v(self.permute_v(self.value(xv), [0, 3, 2, 1]), [seq_length, self.num_heads, self.head_size])
-            
-            gate = self.reshape_g(self.permute_g(self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg))), [0, 3, 2, 1]), [batch_size, seq_length, self.hidden_size])
-            a = self.reshape_a(self.permute_a(self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa))), [0, 3, 2, 1]), [seq_length, self.num_heads, self.head_size])
-            # time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw))).view(seq_length, self.num_heads, self.head_size)
-            time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
-            time_decay = self.permute_w(self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay))), [0, 3, 2, 1])
-        else:
-            receptance = self.reshape_r(self.receptance(xr), [seq_length, self.num_heads, self.head_size])
-            key = self.reshape_k(self.key(xk), [seq_length, self.num_heads, self.head_size])
-            value = self.reshape_v(self.value(xv), [seq_length, self.num_heads, self.head_size])
-            gate = self.reshape_g(self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg))), [batch_size, seq_length, self.hidden_size])
-            a = self.reshape_a(self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa))), [seq_length, self.num_heads, self.head_size])
-            time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
-            time_decay = self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay)))
+        xr = self.pre_reshape_r(xr, [batch_size, seq_length, 1, self.hidden_size])
+        xw = self.pre_reshape_w(xw, [batch_size, seq_length, 1, self.hidden_size])
+        xk = self.pre_reshape_k(xk, [batch_size, seq_length, 1, self.hidden_size])
+        xv = self.pre_reshape_v(xv, [batch_size, seq_length, 1, self.hidden_size])
+        xa = self.pre_reshape_a(xa, [batch_size, seq_length, 1, self.hidden_size])
+        xg = self.pre_reshape_g(xg, [batch_size, seq_length, 1, self.hidden_size])
+
+        xr = self.pre_permute_r(xr, [0, 3, 2, 1])
+        xw = self.pre_permute_w(xw, [0, 3, 2, 1])
+        xk = self.pre_permute_k(xk, [0, 3, 2, 1])
+        xv_premute = self.pre_permute_v(xv, [0, 3, 2, 1])
+        xa = self.pre_permute_a(xa, [0, 3, 2, 1])
+        xg = self.pre_permute_g(xg, [0, 3, 2, 1])
+
+        receptance = self.receptance(xr)
+        key = self.key(xk)
+        value = self.value(xv_premute)
+        gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
+        a = self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa)))
+        time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
+
+        receptance = self.post_permute_r(receptance, [0, 3, 2, 1])
+        key = self.post_permute_k(key, [0, 3, 2, 1])
+        value = self.post_permute_v(value, [0, 3, 2, 1])
+        gate = self.post_permute_g(gate, [0, 3, 2, 1])
+        a = self.post_permute_a(a, [0, 3, 2, 1])
+        time_decay = self.post_permute_w(time_decay, [0, 3, 2, 1])
+
+        receptance = self.post_reshape_r(receptance, [seq_length, self.num_heads, self.head_size])
+        key = self.post_reshape_k(key, [seq_length, self.num_heads, self.head_size])
+        value = self.post_reshape_v(value, [seq_length, self.num_heads, self.head_size])
+        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.hidden_size])
+        a = self.post_reshape_a(a, [seq_length, self.num_heads, self.head_size])
+        time_decay = self.post_reshape_w(time_decay, [seq_length, self.num_heads, self.head_size])
+        time_decay = self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay)))
 
         kk = self.mix_kk(key, self.k_k)
         kk = self.l2norm(kk)
@@ -332,10 +347,9 @@ class Rwkv7SelfAttention(nn.Module):
         if self.layer_id == 0:
             v_first = value
         else:
-            if seq_length != 1:
-                tmp = self.reshape_v1(self.permute_v1(self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv))), [0, 3, 2, 1]), [seq_length, self.num_heads, self.head_size])
-            else:
-                tmp = self.reshape_v1(self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv))), [seq_length, self.num_heads, self.head_size])
+            tmp = self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv_premute)))
+            tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
+            tmp = self.post_reshape_v1(tmp, [seq_length, self.num_heads, self.head_size])
             value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
 
         b = self.get_b(kk, a)
@@ -350,14 +364,11 @@ class Rwkv7SelfAttention(nn.Module):
         rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value).view(seq_length, self.hidden_size)
         x = self.add_x_residual(x , rkv)
         x = self.mul_gate(x, gate)
-        if seq_length == 1:
-            x = self.pre_output_reshape(x, [batch_size, self.hidden_size, 1, 1])
-        else:
-            x = self.pre_output_reshape(x, [batch_size, seq_length, 1, self.hidden_size])
-            x = self.pre_output_transpose(x, [0, 3, 2, 1])
+
+        x = self.pre_output_reshape(x, [batch_size, seq_length, 1, self.hidden_size])
+        x = self.pre_output_transpose(x, [0, 3, 2, 1])
         x = self.output(x)
-        if seq_length != 1:
-            x = self.post_output_transpose(x, [0, 3, 2, 1])
+        x = self.post_output_transpose(x, [0, 3, 2, 1])
         x = self.post_output_reshape(x, [batch_size, seq_length, self.hidden_size])
 
         if self.layer_id == 0:
@@ -440,16 +451,11 @@ class Rwkv7FeedForward(nn.Module):
 
         xk = self.add_x_k(x, self.mul_x_k(sx, self.x_k))
 
-        if seq_length == 1 or (self.output_last and self.layer_id == self.layer_total - 1):
-            xk = self.pre_conv_reshape(xk, [batch_size, self.hidden_size, 1, 1])
-        else:
-            xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
-            xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
-
+        xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
+        xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
         key = self.pow(self.relu(self.key(xk)), 2)
         value = self.value(key)
-        if seq_length != 1:
-            value = self.post_conv_transpose(value, [0, 3, 2, 1])
+        value = self.post_conv_transpose(value, [0, 3, 2, 1])
         value = self.post_conv_reshape(value, [batch_size, -1, self.hidden_size])
 
         return self.add_feed_forward(value, last_x), state_out
