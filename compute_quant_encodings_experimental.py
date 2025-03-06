@@ -117,7 +117,6 @@ for block in sim.model.blocks:
     block.att.permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.att.permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.att.permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
