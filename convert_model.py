@@ -143,7 +143,7 @@ if type(model) == list:
         os.path.exists(dirname) or os.mkdir(dirname)
 
         states_layout = "NONTRIVIAL"
-        converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_path} --float_bitwidth {parser_args.qnn_float_width} "
+        converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_path} --float_bitwidth {parser_args.qnn_float_width} --act_bitwidth 16 "
         converter_cmd += " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         if args.version == 7:
             converter_cmd += f' --input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
@@ -194,7 +194,7 @@ else:
 
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
-    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_output_path} --float_bitwidth {parser_args.qnn_float_width} " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
+    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-onnx-converter -i {onnx_output_path} --float_bitwidth {parser_args.qnn_float_width} --act_bitwidth 16 " + " ".join([f'--input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
 
     if parser_args.quant_encodings:
         converter_cmd += f" --quantization_overrides {str(parser_args.quant_encodings)} --float_fallback"
