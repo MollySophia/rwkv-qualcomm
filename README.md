@@ -119,6 +119,6 @@ Average tokens per second: 42.4368
 - [x] Add demo code for running inference on the device.
 - [x] Add support for A16W8 quantized inference.
 - [x] Add support for A16W4 quantized inference with AIMET quantization.
+- [x] Sequential prefilling on device.
 - [ ] Add document for running on Snapdragon X Elite laptops.
-- [ ] Sequential prefilling on device.
 - [ ] Package a library for easy use and integration.
