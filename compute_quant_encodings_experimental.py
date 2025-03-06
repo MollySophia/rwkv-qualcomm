@@ -269,7 +269,9 @@ if args_parser.lambada_test:
 
     print(math.exp(-xsum/xcnt))
     print(xacc/xcnt)
-    quit()
+    with open("lambada_results.txt", "w") as f:
+        f.write(f"{math.exp(-xsum/xcnt)}\n")
+        f.write(f"{xacc/xcnt}\n")
 
 # 12.279, 0.52 for 300 samples v7 0.1B fp32
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
