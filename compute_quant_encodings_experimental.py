@@ -110,19 +110,17 @@ def set_linear_weight_quantizer_to_4bit(module):
         module.param_quantizers['weight'].bitwidth = 4
         module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
-    for name, module in block.att.named_modules():
-        try:
-            if "permute" in name or "reshape" in name or "concat" in name or "split" in name or "transpose" in name:
-                module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-        except:
-            pass
+    block.att.transpose_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.transpose_sx.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.permute_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
-    for name, module in block.ffn.named_modules():
-        try:
-            if "permute" in name or "reshape" in name or "concat" in name or "split" in name or "transpose" in name:
-                module.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-        except:
-            pass
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.split_state.output_quantizers[0] = None
     block.att.wkv7.concat_state.input_quantizers[0] = None
@@ -220,11 +218,6 @@ torch.cuda.empty_cache()
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
 
-def condition(module: torch.nn.Module) -> bool:
-    return module.output_quantizers[0] is not None and any([isinstance(module, Concat), isinstance(module, Permute), isinstance(module, Reshape)])
-
-propagate_output_encodings(sim, condition)
-
 sim.model.float()
 model.args.fp16 = False
 sim.model.eval()
@@ -271,6 +264,7 @@ if args_parser.lambada_test:
 
     print(math.exp(-xsum/xcnt))
     print(xacc/xcnt)
+    quit()
 
 # 12.279, 0.52 for 300 samples v7 0.1B fp32
 # 7.142, 0.593 for 300 samples v7 0.4B fp32
