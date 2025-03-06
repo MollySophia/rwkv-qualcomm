@@ -290,10 +290,14 @@ class Rwkv7SelfAttention(nn.Module):
             past = self.concat_shift(self.state_reshape(state1, [1, 1, -1]), past)
             sx = self.sub_shifted(past, x)
 
-        x = self.reshape_x(x, [batch_size, -1, 1, self.hidden_size])
-        x = self.transpose_x(x, [0, 3, 2, 1])
-        sx = self.reshape_sx(sx, [batch_size, -1, 1, self.hidden_size])
-        sx = self.transpose_sx(sx, [0, 3, 2, 1])
+        if seq_length == 1:
+            x = self.reshape_x(x, [batch_size, self.hidden_size, 1, 1])
+            sx = self.reshape_sx(sx, [batch_size, self.hidden_size, 1, 1])
+        else:
+            x = self.reshape_x(x, [batch_size, -1, 1, self.hidden_size])
+            x = self.transpose_x(x, [0, 3, 2, 1])
+            sx = self.reshape_sx(sx, [batch_size, -1, 1, self.hidden_size])
+            sx = self.transpose_sx(sx, [0, 3, 2, 1])
 
         xr = self.lerp_add_r(x, self.lerp_mul_r(sx, self.x_r))
         xw = self.lerp_add_w(x, self.lerp_mul_w(sx, self.x_w))
@@ -346,10 +350,14 @@ class Rwkv7SelfAttention(nn.Module):
         rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value).view(seq_length, self.hidden_size)
         x = self.add_x_residual(x , rkv)
         x = self.mul_gate(x, gate)
-        x = self.pre_output_reshape(x, [batch_size, seq_length, 1, self.hidden_size])
-        x = self.pre_output_transpose(x, [0, 3, 2, 1])
+        if seq_length == 1:
+            x = self.pre_output_reshape(x, [batch_size, self.hidden_size, 1, 1])
+        else:
+            x = self.pre_output_reshape(x, [batch_size, seq_length, 1, self.hidden_size])
+            x = self.pre_output_transpose(x, [0, 3, 2, 1])
         x = self.output(x)
-        x = self.post_output_transpose(x, [0, 3, 2, 1])
+        if seq_length != 1:
+            x = self.post_output_transpose(x, [0, 3, 2, 1])
         x = self.post_output_reshape(x, [batch_size, seq_length, self.hidden_size])
 
         if self.layer_id == 0:
@@ -432,12 +440,16 @@ class Rwkv7FeedForward(nn.Module):
 
         xk = self.add_x_k(x, self.mul_x_k(sx, self.x_k))
 
-        xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
-        xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
+        if seq_length == 1 or (self.output_last and self.layer_id == self.layer_total - 1):
+            xk = self.pre_conv_reshape(xk, [batch_size, self.hidden_size, 1, 1])
+        else:
+            xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
+            xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
 
         key = self.pow(self.relu(self.key(xk)), 2)
         value = self.value(key)
-        value = self.post_conv_transpose(value, [0, 3, 2, 1])
+        if seq_length != 1:
+            value = self.post_conv_transpose(value, [0, 3, 2, 1])
         value = self.post_conv_reshape(value, [batch_size, -1, self.hidden_size])
 
         return self.add_feed_forward(value, last_x), state_out
