@@ -124,7 +124,11 @@ for block in sim.model.blocks:
         except:
             pass
     block.att.wkv7.split_state.input_quantizers[0] = None
+    block.att.wkv7.split_state.output_quantizers[0] = None
+    block.att.wkv7.concat_state.input_quantizers[0] = None
     block.att.wkv7.concat_state.output_quantizers[0] = None
+    block.att.wkv7.concat_x.input_quantizers[0] = None
+    block.att.wkv7.concat_x.output_quantizers[0] = None
 
     if args_parser.use_w4_seq_mse:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
