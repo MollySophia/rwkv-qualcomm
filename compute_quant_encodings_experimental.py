@@ -110,13 +110,19 @@ def set_linear_weight_quantizer_to_4bit(module):
         module.param_quantizers['weight'].bitwidth = 4
         module.param_quantizers['weight'].symmetric = True
 for block in sim.model.blocks:
-    block.att.transpose_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.transpose_sx.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.pre_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.pre_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.pre_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.pre_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.post_permute_v1.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
     block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
 
