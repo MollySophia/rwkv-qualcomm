@@ -28,10 +28,13 @@
 - The quantization encodings file will be in `v7_1b5_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096.encodings` and `v7_1b5_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096_prefill.encodings`
 - Convert the model file: `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --quant_encodings v7_1b5_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
 - Convert the model file (prefill model with sequence length=128): `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --prefill_model --quant_encodings v7_1b5_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096_prefill.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices older than 8Gen3(SM8650)**)
-- The act_bitwidth and weights_bitwidth default to 16 and 8 respectively.
 
 ### Converting an A16W4 model
-**TODO**
+- Modify `compute_quant_encodings_experimental.py` to use suitable calibration dataset for your specific usecase.
+- `python compute_quant_encodings_experimental.py ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth --output_folder v7_1b5_w4_quant --use_w4_seq_mse` To compute the quantization encodings for A16W4 quantization.
+- The quantization encodings file will be in v7_1b5_w4_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096.encodings and v7_1b5_w4_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096_prefill.encodings
+- Convert the model file: `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --quant_encodings v7_1b5_w4_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices other than 8Gen3(SM8650)**)
+- Convert the model file (prefill model with sequence length=128): `python convert_model.py --chunks 1 --qnn_float_width 16 --wkv_customop --prefill_model --quant_encodings v7_1b5_w4_quant/RWKV-x070-World-1.5B-v3-20250127-ctx4096_prefill.encodings ../models/RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth` (**Note: please remove `--qnn_float_width 16` for devices older than 8Gen3(SM8650)**)
 
 ### 2. Generate HTP context cache
 - `make_context_cache_binary.py`: usage: usage: make_context_cache_binary.py [-h] [--use_optrace] [--wkv_customop] [--output_name OUTPUT_NAME] [--prefill]
