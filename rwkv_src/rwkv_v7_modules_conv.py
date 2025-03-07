@@ -459,8 +459,8 @@ class Rwkv7FeedForward(nn.Module):
         xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
         xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
         key = self.key(xk)
-        value = self.post_conv_transpose2(key, [0, 3, 2, 1])
-        value = self.post_conv_reshape2(value, [batch_size, -1, self.intermediate_size])
+        key = self.post_conv_transpose2(key, [0, 3, 2, 1])
+        key = self.post_conv_reshape2(value, [batch_size, -1, self.intermediate_size])
 
         key = self.pow(self.relu(key), 2)
 
