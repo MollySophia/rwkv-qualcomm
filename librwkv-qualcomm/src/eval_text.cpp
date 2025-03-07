@@ -102,6 +102,7 @@ int main(int argc, char **argv) {
     for (const auto &text : eval_text) {
         std::cout << "Sample num: " << xcnt << std::endl;
         auto prompt_ids = tokenizer.Encode(text.substr(0, text.find_last_of(' ')));
+        prompt_ids.insert(prompt_ids.begin(), 0);
         auto target_ids = tokenizer.Encode(text.substr(text.find_last_of(' ')));
         std::cout << "Prompt: " << text.substr(0, text.find_last_of(' ')) << std::endl;
         std::cout << "Target: " << text.substr(text.find_last_of(' ')) << std::endl;
@@ -110,11 +111,9 @@ int main(int argc, char **argv) {
 
         bool correct = true;
         float logits_val = 0;
-        for (auto token_id : prompt_ids) {
-            if (QnnRwkvExecute(backend, token_id) != StatusCode::SUCCESS) {
-                std::cerr << "QnnRwkvExecute failed" << std::endl;
-                return EXIT_FAILURE;
-            }
+        if (QnnRwkvExecuteSequence(backend, prompt_ids) != StatusCode::SUCCESS) {
+            std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
+            return EXIT_FAILURE;
         }
 
         QnnRwkvCopyLogitsOutput(backend, output.data(), output.size());

@@ -65,7 +65,9 @@ $ # Specify the path to the first model chunk. The second chunk will be loaded a
 $ ./rwkv-qualcomm-demo brwkv_vocab_v20230424.txt RWKV-x070-World-1.5B-v3-20250127-ctx4096_combined.bin
 ```
 #### 3.2. Running on Qualcomm Snapdragon X Elite laptops
-- *TODO*
+- Tutorial: *TODO*
+
+![Snapdragon X Elite NPU](./docs/xelite_npu_rwkv.png)
 
 #### Example output:
 ``RWKV v6 1B6 A16W4``
@@ -101,13 +103,19 @@ Average tokens per second: 42.4368
 ```Running on the Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
 | --- | --- | --- | --- |
+| RWKV v7 1.5B | a16w4 (+some a16w8 parts in att) | 62.5095 | 3.96785,67.7858% |
+
+- Huge improvements in both speed and accuracy compared to the previous generation.
+
+```Old data below:```
+| Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
+| --- | --- | --- | --- |
 | RWKV v6 1.6B | att-a16w8 + ffn-a16w4 | 42.4368 | 5.09183,65.4182% |
 | RWKV v6 1.6B | a16w8 | 31.6564| 4.75009,66.3497% |
 | RWKV v6 1.6B | fp16 | 15.0434| 4.63598,67.2618% |
 | RWKV v6 3B   | att-a16w8 + ffn-a16w4 | 21.3172 | 4.46606,68.8725% |
 | RWKV v6 3B   | a16w8 | 16.2146 | 3.9039,71.3647% |
 
-(Currently QNN's INT4 quantization is the naive linear per-channel quantization, together with the INT16 activation quantization, the perplexity gets a bit worse than the INT8 models. LAMBADA test accuracy seems lower but still acceptable.)
 
 ```(Experimental) Running with custom WKV kernel```
 | Model | Precision | Generation Tokens per second | LAMBADA ppl, acc |
@@ -120,5 +128,6 @@ Average tokens per second: 42.4368
 - [x] Add support for A16W8 quantized inference.
 - [x] Add support for A16W4 quantized inference with AIMET quantization.
 - [x] Sequential prefilling on device.
+- [ ] Sequential prefilling performance improvements.
 - [ ] Add document for running on Snapdragon X Elite laptops.
 - [ ] Package a library for easy use and integration.
