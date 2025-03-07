@@ -382,6 +382,7 @@ class Rwkv7FeedForward(nn.Module):
         prefix = f'blocks.{layer_id}.ffn.'
         self.layer_id = layer_id
         self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
         self.layer_total = layer_total
         self.output_last = output_last
         self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
@@ -412,14 +413,18 @@ class Rwkv7FeedForward(nn.Module):
         self.state_reshape = Reshape()
         self.layer_total = layer_total
 
-        self.pre_conv_reshape = Reshape()
-        self.pre_conv_transpose = Permute()
         self.key = nn.Conv2d(hidden_size, intermediate_size, 1, bias=False)
         self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(intermediate_size, hidden_size, 1, 1))
         self.value = nn.Conv2d(intermediate_size, hidden_size, 1, bias=False)
         self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, intermediate_size, 1, 1))
+        self.pre_conv_reshape = Reshape()
+        self.pre_conv_transpose = Permute()
         self.post_conv_transpose = Permute()
         self.post_conv_reshape = Reshape()
+        self.pre_conv_reshape2 = Reshape()
+        self.pre_conv_transpose2 = Permute()
+        self.post_conv_transpose2 = Permute()
+        self.post_conv_reshape2 = Reshape()
 
     def forward(self, x, state):
         batch_size, seq_length, _ = x.size()
@@ -453,7 +458,14 @@ class Rwkv7FeedForward(nn.Module):
 
         xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
         xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
-        key = self.pow(self.relu(self.key(xk)), 2)
+        key = self.key(xk)
+        value = self.post_conv_transpose2(key, [0, 3, 2, 1])
+        value = self.post_conv_reshape2(key, [batch_size, -1, self.intermediate_size])
+
+        key = self.pow(self.relu(key), 2)
+
+        key = self.pre_conv_reshape2(key, [batch_size, -1, 1, self.intermediate_size])
+        key = self.pre_conv_transpose2(key, [0, 3, 2, 1])
         value = self.value(key)
         value = self.post_conv_transpose(value, [0, 3, 2, 1])
         value = self.post_conv_reshape(value, [batch_size, -1, self.hidden_size])
