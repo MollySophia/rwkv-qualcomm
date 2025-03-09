@@ -48,9 +48,11 @@ $ python make_context_cache_binary.py --prefill --wkv_customop lib/x86_64-linux-
 
 ### 3. Run inference on the device
 #### 3.1. Running on Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
+- Build wkv7 custom op package: ``./build_hexagon_wkv_kernel.sh``
 - Build the demo code: ``make -C librwkv-qualcomm``
 - Push the binary and the HTP context cache to the device: ``adb push librwkv-qualcomm/obj/local/arm64-v8a/rwkv-qualcomm-demo /data/local/tmp/ && adb push output/RWKV-x070-World-1.5B-v3-20250127-ctx4096_combined.bin /data/local/tmp/``
 - Push the tokenizer model to the device: ``adb push assets/b_rwkv_vocab_v20230424.txt /data/local/tmp/``
+- Push the wkv7 custom op package to the device: ``adb push hexagon/HTP/RwkvWkvOpPackage/build/hexagon-v75/libQnnRwkvWkvOpPackage.so /data/local/tmp/``
 - Push these QNN libs to the device `/data/local/tmp/` (Please change the HTP V75 version to the one you have):
 ```/opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtp.so
 /opt/qcom/aistack/qairt/2.31.0.250130/lib/aarch64-android/libQnnHtpNetRunExtensions.so
