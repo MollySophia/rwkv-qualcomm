@@ -850,6 +850,15 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
         return StatusCode::FAILURE;
       }
 
+      for (size_t i = 0; i < graphInfo.numOutputTensors; i++) {
+        auto tensorName = std::string(QNN_TENSOR_GET_NAME(graphInfo.outputTensors[i]));
+        if (tensorName == "out") {
+          m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
+        } else if (graph_id == m_decodeGraphsCount - 1 && tensorName.find("out_chunk") != std::string::npos) {
+          m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out_chunk" + std::to_string(graph_id+1)];
+        }
+      }
+
       std::unordered_map<std::string, Qnn_Tensor_t*> sharedTensorMap;
       for (size_t i = 0; i < graphInfo.numInputTensors; i++) {
         size_t tensorDataSize = 1;
@@ -922,10 +931,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
             sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id][tensorName];
           } else if (tensorName == "out_prefill") {
             sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
-            m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out"];
           } else if (graph_id == m_prefillGraphsCount - 1 && tensorName.find("out_prefill_chunk") != std::string::npos) {
             sharedTensorMapPrefill[tensorName] = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out_chunk" + std::to_string(graph_id+1)];
-            m_logitsOutputTensor = (Qnn_Tensor_t*)m_decodeGraphsTensorNameToTensorPointer[graph_id]["out_chunk" + std::to_string(graph_id+1)];
           }
         }
 

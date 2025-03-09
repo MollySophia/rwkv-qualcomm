@@ -11,7 +11,7 @@ from typing import List,Set,Dict
 import os
 from tqdm import tqdm
 import torch.utils.cpp_extension
-# from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
+from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 # from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
 from rwkv_src.rwkv_v7_modules_conv import Rwkv7SelfAttention, Rwkv7FeedForward
 from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape
@@ -67,9 +67,9 @@ class RWKV_Block(nn.Module):
         if self.version == 7:
             self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv, split_wkv=split_wkv)
             self.ffn = Rwkv7FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
-        # elif self.version == 6:
-        #     self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, custom_wkv=custom_wkv)
-        #     self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
+        elif self.version == 6:
+            self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, custom_wkv=custom_wkv)
+            self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
         # else:
         #     self.att = Rwkv5SelfAttention(state_dict, n_embd, head_size, version=version, layer_id=layer_id, rescale_layer=rescale_layer)
         #     self.ffn = Rwkv5FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
