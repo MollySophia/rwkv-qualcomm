@@ -309,7 +309,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     return StatusCode::FAILURE;
   }
 
-  std::vector<std::shared_ptr<uint8_t>> buffer;
   std::vector<uint64_t> bufferSizes;
   auto pos = m_cachedBinaryPath.find("_chunk");
   int n_chunks = 1;
@@ -317,11 +316,9 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     n_chunks = std::stoi(m_cachedBinaryPath.substr(m_cachedBinaryPath.find("of") + 2));
     QNN_INFO("Number of chunks: %d", n_chunks);
   }
-  buffer.resize(n_chunks);
   bufferSizes.resize(n_chunks);
 
   if (in_buffer && bufferSize) {
-    buffer[0] = std::shared_ptr<uint8_t>(in_buffer);
     bufferSizes[0] = bufferSize;
   } else {
     // read serialized binary into a byte buffer
@@ -337,41 +334,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
         return StatusCode::FAILURE;
       }
       std::cout << "Buffer size: " << bufferSizes[i] << std::endl;
-
-#if USE_MMAP
-      int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
-      if (fd < 0) {
-        QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
-        return StatusCode::FAILURE;
-      }
-
-      buffer[i] = std::shared_ptr<uint8_t>(
-          (uint8_t*)mmap(NULL, bufferSizes[i], PROT_READ, MAP_SHARED, fd, 0), [bufferSizes, i](uint8_t* p) {
-              if (p) {
-                munmap(p, bufferSizes[i]);
-              }
-            }
-          );
-
-      if (buffer[i].get() == MAP_FAILED) {
-        QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
-        close(fd);
-        return StatusCode::FAILURE;
-      }
-#else
-      buffer[i] = std::shared_ptr<uint8_t>(new uint8_t[bufferSizes[i]], std::default_delete<uint8_t[]>());
-      if (!buffer[i]) {
-        QNN_ERROR("Failed to allocate memory.");
-        return StatusCode::FAILURE;
-      }
-
-      status = tools::datautil::readBinaryFromFile(
-          m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer[i].get()), bufferSizes[i]);
-      if (status != tools::datautil::StatusCode::SUCCESS) {
-        QNN_ERROR("Failed to read binary data.");
-        return StatusCode::FAILURE;
-      }
-#endif
     }
   }
 
@@ -379,8 +341,39 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
   auto returnStatus = StatusCode::SUCCESS;
   std::vector<GraphInfo_t **> graphInfos(n_chunks);
   std::vector<uint32_t> graphCounts(n_chunks);
+  uint8_t *buffer;
   for (int i = 0; i < n_chunks; i++)
   {
+    if (n_chunks > 1) {
+      m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+    }
+#if USE_MMAP
+      int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
+      if (fd < 0) {
+        QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
+        return StatusCode::FAILURE;
+      }
+
+      buffer = (uint8_t*)mmap(NULL, bufferSizes[i], PROT_READ, MAP_SHARED, fd, 0);
+      if (buffer == MAP_FAILED) {
+        QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
+        close(fd);
+        return StatusCode::FAILURE;
+      }
+#else
+      buffer = (uint8_t*)malloc(bufferSizes[i]);
+      if (!buffer) {
+        QNN_ERROR("Failed to allocate memory.");
+        return StatusCode::FAILURE;
+      }
+
+      status = tools::datautil::readBinaryFromFile(
+          m_cachedBinaryPath, buffer, bufferSizes[i]);
+      if (status != tools::datautil::StatusCode::SUCCESS) {
+        QNN_ERROR("Failed to read binary data.");
+        return StatusCode::FAILURE;
+      }
+#endif
     QnnSystemContext_Handle_t sysCtxHandle{nullptr};
     if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
       QNN_ERROR("Could not create system handle.");
@@ -392,7 +385,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     if (StatusCode::SUCCESS == returnStatus &&
         QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo(
                           sysCtxHandle,
-                          static_cast<void*>(buffer[i].get()),
+                          static_cast<void*>(buffer),
                           bufferSizes[i],
                           &binaryInfo,
                           &binaryInfoSize)) {
@@ -426,7 +419,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
             m_deviceHandle,
             // (const QnnContext_Config_t**)cfgs,
             (const QnnContext_Config_t**)m_contextConfig,
-            static_cast<void*>(buffer[i].get()),
+            static_cast<void*>(buffer),
             bufferSizes[i],
             &m_context[i],
             nullptr)) {
@@ -453,9 +446,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       QNN_DEBUG("Cleaning up graph Info structures.");
       freeGraphsInfo(&graphInfos[i], graphCounts[i]);
     }
-  }
 
-  buffer.clear();
+#if USE_MMAP
+    munmap(buffer, bufferSizes[i]);
+#else
+    free(buffer);
+#endif
+  }
 
   m_decodeGraphsCount = 0;
   m_prefillGraphsCount = 0;
