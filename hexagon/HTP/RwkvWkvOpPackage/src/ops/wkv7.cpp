@@ -512,7 +512,7 @@ GraphStatus wkv7Impl(TensorType& out_0,
 
   int num_heads = state.dim(1);
   int head_size = state.dim(2);
-  int seq_length = k.dim(1);
+  int seq_length = k.dim(0);
 
 #ifdef USE_HVX
 // #if 0

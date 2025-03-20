@@ -25,7 +25,7 @@ parser.add_argument('--prefill_model', action='store_true', help='Convert model 
 parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
 parser_args = parser.parse_args()
 
-seq_length = 128 if parser_args.prefill_model else 1
+seq_length = 16 if parser_args.prefill_model else 1
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
@@ -93,11 +93,11 @@ if type(model) == list:
                     encoding_block_id = int(k.split(".")[1]) if 'block' in k else args.n_layer-1
                 if any([f'state{j}' in k for j in range(3*model[i].layer_begin, 3*model[i].layer_end)] + [
                     (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end),
-                    k == '/blocks.0/att/value/MatMul_output_0',
+                    k == '/blocks.0/att/post_permute_v/Transpose_output_0',
                     k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0',
                     k == 'out'
                 ]):
-                    if k == '/blocks.0/att/value/MatMul_output_0':
+                    if k == '/blocks.0/att/post_permute_v/Transpose_output_0':
                         encodings_chunk["activation_encodings"][f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}'] = v
                     elif k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0':
                         encodings_chunk["activation_encodings"][input_name] = v
@@ -122,7 +122,7 @@ if type(model) == list:
                 output_names += [('v_first_out' if not parser_args.prefill_model else 'v_first_out_prefill') + f'_chunk{i+1}']
             else:
                 input_names += [('v_first_in' if not parser_args.prefill_model else 'v_first_in_prefill') + f'_chunk{i+1}']
-                inputs += [torch.zeros(seq_length, args.n_head, args.head_size, dtype=input_dtype)]
+                inputs += [torch.zeros(seq_length, args.n_head, 1, args.head_size, dtype=input_dtype)]
 
         if parser_args.prefill_model:
             onnx_output_path = f"{dirname}/{filename}_prefill_chunk{i+1}of{len(model)}.onnx"

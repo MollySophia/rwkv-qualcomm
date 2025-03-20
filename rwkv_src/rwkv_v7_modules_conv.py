@@ -71,12 +71,12 @@ class Wkv7(nn.Module):
 
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
-            r = self.reshape_r(r, [seq_length, self.num_heads, self.head_size])
-            w = self.reshape_w(w, [seq_length, self.num_heads, self.head_size])
-            k = self.reshape_k(k, [seq_length, self.num_heads, self.head_size])
-            v = self.reshape_v(v, [seq_length, self.num_heads, self.head_size])
-            a = self.reshape_a(a, [seq_length, self.num_heads, self.head_size])
-            b = self.reshape_b(b, [seq_length, self.num_heads, self.head_size])
+            r = self.reshape_r(r, [seq_length, self.num_heads, 1, self.head_size])
+            w = self.reshape_w(w, [seq_length, self.num_heads, 1, self.head_size])
+            k = self.reshape_k(k, [seq_length, self.num_heads, 1, self.head_size])
+            v = self.reshape_v(v, [seq_length, self.num_heads, 1, self.head_size])
+            a = self.reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
+            b = self.reshape_b(b, [seq_length, self.num_heads, 1, self.head_size])
 
             if self.split_wkv:
                 k_split = self.split_k(k, self.num_heads//4, dim=1)
@@ -183,9 +183,9 @@ class Rwkv7SelfAttention(nn.Module):
         self.matmul_g2 = nn.Conv2d(self.D_GATE_LORA, hidden_size, kernel_size=1, bias=False)
         self.matmul_g2.weight = nn.Parameter(state_dict[prefix + 'g2'].t().view(hidden_size, self.D_GATE_LORA, 1, 1))
 
-        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads, self.head_size))
-        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads, self.head_size))
-        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads, self.head_size))
+        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads, 1, self.head_size))
+        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads, 1, self.head_size))
+        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads, 1, self.head_size))
 
         self.output = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
         self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'].view(hidden_size, hidden_size, 1, 1))
@@ -332,12 +332,12 @@ class Rwkv7SelfAttention(nn.Module):
         a = self.post_permute_a(a, [0, 3, 2, 1])
         time_decay = self.post_permute_w(time_decay, [0, 3, 2, 1])
 
-        receptance = self.post_reshape_r(receptance, [seq_length, self.num_heads, self.head_size])
-        key = self.post_reshape_k(key, [seq_length, self.num_heads, self.head_size])
-        value = self.post_reshape_v(value, [seq_length, self.num_heads, self.head_size])
+        receptance = self.post_reshape_r(receptance, [seq_length, self.num_heads, 1, self.head_size])
+        key = self.post_reshape_k(key, [seq_length, self.num_heads, 1, self.head_size])
+        value = self.post_reshape_v(value, [seq_length, self.num_heads, 1, self.head_size])
         gate = self.post_reshape_g(gate, [batch_size, seq_length, self.hidden_size])
-        a = self.post_reshape_a(a, [seq_length, self.num_heads, self.head_size])
-        time_decay = self.post_reshape_w(time_decay, [seq_length, self.num_heads, self.head_size])
+        a = self.post_reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
+        time_decay = self.post_reshape_w(time_decay, [seq_length, self.num_heads, 1, self.head_size])
         time_decay = self.exp_w(self.scale_w(-0.606531, self.sigmoid_w(time_decay)))
 
         kk = self.mix_kk(key, self.k_k)
@@ -349,7 +349,7 @@ class Rwkv7SelfAttention(nn.Module):
         else:
             tmp = self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv_premute)))
             tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
-            tmp = self.post_reshape_v1(tmp, [seq_length, self.num_heads, self.head_size])
+            tmp = self.post_reshape_v1(tmp, [seq_length, self.num_heads, 1, self.head_size])
             value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
 
         b = self.get_b(kk, a)
