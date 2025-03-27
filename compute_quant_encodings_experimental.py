@@ -1,13 +1,13 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
-from transformers import AutoConfig, AutoTokenizer
 from rwkv_src.rwkv_v7_modules_conv import Wkv7, L2Norm
 import types
 import torch
-import torch.nn as nn
 import math
 import os
 from tqdm import tqdm
+from typing import Any, Optional
+import numpy as np
 
 from utils.model_utils import get_dummy_input_for_rwkv_causal_llm, get_dummy_state_kvcache, register_customop_symbols
 
@@ -20,11 +20,12 @@ parser.add_argument('--lambada_test', action='store_true', help='Run lambada tes
 # parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
+parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = torch.cuda.is_available()
-model_args.fp16 = True
+model_args.fp16 = True if model_args.USE_CUDA else False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
@@ -36,17 +37,16 @@ model_args.MODEL_NAME = str(args_parser.model)
 model = RWKV_RNN(model_args)
 model_args = model.args
 
+device = torch.device("cuda" if model_args.USE_CUDA else "cpu")
+
 from aimet_common import quantsim
 from aimet_common.defs import QuantScheme
-from aimet_common.quantsim_config.utils import get_path_for_per_channel_config
 from aimet_torch.quantsim import QuantizationSimModel
-from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
-from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, QuantizeDequantize
+# from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
+# from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, QuantizeDequantize
 from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
-from aimet_torch.v2.nn import QuantizationMixin, BaseQuantizationMixin
+from aimet_torch.v2.nn import QuantizationMixin
 from aimet_torch.v2 import quantization as Q
-from aimet_torch.v2.experimental import propagate_output_encodings
-from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape
 
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
@@ -90,7 +90,7 @@ class QuantizedL2Norm(QuantizationMixin, L2Norm):
 
 register_customop_symbols()
 
-dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, "cuda", model.args)
+dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, device, model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
 model.eval()
@@ -109,24 +109,25 @@ def set_linear_weight_quantizer_to_4bit(module):
     if module.param_quantizers['weight'] is not None:
         module.param_quantizers['weight'].bitwidth = 4
         module.param_quantizers['weight'].symmetric = True
+
 for block in sim.model.blocks:
-    block.att.pre_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.pre_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.pre_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.pre_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.att.post_permute_v1.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-    block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.att.pre_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.pre_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.pre_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.pre_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.post_permute_v1.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     block.att.exp_w.output_quantizers[0] = None
     block.att.mix_ka_sub.output_quantizers[0] = None
@@ -148,39 +149,45 @@ for block in sim.model.blocks:
         set_linear_weight_quantizer_to_4bit(block.att.receptance)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
-    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
-sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).cuda()
+sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 mp_configurator.apply()
 
 print(sim)
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
-from datasets import load_from_disk, load_dataset, IterableDataset
-from torch.utils.data import DataLoader, Dataset
-from typing import Any, Optional
+dataloader = None
+if args_parser.binidx_dataset is not None:
+    from utils.indexed_dataset import MMapIndexedDataset
+    dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
+    def collate_fn(x):
+        return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64)).to(device)}
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)
+else:
+    dataset_args = types.SimpleNamespace()
+    dataset_args.calib_dataset_name = "wikitext"
+    dataset_args.calib_dataset_config_name = "wikitext-2-raw-v1"
+    dataset_args.dataset_cache_dir = "./dataset_cache"
+    dataset_args.calib_dataset_split = None
+    dataset_args.calib_dataset_preprocessor = "gpt2"
+    dataset_args.eval_dataset_name = "wikitext"
+    dataset_args.eval_dataset_config_name = "wikitext-103-raw-v1"
+    dataset_args.eval_dataset_split = "test"
+    dataset_args.eval_dataset_preprocessor = "gptq"
+    dataset_args.per_device_calib_batch_size = 1
+    dataset_args.per_device_eval_batch_size = 1
+    dataset_args.block_size = 1024
+    dataset_args.seed = 42
 
-dataset_args = types.SimpleNamespace()
-dataset_args.calib_dataset_name = "wikitext"
-dataset_args.calib_dataset_config_name = "wikitext-2-raw-v1"
-dataset_args.dataset_cache_dir = "./dataset_cache"
-dataset_args.calib_dataset_split = None
-dataset_args.calib_dataset_preprocessor = "gpt2"
-dataset_args.eval_dataset_name = "wikitext"
-dataset_args.eval_dataset_config_name = "wikitext-103-raw-v1"
-dataset_args.eval_dataset_split = "test"
-dataset_args.eval_dataset_preprocessor = "gptq"
-dataset_args.per_device_calib_batch_size = 1
-dataset_args.per_device_eval_batch_size = 1
-dataset_args.block_size = 1024
-dataset_args.seed = 42
+    dataset_builder = DatasetBuilder(dataset_args)
+    dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
+    dataloader = dataset_builder.train_dataloader
 
-dataset_builder = DatasetBuilder(dataset_args)
-dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
 def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     model.eval()
     with torch.no_grad():
@@ -209,7 +216,7 @@ if args_parser.use_w4_seq_mse:
                             loss_fn='mse',
                             forward_fn=pass_calibration_data_seq_mse)
 
-        apply_seq_mse(model=model, sim=sim, data_loader=dataset_builder.train_dataloader, params=params)
+        apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
 
 model = model.to('cpu').float()
 torch.cuda.empty_cache()
@@ -227,7 +234,7 @@ torch.cuda.empty_cache()
 #     )
 
 
-sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataset_builder.train_dataloader)
+sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
 sim.model.float()
 model.args.fp16 = False
