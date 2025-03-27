@@ -162,20 +162,23 @@ linux_objs =
 #============================================================================================================
 # Setup compiler, compiler instructions and linker for hexagon
 
-# QHL_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl
-# QHL_HVX_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl_hvx
-# QHL_INC_DIRS_V68 := $(QHL_DIR_V68)/inc/qhmath $(QHL_DIR_V68)/inc/qhcomplex $(QHL_DIR_V68)/inc/qhdsp $(QHL_DIR_V68)/inc/qhblas
-# QHL_HVX_INC_DIRS_V68 := $(QHL_HVX_DIR_V68)/inc/internal $(QHL_HVX_DIR_V68)/inc/qhdsp_hvx $(QHL_HVX_DIR_V68)/inc/qhblas_hvx
+QHL_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl
+QHL_HVX_DIR_V68 = $(HEXAGON_SDK_ROOT_V68)/libs/qhl_hvx
+QHL_INC_DIRS_V68 := $(QHL_DIR_V68)/inc/qhmath $(QHL_DIR_V68)/inc/qhcomplex $(QHL_DIR_V68)/inc/qhdsp $(QHL_DIR_V68)/inc/qhblas
+QHL_HVX_INC_DIRS_V68 := $(QHL_HVX_DIR_V68)/inc/internal $(QHL_HVX_DIR_V68)/inc/qhdsp_hvx $(QHL_HVX_DIR_V68)/inc/qhblas_hvx
+QHL_INCLUDES_V68 = $(addprefix -I,$(QHL_INC_DIRS_V68)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V68))
 
-# QHL_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl
-# QHL_HVX_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl_hvx
-# QHL_INC_DIRS_V69 := $(QHL_DIR_V69)/inc/qhmath $(QHL_DIR_V69)/inc/qhcomplex $(QHL_DIR_V69)/inc/qhdsp $(QHL_DIR_V69)/inc/qhblas
-# QHL_HVX_INC_DIRS_V69 := $(QHL_HVX_DIR_V69)/inc/internal $(QHL_HVX_DIR_V69)/inc/qhdsp_hvx $(QHL_HVX_DIR_V69)/inc/qhblas_hvx
+QHL_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl
+QHL_HVX_DIR_V69 = $(HEXAGON_SDK_ROOT_V69)/libs/qhl_hvx
+QHL_INC_DIRS_V69 := $(QHL_DIR_V69)/inc/qhmath $(QHL_DIR_V69)/inc/qhcomplex $(QHL_DIR_V69)/inc/qhdsp $(QHL_DIR_V69)/inc/qhblas
+QHL_HVX_INC_DIRS_V69 := $(QHL_HVX_DIR_V69)/inc/internal $(QHL_HVX_DIR_V69)/inc/qhdsp_hvx $(QHL_HVX_DIR_V69)/inc/qhblas_hvx
+QHL_INCLUDES_V69 = $(addprefix -I,$(QHL_INC_DIRS_V69)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V69)) $(addprefix -I,$())
 
-# QHL_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl
-# QHL_HVX_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl_hvx
-# QHL_INC_DIRS_V73 := $(QHL_DIR_V73)/inc/qhmath $(QHL_DIR_V73)/inc/qhcomplex $(QHL_DIR_V73)/inc/qhdsp $(QHL_DIR_V73)/inc/qhblas
-# QHL_HVX_INC_DIRS_V73 := $(QHL_HVX_DIR_V73)/inc/internal $(QHL_HVX_DIR_V73)/inc/qhdsp_hvx $(QHL_HVX_DIR_V73)/inc/qhblas_hvx
+QHL_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl
+QHL_HVX_DIR_V73 = $(HEXAGON_SDK_ROOT_V73)/libs/qhl_hvx
+QHL_INC_DIRS_V73 := $(QHL_DIR_V73)/inc/qhmath $(QHL_DIR_V73)/inc/qhcomplex $(QHL_DIR_V73)/inc/qhdsp $(QHL_DIR_V73)/inc/qhblas
+QHL_HVX_INC_DIRS_V73 := $(QHL_HVX_DIR_V73)/inc/internal $(QHL_HVX_DIR_V73)/inc/qhdsp_hvx $(QHL_HVX_DIR_V73)/inc/qhblas_hvx
+QHL_INCLUDES_V73 = $(addprefix -I,$(QHL_INC_DIRS_V73)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V73))
 
 QHL_DIR_V75 = $(HEXAGON_SDK_ROOT_V75)/libs/qhl
 QHL_HVX_DIR_V75 = $(HEXAGON_SDK_ROOT_V75)/libs/qhl_hvx
@@ -186,7 +189,7 @@ QHL_INCLUDES_V75 = $(addprefix -I,$(QHL_INC_DIRS_V75)) $(addprefix -I,$(QHL_HVX_
 HEXAGON_CXX_FLAGS := $(COMMON_CXX_FLAGS) -mhvx -mhvx-length=128B -mhmx -DUSE_OS_QURT -O2 -Wno-reorder -DPREPARE_DISABLED
 
 HEXAGON_CXX_FLAGS_V68 := $(HEXAGON_CXX_FLAGS) -mv68 -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/qurt -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/posix -I$(HEXAGON_SDK_ROOT_V68)/incs -I$(HEXAGON_SDK_ROOT_V68)/incs/stddef
-HEXAGON_CXX_FLAGS_V69 := $(HEXAGON_CXX_FLAGS) -mv69 -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev69/include/qurt -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev69/include/posix -I$(HEXAGON_SDK_ROOT_V69)/incs -I$(HEXAGON_SDK_ROOT_V69)/incs/stddef
+HEXAGON_CXX_FLAGS_V69 := $(HEXAGON_CXX_FLAGS) -mv69 -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev68/include/qurt -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev68/include/posix -I$(HEXAGON_SDK_ROOT_V69)/incs -I$(HEXAGON_SDK_ROOT_V69)/incs/stddef
 HEXAGON_CXX_FLAGS_V73 := $(HEXAGON_CXX_FLAGS) -mv73 -I$(HEXAGON_SDK_ROOT_V73)/rtos/qurt/computev73/include/qurt -I$(HEXAGON_SDK_ROOT_V73)/rtos/qurt/computev73/include/posix -I$(HEXAGON_SDK_ROOT_V73)/incs -I$(HEXAGON_SDK_ROOT_V73)/incs/stddef
 HEXAGON_CXX_FLAGS_V75 := $(HEXAGON_CXX_FLAGS) -mv75 -I$(HEXAGON_SDK_ROOT_V75)/rtos/qurt/computev75/include/qurt -I$(HEXAGON_SDK_ROOT_V75)/rtos/qurt/computev75/include/posix -I$(HEXAGON_SDK_ROOT_V75)/incs -I$(HEXAGON_SDK_ROOT_V75)/incs/stddef
 
@@ -288,7 +291,7 @@ $(WORK)/hexagon-v68/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v68
 	$(HEXAGON_CXX_V68) $(HEXAGON_CXX_FLAGS_V68) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
 
 $(WORK)/hexagon-v68/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v68
-	$(HEXAGON_CXX_V68) $(HEXAGON_CXX_FLAGS_V68) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+	$(HEXAGON_CXX_V68) $(HEXAGON_CXX_FLAGS_V68) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V68) -DUSE_HVX -c $< -o $@
 
 $(WORK)/hexagon-v68/ops/%.o: $(OP_SRC_DIR)/v68_asm/%.S | $(WORK)/hexagon-v68
 	$(HEXAGON_CXX_V68) $(HEXAGON_CXX_FLAGS_V68) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
@@ -301,7 +304,7 @@ $(WORK)/hexagon-v69/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v69
 	$(HEXAGON_CXX_V69) $(HEXAGON_CXX_FLAGS_V69) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
 
 $(WORK)/hexagon-v69/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v69
-	$(HEXAGON_CXX_V69) $(HEXAGON_CXX_FLAGS_V69) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+	$(HEXAGON_CXX_V69) $(HEXAGON_CXX_FLAGS_V69) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V69) -DUSE_HVX -c $< -o $@
 
 $(WORK)/hexagon-v69/ops/%.o: $(OP_SRC_DIR)/v69_asm/%.S | $(WORK)/hexagon-v69
 	$(HEXAGON_CXX_V69) $(HEXAGON_CXX_FLAGS_V69) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
@@ -314,7 +317,7 @@ $(WORK)/hexagon-v73/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v73
 	$(HEXAGON_CXX_V73) $(HEXAGON_CXX_FLAGS_V73) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
 
 $(WORK)/hexagon-v73/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v73
-	$(HEXAGON_CXX_V73) $(HEXAGON_CXX_FLAGS_V73) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+	$(HEXAGON_CXX_V73) $(HEXAGON_CXX_FLAGS_V73) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V73) -DUSE_HVX -c $< -o $@
 
 $(WORK)/hexagon-v73/ops/%.o: $(OP_SRC_DIR)/v73_asm/%.S | $(WORK)/hexagon-v73
 	$(HEXAGON_CXX_V73) $(HEXAGON_CXX_FLAGS_V73) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
