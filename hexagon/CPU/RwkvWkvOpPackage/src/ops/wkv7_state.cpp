@@ -10,7 +10,7 @@
 using namespace qnn::custom;
 using namespace qnn::custom::utils;
 
-namespace wkv7 {
+namespace wkv7_state {
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
   /*
@@ -68,8 +68,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 }
 
 Qnn_ErrorHandle_t finalize(const CustomOp* operation) {
-  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
-  QNN_CUSTOM_BE_ENSURE_EQ(operation->numOutput(), 2, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(operation->numOutput(), 1, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   /**
    * Add code here
@@ -106,19 +106,19 @@ Qnn_ErrorHandle_t populateFromNode(const QnnOpPackage_Node_t node,
 
 Qnn_ErrorHandle_t validateOpConfig(Qnn_OpConfig_t opConfig) {
   QNN_CUSTOM_BE_ENSURE_EQ(
-      strcmp(opConfig.v1.typeName, "wkv7"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
+      strcmp(opConfig.v1.typeName, "wkv7_state"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
 
-  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
-  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfOutputs, 2, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfOutputs, 1, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   return QNN_SUCCESS;
 }
-}  // namespace wkv7
+}  // namespace wkv7_state
 
-CustomOpRegistration_t* register_Wkv7CustomOp() {
-  using namespace wkv7;
+CustomOpRegistration_t* register_Wkv7StateCustomOp() {
+  using namespace wkv7_state;
   static CustomOpRegistration_t WkvRegister = {execute, finalize, free, validateOpConfig, populateFromNode};
   return &WkvRegister;
 }
 
-REGISTER_OP(wkv7, register_Wkv7CustomOp);
+REGISTER_OP(wkv7_state, register_Wkv7StateCustomOp);

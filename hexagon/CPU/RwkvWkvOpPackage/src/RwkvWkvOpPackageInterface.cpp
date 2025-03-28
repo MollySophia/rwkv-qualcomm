@@ -15,7 +15,8 @@ static Qnn_ErrorHandle_t RwkvWkvOpPackageInitialize(
   INIT_BE_OP_PACKAGE(RwkvWkvOpPackage)
 
   REGISTER_PACKAGE_OP(wkv6)
-  REGISTER_PACKAGE_OP(wkv7)
+  REGISTER_PACKAGE_OP(wkv7_state)
+  REGISTER_PACKAGE_OP(wkv7_output)
 
   // INIT_BE_PACKAGE_OPTIMIZATIONS();
 

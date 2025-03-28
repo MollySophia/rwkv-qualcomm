@@ -16,6 +16,10 @@ htp_devices = {
     "SM8475": {
         "dsp_arch": "v69",
         "soc_id": 42,
+    },
+    "SM8635": {
+        "dsp_arch": "v73",
+        "soc_id": 68,
     }
 }
 

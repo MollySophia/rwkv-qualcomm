@@ -33,7 +33,7 @@ model_args.fp16 = False
 model_args.wkv_customop = parser_args.wkv_customop
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 model_args.MODEL_NAME = str(parser_args.model)
-model_args.split_wkv = True
+model_args.split_wkv = False
 model_args.output_last = True
 
 if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or parser_args.quant_encodings or 'x070' in model_args.MODEL_NAME:
@@ -154,7 +154,7 @@ if type(model) == list:
             converter_cmd += f" --quantization_overrides {dirname}/quant_encodings_chunk{i}.encodings --float_fallback"
 
         if model_args.wkv_customop:
-            converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
+            converter_cmd += " --op_package_config hexagon/CPU/RwkvWkvOpPackage/config/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
         print(converter_cmd)
 
         if os.name == 'nt':
@@ -200,7 +200,7 @@ else:
         converter_cmd += f" --quantization_overrides {str(parser_args.quant_encodings)} --float_fallback"
 
     if model_args.wkv_customop:
-        converter_cmd += " --op_package_config hexagon/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
+        converter_cmd += " --op_package_config hexagon/CPU/RwkvWkvOpPackage/config/RwkvWkvOpPackageCPU.xml --op_package_lib hexagon/CPU/RwkvWkvOpPackage/libs/x86_64-linux-clang/libRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
 
     if os.name == 'nt':
         converter_cmd = "python " + converter_cmd

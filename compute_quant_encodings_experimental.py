@@ -129,10 +129,6 @@ for block in sim.model.blocks:
     block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    block.att.exp_w.output_quantizers[0] = None
-    block.att.mix_ka_sub.output_quantizers[0] = None
-    block.att.mix_ka_mul_key.output_quantizers[0] = None
-
     block.att.wkv7.split_state.input_quantizers[0] = None
     block.att.wkv7.split_state.output_quantizers[0] = None
     block.att.wkv7.concat_state.input_quantizers[0] = None
@@ -197,7 +193,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 20
+    num_batches = 2
 
     model.eval()
     with torch.no_grad():
