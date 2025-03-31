@@ -31,12 +31,11 @@ class L2Norm(nn.Module):
         return torch.ops.customop.l2norm(x)
 
 class Wkv7(nn.Module):
-    def __init__(self, num_heads, head_size, custom_wkv=False, split_wkv=True):
+    def __init__(self, num_heads, head_size, custom_wkv=False):
         super().__init__()
         self.num_heads = num_heads
         self.head_size = head_size
         self.custom_wkv = custom_wkv
-        self.split_wkv = split_wkv
 
         self.apply_time_decay = Multiply()
         self.matmul_sa = MatMul()
@@ -78,26 +77,7 @@ class Wkv7(nn.Module):
             a = self.reshape_a(a, [seq_length, self.num_heads, self.head_size])
             b = self.reshape_b(b, [seq_length, self.num_heads, self.head_size])
 
-            if self.split_wkv:
-                k_split = self.split_k(k, self.num_heads//4, dim=1)
-                v_split = self.split_v(v, self.num_heads//4, dim=1)
-                r_split = self.split_r(r, self.num_heads//4, dim=1)
-                w_split = self.split_w(w, self.num_heads//4, dim=1)
-                a_split = self.split_a(a, self.num_heads//4, dim=1)
-                b_split = self.split_b(b, self.num_heads//4, dim=1)
-                if (len(state2.shape) == 3):
-                    state2_split = self.split_state(state2, self.num_heads//4, dim=0)
-                else:
-                    state2_split = self.split_state(state2, self.num_heads//4, dim=1)
-                x0, state2_out0 = self.wkv_func(r_split[0], w_split[0], k_split[0], v_split[0], a_split[0], b_split[0], state2_split[0])
-                x1, state2_out1 = self.wkv_func(r_split[1], w_split[1], k_split[1], v_split[1], a_split[1], b_split[1], state2_split[1])
-                x2, state2_out2 = self.wkv_func(r_split[2], w_split[2], k_split[2], v_split[2], a_split[2], b_split[2], state2_split[2])
-                x3, state2_out3 = self.wkv_func(r_split[3], w_split[3], k_split[3], v_split[3], a_split[3], b_split[3], state2_split[3])
-
-                x = self.concat_x(x0, x1, x2, x3)
-                state2_out = self.concat_state(state2_out0, state2_out1, state2_out2, state2_out3)
-            else:
-                x, state2_out = self.wkv_func(r, w, k, v, a, b, state2)
+            x, state2_out = self.wkv_func(r, w, k, v, a, b, state2)
             x = x.view(seq_length, self.num_heads, 1, self.head_size)
         else:
             if seq_length == 1:
@@ -130,7 +110,7 @@ class Wkv7(nn.Module):
 
 
 class Rwkv7SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False, split_wkv=True):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
@@ -138,7 +118,6 @@ class Rwkv7SelfAttention(nn.Module):
         self.head_size = head_size
         self.hidden_size = hidden_size
         self.custom_wkv = custom_wkv
-        self.split_wkv = split_wkv
 
         self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
@@ -248,7 +227,7 @@ class Rwkv7SelfAttention(nn.Module):
         self.shift_gather1 = CustomGather()
         self.shift_gather2 = CustomGather()
         self.state_reshape = Reshape()
-        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv, split_wkv=self.split_wkv)
+        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv)
     
     def forward(self, x, state1, state2, v_first):
         last_x = x

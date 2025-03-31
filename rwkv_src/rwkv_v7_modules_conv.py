@@ -30,28 +30,36 @@ class L2Norm(nn.Module):
     def forward(self, x):
         return torch.ops.customop.l2norm(x)
 
+class Wkv7State(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, w, k, v, a, b, state2):
+        return torch.ops.rwkv.wkv7_state(w, k, v, a, b, state2)
+
+class Wkv7Output(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, r, state2):
+        return torch.ops.rwkv.wkv7_output(r, state2)
+
 class Wkv7(nn.Module):
-    def __init__(self, num_heads, head_size, custom_wkv=False, split_wkv=True):
+    def __init__(self, num_heads, head_size, custom_wkv=False):
         super().__init__()
         self.num_heads = num_heads
         self.head_size = head_size
         self.custom_wkv = custom_wkv
-        self.split_wkv = split_wkv
 
-        self.apply_time_decay = Multiply()
-        self.matmul_sa = MatMul()
-        self.matmul_sab = MatMul()
-        self.matmul_kv = MatMul()
-        self.matmul_r = MatMul()
-        self.add_kv = Add()
-        self.add_sab = Add()
-        self.split_r = Split()
-        self.split_w = Split()
-        self.split_k = Split()
-        self.split_v = Split()
-        self.split_a = Split()
-        self.split_b = Split()
-        self.split_state = Split()
+        if not self.custom_wkv:
+            self.apply_time_decay = Multiply()
+            self.matmul_sa = MatMul()
+            self.matmul_sab = MatMul()
+            self.matmul_kv = MatMul()
+            self.matmul_r = MatMul()
+            self.add_kv = Add()
+            self.add_sab = Add()
+
         self.reshape_r = Reshape()
         self.reshape_w = Reshape()
         self.reshape_k = Reshape()
@@ -69,8 +77,10 @@ class Wkv7(nn.Module):
             from rwkv_src.wkv_custom import wkv_c_impl_src
             module = torch.utils.cpp_extension.load_inline(
                     name='extension', cpp_sources=[wkv_c_impl_src])
-            self.wkv_state_func = torch.ops.rwkv.wkv7_state
-            self.wkv_output_func = torch.ops.rwkv.wkv7_output
+            # self.wkv_state_func = torch.ops.rwkv.wkv7_state
+            # self.wkv_output_func = torch.ops.rwkv.wkv7_output
+            self.wkv_state = Wkv7State()
+            self.wkv_output = Wkv7Output()
 
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
@@ -81,35 +91,10 @@ class Wkv7(nn.Module):
             a = self.reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
             b = self.reshape_b(b, [seq_length, self.num_heads, 1, self.head_size])
 
-            if self.split_wkv:
-                k_split = self.split_k(k, self.num_heads//4, dim=1)
-                v_split = self.split_v(v, self.num_heads//4, dim=1)
-                r_split = self.split_r(r, self.num_heads//4, dim=1)
-                w_split = self.split_w(w, self.num_heads//4, dim=1)
-                a_split = self.split_a(a, self.num_heads//4, dim=1)
-                b_split = self.split_b(b, self.num_heads//4, dim=1)
-                if (len(state2.shape) == 3):
-                    state2_split = self.split_state(state2, self.num_heads//4, dim=0)
-                else:
-                    state2_split = self.split_state(state2, self.num_heads//4, dim=1)
-                state2_out0 = self.wkv_state_func(w_split[0], k_split[0], v_split[0], a_split[0], b_split[0], state2_split[0])
-                state2_out1 = self.wkv_state_func(w_split[1], k_split[1], v_split[1], a_split[1], b_split[1], state2_split[1])
-                state2_out2 = self.wkv_state_func(w_split[2], k_split[2], v_split[2], a_split[2], b_split[2], state2_split[2])
-                state2_out3 = self.wkv_state_func(w_split[3], k_split[3], v_split[3], a_split[3], b_split[3], state2_split[3])
-
-                x0 = self.wkv_output_func(r_split[0], state2_out0)
-                x1 = self.wkv_output_func(r_split[1], state2_out1)
-                x2 = self.wkv_output_func(r_split[2], state2_out2)
-                x3 = self.wkv_output_func(r_split[3], state2_out3)
-                x = self.concat_x(x0, x1, x2, x3)
-                state2_out = self.concat_state(state2_out0, state2_out1, state2_out2, state2_out3)
-                if seq_length != 1:
-                    state2_out = self.gather_state(state2_out, torch.LongTensor([-1]).to(state2_out.device), 0)
-            else:
-                state2_out = self.wkv_state_func(w, k, v, a, b, state2)
-                x = self.wkv_output_func(r, state2_out)
-                if seq_length != 1:
-                    state2_out = self.gather_state(state2_out, torch.LongTensor([-1]).to(state2_out.device), 0)
+            state2_out = self.wkv_state(w, k, v, a, b, state2)
+            x = self.wkv_output(r, state2_out)
+            if seq_length != 1:
+                state2_out = self.gather_state(state2_out, torch.LongTensor([-1]).to(state2_out.device), 0)
             x = self.reshape_x(x, [seq_length, self.num_heads, 1, self.head_size])
         else:
             if seq_length == 1:
@@ -142,7 +127,7 @@ class Wkv7(nn.Module):
 
 
 class Rwkv7SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, online_preparing=False, split_wkv=True):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False):
         super().__init__()
         prefix = f'blocks.{layer_id}.att.'
         self.layer_id = layer_id
@@ -150,7 +135,6 @@ class Rwkv7SelfAttention(nn.Module):
         self.head_size = head_size
         self.hidden_size = hidden_size
         self.custom_wkv = custom_wkv
-        self.split_wkv = split_wkv
 
         self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
@@ -219,7 +203,8 @@ class Rwkv7SelfAttention(nn.Module):
         self.exp_w                  = Exponential()
         self.scale_w                = Multiply()
         self.scale_w_param          = nn.Parameter(torch.as_tensor([-0.606531] * self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
-        self.ones                   = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
+        self.ones_0                 = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
+        self.ones_1                 = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.sigmoid_a              = nn.Sigmoid()
         self.sigmoid_g              = nn.Sigmoid()
         self.sigmoid_v              = nn.Sigmoid()
@@ -262,7 +247,7 @@ class Rwkv7SelfAttention(nn.Module):
         self.shift_gather1 = CustomGather()
         self.shift_gather2 = CustomGather()
         self.state_reshape = Reshape()
-        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv, split_wkv=self.split_wkv)
+        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv)
 
         self.pre_reshape_r = Reshape()
         self.pre_reshape_w = Reshape()
@@ -356,7 +341,7 @@ class Rwkv7SelfAttention(nn.Module):
 
         kk = self.mix_kk(key, self.k_k)
         kk = self.l2norm(kk)
-        key = self.mix_ka_mul_key(key, self.mix_ka_add(self.ones, self.mix_ka_mul_a(self.mix_ka_sub(a, self.ones), self.k_a)))
+        key = self.mix_ka_mul_key(key, self.mix_ka_add(self.ones_0, self.mix_ka_mul_a(self.mix_ka_sub(a, self.ones_1), self.k_a)))
 
         if self.layer_id == 0:
             v_first = value

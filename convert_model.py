@@ -11,6 +11,8 @@ import copy
 from pathlib import Path
 import onnx
 from onnx import shape_inference
+from onnx.external_data_helper import convert_model_to_external_data
+import onnx_graphsurgeon as gs
 from aimet_torch.onnx_utils import OnnxSaver
 
 register_customop_symbols()
@@ -33,7 +35,6 @@ model_args.fp16 = False
 model_args.wkv_customop = parser_args.wkv_customop
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 model_args.MODEL_NAME = str(parser_args.model)
-model_args.split_wkv = False
 model_args.output_last = True
 
 if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or parser_args.quant_encodings or 'x070' in model_args.MODEL_NAME:
@@ -162,7 +163,7 @@ if type(model) == list:
         os.system(converter_cmd)
 
         print("Compiling QNN model library...")
-        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_path.replace('.onnx', '.cpp')} -b {onnx_path.replace('.onnx', '.bin')}"
+        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_path.replace('.onnx', '.cpp')} -b {onnx_path.replace('.onnx', '.bin')} -t x86_64-linux-clang"
         if os.name == 'nt':
             compiling_cmd = "python " + compiling_cmd
         os.system(compiling_cmd)
@@ -189,6 +190,18 @@ else:
         onnx_output_path = f"{dirname}/{filename}.onnx"
     OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
+    onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
+    graph = gs.import_onnx(onnxmodel)
+    # set output shape for wkv7_output
+    for k, v in graph.tensors().items():
+        if "wkv7_output_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
+        elif "wkv7_state_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, args.head_size, args.head_size])
+
+    onnxmodel = gs.export_onnx(graph)
+    convert_model_to_external_data(onnxmodel)
+    onnx.save(onnxmodel, onnx_output_path)
     shape_inference.infer_shapes_path(onnx_output_path)
     print(f"onnx model saved to {onnx_output_path}")
 
@@ -207,7 +220,7 @@ else:
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")
-    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_output_path.replace('.onnx', '.cpp')} -b {onnx_output_path.replace('.onnx', '.bin')}"
+    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_output_path.replace('.onnx', '.cpp')} -b {onnx_output_path.replace('.onnx', '.bin')} -t x86_64-linux-clang"
     if os.name == 'nt':
         compiling_cmd = "python " + compiling_cmd
     print(compiling_cmd)

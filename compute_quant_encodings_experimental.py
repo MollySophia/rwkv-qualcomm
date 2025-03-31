@@ -1,6 +1,6 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
-from rwkv_src.rwkv_v7_modules_conv import Wkv7, L2Norm
+from rwkv_src.rwkv_v7_modules_conv import Wkv7State, Wkv7Output, L2Norm
 import types
 import torch
 import math
@@ -8,6 +8,7 @@ import os
 from tqdm import tqdm
 from typing import Any, Optional
 import numpy as np
+import random
 
 from utils.model_utils import get_dummy_input_for_rwkv_causal_llm, get_dummy_state_kvcache, register_customop_symbols
 
@@ -21,15 +22,17 @@ parser.add_argument('--lambada_test', action='store_true', help='Run lambada tes
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
 parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
+parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of batches to calibrate on')
+parser.add_argument('--seqmse_num_batches', type=int, default=20, help='Number of batches to calibrate on')
+parser.add_argument('--use_cpu', action='store_true', default=False, help='Use cpu to compute')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
-model_args.USE_CUDA = torch.cuda.is_available()
+model_args.USE_CUDA = False if args_parser.use_cpu else torch.cuda.is_available()
 model_args.fp16 = True if model_args.USE_CUDA else False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
-model_args.split_wkv = True
 model_args.output_last = False
 
 model_args.MODEL_NAME = str(args_parser.model)
@@ -51,18 +54,83 @@ from aimet_torch.v2 import quantization as Q
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
 
-@QuantizationMixin.implements(Wkv7)
-class QuantizedWkv7(QuantizationMixin, Wkv7):
+# @QuantizationMixin.implements(Wkv7)
+# class QuantizedWkv7(QuantizationMixin, Wkv7):
+#     def __quant_init__(self):
+#         super().__quant_init__()
+
+#         # Declare the number of input/output quantizers
+#         self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None, None, None])
+#         self.output_quantizers = torch.nn.ModuleList([None])
+
+#     def forward(self, seq_length, r, w, k, v, a, b, state2):
+#         if self.input_quantizers[0]:
+#             r = self.input_quantizers[0](r)
+#         if self.input_quantizers[1]:
+#             w = self.input_quantizers[1](w)
+#         if self.input_quantizers[2]:
+#             k = self.input_quantizers[2](k)
+#         if self.input_quantizers[3]:
+#             v = self.input_quantizers[3](v)
+#         if self.input_quantizers[4]:
+#             a = self.input_quantizers[4](a)
+#         if self.input_quantizers[5]:
+#             b = self.input_quantizers[5](b)
+
+#         with self._patch_quantized_parameters():
+#             ret = super().forward(seq_length, r, w, k, v, a, b, state2)
+
+#         if self.output_quantizers[0]:
+#             ret = (self.output_quantizers[0](ret[0]), ret[1])
+
+#         return ret
+
+@QuantizationMixin.implements(Wkv7State)
+class QuantizedWkv7State(QuantizationMixin, Wkv7State):
     def __quant_init__(self):
         super().__quant_init__()
 
         # Declare the number of input/output quantizers
-        self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None, None, None])
+        self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None])
         self.output_quantizers = torch.nn.ModuleList([None])
 
-    def forward(self, seq_length, r, w, k, v, a, b, state2):
-        # not quantizing wkv module
-        return super().forward(seq_length, r, w, k, v, a, b, state2)
+    def forward(self, w, k, v, a, b, state2):
+        if self.input_quantizers[0]:
+            w = self.input_quantizers[0](w)
+        if self.input_quantizers[1]:
+            k = self.input_quantizers[1](k)
+        if self.input_quantizers[2]:
+            v = self.input_quantizers[2](v)
+        if self.input_quantizers[3]:
+            a = self.input_quantizers[3](a)
+        if self.input_quantizers[4]:
+            b = self.input_quantizers[4](b)
+
+        with self._patch_quantized_parameters():
+            ret = super().forward(w, k, v, a, b, state2)
+
+        return ret
+
+@QuantizationMixin.implements(Wkv7Output)
+class QuantizedWkv7Output(QuantizationMixin, Wkv7Output):
+    def __quant_init__(self):
+        super().__quant_init__()
+
+        # Declare the number of input/output quantizers
+        self.input_quantizers = torch.nn.ModuleList([None, None])
+        self.output_quantizers = torch.nn.ModuleList([None])
+
+    def forward(self, r, state2):
+        if self.input_quantizers[0]:
+            r = self.input_quantizers[0](r)
+
+        with self._patch_quantized_parameters():
+            ret = super().forward(r, state2)
+
+        if self.output_quantizers[0]:
+            ret = self.output_quantizers[0](ret)
+
+        return ret
 
 @QuantizationMixin.implements(L2Norm)
 class QuantizedL2Norm(QuantizationMixin, L2Norm):
@@ -129,12 +197,21 @@ for block in sim.model.blocks:
     block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    block.att.wkv7.split_state.input_quantizers[0] = None
-    block.att.wkv7.split_state.output_quantizers[0] = None
-    block.att.wkv7.concat_state.input_quantizers[0] = None
-    block.att.wkv7.concat_state.output_quantizers[0] = None
-    block.att.wkv7.concat_x.input_quantizers[0] = None
-    block.att.wkv7.concat_x.output_quantizers[0] = None
+    block.att.wkv7.reshape_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+
+    block.att.wkv7.wkv_state.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    for i in range(6):
+        block.att.wkv7.wkv_state.input_quantizers[i] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+
+    block.att.wkv7.wkv_output.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.wkv_output.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.wkv_output.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     if args_parser.use_w4_seq_mse:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
@@ -153,7 +230,8 @@ sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth
 sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 mp_configurator.apply()
 
-print(sim)
+# print(sim)
+print(sim.model.blocks[0].att)
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -161,6 +239,38 @@ dataloader = None
 if args_parser.binidx_dataset is not None:
     from utils.indexed_dataset import MMapIndexedDataset
     dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
+    block_size = 2048
+    len_total = 1
+    took = []
+    tokens = np.array([0])
+    while len_total < max(args_parser.calib_num_batches, args_parser.seqmse_num_batches) * block_size:
+        if len(took) >= len(dataset):
+            break
+        idx = random.randint(0, len(dataset) - 1)
+        while idx in took:
+            if len(took) >= len(dataset):
+                break
+            idx = random.randint(0, len(dataset) - 1)
+        took.append(idx)
+        len_total += len(dataset[idx])
+        tokens = np.concatenate((tokens, np.array(dataset[idx])), axis=0)
+
+    class CustomDataset(torch.utils.data.Dataset):
+        def __init__(self, tokens, block_size=2048):
+            self.full_tokens = tokens
+            self.block_size = block_size
+            self._len = len(tokens) // block_size
+
+        def __len__(self):
+            return self._len
+
+        def __getitem__(self, idx):
+            start_idx = idx * self.block_size
+            end_idx = (idx+1) * self.block_size
+
+            input_ids = self.full_tokens[start_idx:end_idx]
+            return input_ids
+    dataset = CustomDataset(tokens, block_size)
     def collate_fn(x):
         return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64)).to(device)}
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)
@@ -193,7 +303,7 @@ def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Opt
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
 
-    num_batches = 2
+    num_batches = args_parser.calib_num_batches
 
     model.eval()
     with torch.no_grad():
@@ -206,7 +316,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.use_w4_seq_mse:
     with torch.no_grad():
-        params = SeqMseParams(num_batches=20,
+        params = SeqMseParams(num_batches=args_parser.seqmse_num_batches,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',
@@ -353,34 +463,41 @@ with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
 # if args_parser.use_old_format:
 if True:
     act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
+    dummy_quant_override = [
+        {
+            "bitwidth": 16,
+            "dtype": "int",
+            "is_symmetric": "False",
+            "max": 1.0,
+            "min": 0.0,
+            "offset": 0,
+            "scale": 1.5259021893143654e-05
+        }
+    ]
     keys = list(encodings['activation_encodings'].keys())
     for key in keys:
         if 'state' in key and 'out' in key:
             encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
 
     for i in range(model.args.n_layer):
-        for j in range(4):
-            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
-                encodings['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
-        # try:
-        #     del encodings['activation_encodings'][f'state{3*i+1}_in']
-        #     del encodings['activation_encodings'][f'state{3*i+1}_out']
-        # except:
-        #     pass
+    #     for j in range(4):
+    #         for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
+    #             encodings['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
+        encodings['activation_encodings'][f'state{3*i+1}_in'] = dummy_quant_override
+        encodings['activation_encodings'][f'state{3*i+1}_out'] = dummy_quant_override
 
     for k in keys:
         if 'state' in k:
             encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
 
     for i in range(model.args.n_layer):
-        for j in range(4):
-            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
-                encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
-        # try:
-        #     del encodings_prefill['activation_encodings'][f'state{3*i+1}_in']
-        #     del encodings_prefill['activation_encodings'][f'state{3*i+1}_out']
-        # except:
-        #     pass
+    #     for j in range(4):
+    #         for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
+    #             encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}'] = act_fp_override
+        encodings_prefill['activation_encodings'][f'state{3*i+1}_in'] = dummy_quant_override
+        encodings_prefill['activation_encodings'][f'state{3*i+1}_out'] = dummy_quant_override
+        encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/gather_state/Gather_output_0'] = dummy_quant_override
+        encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/wkv_state/wkv7_state_output_0'] = dummy_quant_override
 else:
     for entry in encodings['activation_encodings']:
         if 'state' in entry['name'] and 'out' in entry['name']:

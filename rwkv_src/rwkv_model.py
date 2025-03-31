@@ -58,14 +58,14 @@ def check_rwkv_info(state_dict):
     return version, n_layer, n_head
 
 class RWKV_Block(nn.Module):
-    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, layer_total=0, split_wkv=True, output_last=False):
+    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, layer_total=0, output_last=False):
         super().__init__()
         self.version = version
         self.layer_id = layer_id
         self.layer_offset = layer_id - layer_begin
         self.layer_total = layer_total
         if self.version == 7:
-            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv, split_wkv=split_wkv)
+            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
             self.ffn = Rwkv7FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
         elif self.version == 6:
             self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, custom_wkv=custom_wkv)
@@ -144,7 +144,7 @@ class RWKV_RNN(torch.nn.Module):
 
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
-            custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, split_wkv=self.args.split_wkv, \
+            custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
             output_last=self.args.output_last) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])

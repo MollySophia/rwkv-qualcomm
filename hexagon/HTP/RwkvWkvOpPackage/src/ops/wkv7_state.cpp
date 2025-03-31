@@ -15,7 +15,7 @@ BEGIN_PKG_OP_DEFINITION(PKG_wkv7_state);
 
 // op execute function declarations
 template<typename TensorType>
-GraphStatus wkv7StateImpl(TensorType& out_0,
+GraphStatus wkv7StateFloatImpl(TensorType& out_0,
                     const TensorType& w,
                     const TensorType& k,
                     const TensorType& v,
@@ -23,55 +23,200 @@ GraphStatus wkv7StateImpl(TensorType& out_0,
                     const TensorType& b,
                     const TensorType& state);
 
+template<typename TensorType, typename StateType>
+GraphStatus wkv7StateFloat16Impl(StateType& out_0,
+                    const TensorType& w,
+                    const TensorType& k,
+                    const TensorType& v,
+                    const TensorType& a,
+                    const TensorType& b,
+                    const StateType& state);
+
 /*
  * method 1 for defining op, using default cost value (i.e. GLACIAL) and default flag (Flags::RESOURCE_HVX)
  * syntax: DEF_PACKAGE_OP(F,OP)
  * e.g. DEF_PACKAGE_OP((wkv7Impl<Tensor>), "wkv7")
  */
-DEF_PACKAGE_OP((wkv7StateImpl<Tensor>), "wkv7_state")
+// DEF_PACKAGE_OP((wkv7StateImpl<Tensor>), "wkv7_state")
 
-// #define WKV_SPLIT_SIZE 8
-// DEF_PACKAGE_OPTIMIZATION(EARLY + 3,
-//   Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
-//   OK,
-//   AUTOSPLIT(1, "I", WKV_SPLIT_SIZE, 
-//     Op("wkv7", 
-//       TYPICAL_SLICE("r", "I"), 
-//       TYPICAL_SLICE("w", "I"), 
-//       TYPICAL_SLICE("k", "I"), 
-//       TYPICAL_SLICE("v", "I"), 
-//       TYPICAL_SLICE("a", "I"), 
-//       TYPICAL_SLICE("b", "I"), 
-//       // CHANGEDIM_SLICE("state_in", "I", 3)  // Use CHANGEDIM_SLICE for state since it has a different dimension layout
-//       TYPICAL_SLICE("b", "I"), 
-//     )
-//   )
-// )
+DEF_PACKAGE_OPTIMIZATION(
+  CLEANUP_GRAPH + 50,
+  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  IS_FLOAT16("state_in"),
+  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in")
+)
 
-/*
- * op parameter order definitions
- * need to be global in the package
- * one definition per op, and this is optional
- * syntax: DEF_PACKAGE_PARAM_ORDER(OP,PARAM1,MANDATORY1,DEFAULT1,PARAM2,MANDATORY2,DEFAULT2...)
- * one or more parameters can be specified for each op
-     * order of parameters listed determines the order of parameters passed into op execution functions
- * if an op does not have a parameter order definition, parameter order passed into Qnn_addNode
- *   will be passed into op execution functions
- * if an op has a parameter order definition, any parameter passed into Qnn_addNode with unlisted
-     *   name will be abandoned
- * if two or more op packages with the same package name will be registered, they cannot list
- *   conflicting parameter orders
- * PARAM refers to parameter name as a string literal
- * MANDATORY refers to whether this parameter is required to be provided at Qnn_addNode
- * DEFAULT is used when MANDATORY is false
- *     if provided as Qnn_Param_t*,
- *       DEFAULT will be used for graph construction when this parameter is not provided at
- *       Qnn_addNode
- *     if provided as nullptr,
- *       graph construction will skip this parameter when this parameter is not provided at
- *       Qnn_addNode
- */
+DEF_PACKAGE_OPTIMIZATION(
+  CLEANUP_GRAPH + 50,
+  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  IS_QUINT16("w"),
+  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in")
+)
 
+DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
+  CLEANUP_GRAPH + 51, relaxed_precision_flag,
+  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  MAKE_OP_FP16_AND_INSERT_CAST(Op("wkv7_state.fp16", CAST_TO_FP16("w"), CAST_TO_FP16("k"), CAST_TO_FP16("v"), CAST_TO_FP16("a"), CAST_TO_FP16("b"), CAST_TO_FP16("state_in")))
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  TILING + 100,
+  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in"),
+  GT(DIM_HEIGHT("*"), 2),
+  AUTOSPLIT(1, "I", 2,
+    Op("wkv7_state.fp16",
+      TYPICAL_SLICE("w", "I"),
+      TYPICAL_SLICE("k", "I"),
+      TYPICAL_SLICE("v", "I"),
+      TYPICAL_SLICE("a", "I"),
+      TYPICAL_SLICE("b", "I"),
+      TYPICAL_SLICE("state_in", "I")
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  TILING + 100,
+  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  GT(DIM_HEIGHT("*"), 2),
+  AUTOSPLIT(1, "I", 2,
+    Op("wkv7_state",
+      TYPICAL_SLICE("w", "I"),
+      TYPICAL_SLICE("k", "I"),
+      TYPICAL_SLICE("v", "I"),
+      TYPICAL_SLICE("a", "I"),
+      TYPICAL_SLICE("b", "I"),
+      TYPICAL_SLICE("state_in", "I")
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  TILING + 100,
+  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in"),
+  GT(DIM_HEIGHT("*"), 2),
+  AUTOSPLIT(1, "I", 2,
+    Op("wkv7_state.uint16",
+      TYPICAL_SLICE("w", "I"),
+      TYPICAL_SLICE("k", "I"),
+      TYPICAL_SLICE("v", "I"),
+      TYPICAL_SLICE("a", "I"),
+      TYPICAL_SLICE("b", "I"),
+      TYPICAL_SLICE("state_in", "I")
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 100,
+  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  Op("wkv7_state.flat",
+    WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w")),
+    WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "k")),
+    WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "v")),
+    WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "a")),
+    WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "b")),
+    WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "state_in"))
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 100,
+  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  Op("wkv7_state.fp16.flat",
+    WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w")),
+    WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "k")),
+    WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "v")),
+    WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "a")),
+    WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "b")),
+    WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "state_in"))
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 100,
+  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  WITH_OUTPUT_TYPE(DType::QUInt16, ZERO_OFFSET_OF("*"), STEPSIZE_OF("*"),
+    Op("wkv7_state.uint16.flat.dequant",
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("w"), STEPSIZE_OF("w"),
+        WITH_SIZE("w", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w"))))
+      ),
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("k"), STEPSIZE_OF("k"),
+        WITH_SIZE("k", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "k"))))
+      ),
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("v"), STEPSIZE_OF("v"),
+        WITH_SIZE("v", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "v"))))
+      ),
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("a"), STEPSIZE_OF("a"),
+        WITH_SIZE("a", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "a"))))
+      ),
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("b"), STEPSIZE_OF("b"),
+        WITH_SIZE("b", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "b"))))
+      ),
+      WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "state_in"))
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 130,
+  Op("wkv7_state.fp16.flat", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+    Op("wkv7_state.fp16.flat.tcm",
+      WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
+      WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
+      WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
+      WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "a")),
+      WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
+      WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 130,
+  Op("wkv7_state.flat", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+    Op("wkv7_state.flat.tcm",
+      WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
+      WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
+      WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
+      WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "a")),
+      WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
+      WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
+    )
+  )
+)
+
+DEF_PACKAGE_OPTIMIZATION(
+  HARD_OPS + 130,
+  Op("wkv7_state.uint16.flat.dequant", "w", "k", "v", "a", "b", "state_in"),
+  OK,
+  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+    Op("wkv7_state.uint16.flat.dequant.tcm",
+      WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
+      WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
+      WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
+      WITH_SAME_OUTPUT("a", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "a")),
+      WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
+      WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
+    )
+  )
+)
+
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7_state.fp16.flat", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7_state.fp16.flat.tcm", FAST, Flags::RESOURCE_HVX)
+
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloatImpl<PlainFloatTensor>), "wkv7_state.flat", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloatImpl<PlainFloatTensor_TCM>), "wkv7_state.flat.tcm", FAST, Flags::RESOURCE_HVX)
+
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_state.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
 
 /* execute functions for ops */
 #include <hvx_hexagon_protos.h>
@@ -89,31 +234,41 @@ static inline int32_t float_to_int(float scale)
     return fp32.i;
 }
 
-static void wkv7_hvx_f(const int seq_length, const int num_heads, const int head_size,
-                  float *out_0,
-                  const float *w,
-                  const float *k,
-                  const float *v,
-                  const float *a,
-                  const float *b,
-                  const float *state_in) {
+template<typename TensorType>
+GraphStatus wkv7StateFloatImpl(TensorType& out_0,
+                    const TensorType& w,
+                    const TensorType& k,
+                    const TensorType& v,
+                    const TensorType& a,
+                    const TensorType& b,
+                    const TensorType& state) {
+            
 #ifdef USE_HVX
-  const float *v_ptr = v;
+  int num_heads = state.dim(1);
+  int head_size = state.dim(2);
+  int seq_length = k.dim(0);
+  auto w_ptr = (float*)w.raw_data_const();
+  auto k_ptr = (float*)k.raw_data_const();
+  auto v_ptr = (float*)v.raw_data_const();
+  auto a_ptr = (float*)a.raw_data_const();
+  auto b_ptr = (float*)b.raw_data_const();
+  auto state_ptr = (float*)state.raw_data_const();
+  auto out0_ptr = (float*)out_0.raw_data();
   float tmp_buf[32];
-  HVX_Vector *out_state_ptr = (HVX_Vector *)(out_0);
+  HVX_Vector *out_state_ptr = (HVX_Vector *)(out0_ptr);
 
   for (int t = 0; t < seq_length; t++) {
-    HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out_0 + t * num_heads * head_size * head_size) : (HVX_Vector *)(state_in);
+    HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out0_ptr + (t - 1) * num_heads * head_size * head_size) : (HVX_Vector *)(state_ptr);
 
     for (int h = 0; h < num_heads; h++) {
-      HVX_Vector w_vec_0 = *(HVX_Vector *)w;
-      HVX_Vector w_vec_1 = *((HVX_Vector *)w + 1);
-      HVX_Vector k_vec_0 = *(HVX_Vector *)k;
-      HVX_Vector k_vec_1 = *((HVX_Vector *)k + 1);
-      HVX_Vector a_vec_0 = *(HVX_Vector *)a;
-      HVX_Vector a_vec_1 = *((HVX_Vector *)a + 1);
-      HVX_Vector b_vec_0 = *(HVX_Vector *)b;
-      HVX_Vector b_vec_1 = *((HVX_Vector *)b + 1);
+      HVX_Vector w_vec_0 = *(HVX_Vector *)w_ptr;
+      HVX_Vector w_vec_1 = *((HVX_Vector *)w_ptr + 1);
+      HVX_Vector k_vec_0 = *(HVX_Vector *)k_ptr;
+      HVX_Vector k_vec_1 = *((HVX_Vector *)k_ptr + 1);
+      HVX_Vector a_vec_0 = *(HVX_Vector *)a_ptr;
+      HVX_Vector a_vec_1 = *((HVX_Vector *)a_ptr + 1);
+      HVX_Vector b_vec_0 = *(HVX_Vector *)b_ptr;
+      HVX_Vector b_vec_1 = *((HVX_Vector *)b_ptr + 1);
 
       for (int i = 0; i < head_size; i += 4) {
         HVX_Vector v_vec_0 = Q6_V_vsplat_R(float_to_int(*v_ptr++));
@@ -198,37 +353,47 @@ static void wkv7_hvx_f(const int seq_length, const int num_heads, const int head
         *out_state_ptr++ = Q6_Vsf_equals_Vqf32(state_vec_6);
         *out_state_ptr++ = Q6_Vsf_equals_Vqf32(state_vec_7);
       }
-      w += head_size;
-      k += head_size;
-      a += head_size;
-      b += head_size;
+      w_ptr += head_size;
+      k_ptr += head_size;
+      a_ptr += head_size;
+      b_ptr += head_size;
     }
   }
 #endif
+  return GraphStatus::Success;
 }
 
-static void wkv7_hvx_hf(const int seq_length, const int num_heads, const int head_size,
-                  __fp16 *out_0,
-                  const __fp16 *w,
-                  const __fp16 *k,
-                  const __fp16 *v,
-                  const __fp16 *a,
-                  const __fp16 *b,
-                  const __fp16 *state_in) {
+template<typename TensorType, typename StateType>
+GraphStatus wkv7StateFloat16Impl(StateType& out_0,
+                    const TensorType& w,
+                    const TensorType& k,
+                    const TensorType& v,
+                    const TensorType& a,
+                    const TensorType& b,
+                    const StateType& state) {
 #ifdef USE_HVX
-  __fp16 *v_ptr = (__fp16 *)v;
+  int num_heads = state.dim(1);
+  int head_size = state.dim(2);
+  int seq_length = k.dim(0);
+  __fp16* w_ptr = (__fp16*)w.raw_data_const();
+  __fp16* k_ptr = (__fp16*)k.raw_data_const();
+  __fp16* v_ptr = (__fp16*)v.raw_data_const();
+  __fp16* a_ptr = (__fp16*)a.raw_data_const();
+  __fp16* b_ptr = (__fp16*)b.raw_data_const();
+  __fp16* state_ptr = (__fp16*)state.raw_data_const();
+  __fp16* out0_ptr = (__fp16*)out_0.raw_data();
 
   __fp16 __attribute__((aligned(VLEN))) tmp_buf[64];
-  HVX_Vector *out_state_ptr = (HVX_Vector *)(out_0);
+  HVX_Vector *out_state_ptr = (HVX_Vector *)(out0_ptr);
 
   for (int t = 0; t < seq_length; t++) {
-    HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out_0 + t * num_heads * head_size * head_size) : (HVX_Vector *)(state_in);
+    HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out0_ptr + (t - 1) * num_heads * head_size * head_size) : (HVX_Vector *)(state_ptr);
 
     for (int h = 0; h < num_heads; h++) {
-      HVX_Vector w_vec = *(HVX_Vector *)w;
-      HVX_Vector k_vec = *(HVX_Vector *)k;
-      HVX_Vector a_vec = *(HVX_Vector *)a;
-      HVX_Vector b_vec = *(HVX_Vector *)b;
+      HVX_Vector w_vec = *(HVX_Vector *)w_ptr;
+      HVX_Vector k_vec = *(HVX_Vector *)k_ptr;
+      HVX_Vector a_vec = *(HVX_Vector *)a_ptr;
+      HVX_Vector b_vec = *(HVX_Vector *)b_ptr;
       for (int i = 0; i < head_size; i += 8) {
         HVX_Vector kv_vec_0 = Q6_Vqf16_vmpy_VhfVhf(k_vec, Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++)));
         HVX_Vector kv_vec_1 = Q6_Vqf16_vmpy_VhfVhf(k_vec, Q6_Vh_vsplat_R(fp16_to_bits(v_ptr++)));
@@ -318,149 +483,11 @@ static void wkv7_hvx_hf(const int seq_length, const int num_heads, const int hea
         *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_6);
         *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_7);
       }
-      w += head_size;
-      k += head_size;
-      a += head_size;
-      b += head_size;
+      w_ptr += head_size;
+      k_ptr += head_size;
+      a_ptr += head_size;
+      b_ptr += head_size;
     }
-  }
-#endif
-}
-
-
-template <typename T>
-static void wkv7_naive(const int seq_length, const int num_heads, const int head_size,
-                  T *out_0,
-                  const T *w,
-                  const T *k,
-                  const T *v,
-                  const T *a,
-                  const T *b,
-                  const T *state) {
-
-  // for (int t = 0; t < seq_length; t++) {
-  //   T * state_in = t > 0 ? out_1 : (T*)state;
-  //   for (int h = 0; h < num_heads; h++) {
-  //     for (int i = 0; i < head_size; i++) {
-  //       auto v_val = v[t * num_heads * head_size + h * head_size + i];
-
-  //       T sa = 0, result = 0;
-  //       for (int j = 0; j < head_size; j++) {
-  //         sa += a[t * num_heads * head_size + h * head_size + j] * state_in[h * head_size * head_size + i * head_size + j];
-  //       }
-
-  //       for (int j = 0; j < head_size; j++) {
-  //         auto r_val = r[t * num_heads * head_size + h * head_size + j];
-  //         auto w_val = w[t * num_heads * head_size + h * head_size + j];
-  //         auto k_val = k[t * num_heads * head_size + h * head_size + j];
-  //         auto b_val = b[t * num_heads * head_size + h * head_size + j];
-  //         auto kv_val = k_val * v_val;
-
-  //         auto state_val = state_in[h * head_size * head_size + i * head_size + j];
-  //         state_val = state_val * w_val + kv_val + sa * b_val;
-  //         out_1[h * head_size * head_size + i * head_size + j] = state_val;
-  //         result += r_val * state_val;
-  //       }
-  //       out_0[t * num_heads * head_size + h * head_size + i] = result;
-  //     }
-  //   }
-  // }
-}
-
-#endif
-
-template<typename TensorType>
-GraphStatus wkv7StateImpl(TensorType& out_0,
-                    const TensorType& w,
-                    const TensorType& k,
-                    const TensorType& v,
-                    const TensorType& a,
-                    const TensorType& b,
-                    const TensorType& state)
-
-{
-  /*
-   * To have good performance and stability, it is required to avoid heap memory
-   * allocation in this function. The heap memory allocation includes but not
-   * limited to calling malloc, operator new, constructing STL container objects
-   * like std::vector with default allocator, and adding items like calling
-   * std::vector::push_back to STL container objects with default allocator.
-   *
-   * Please check in SDK documentation for more information.
-   */
-
-  int num_heads = state.dim(1);
-  int head_size = state.dim(2);
-  int seq_length = k.dim(0);
-
-#ifdef USE_HVX
-// #if 0
-  if (state.get_dtype() == DType::Float32) {
-    auto w_ptr = (float*)w.raw_data_const();
-    auto k_ptr = (float*)k.raw_data_const();
-    auto v_ptr = (float*)v.raw_data_const();
-    auto a_ptr = (float*)a.raw_data_const();
-    auto b_ptr = (float*)b.raw_data_const();
-    auto state_ptr = (float*)state.raw_data_const();
-    auto out0_ptr = (float*)out_0.raw_data();
-    wkv7_hvx_f(seq_length, num_heads, head_size,
-                      out0_ptr,
-                      w_ptr,
-                      k_ptr,
-                      v_ptr,
-                      a_ptr,
-                      b_ptr,
-                      state_ptr);
-  } else if (state.get_dtype() == DType::Float16) {
-    auto w_ptr = (__fp16*)w.raw_data_const();
-    auto k_ptr = (__fp16*)k.raw_data_const();
-    auto v_ptr = (__fp16*)v.raw_data_const();
-    auto a_ptr = (__fp16*)a.raw_data_const();
-    auto b_ptr = (__fp16*)b.raw_data_const();
-    auto state_ptr = (__fp16*)state.raw_data_const();
-    auto out0_ptr = (__fp16*)out_0.raw_data();
-    wkv7_hvx_hf(seq_length, num_heads, head_size,
-                      out0_ptr,
-                      w_ptr,
-                      k_ptr,
-                      v_ptr,
-                      a_ptr,
-                      b_ptr,
-                      state_ptr);
-  }
-#else
-  if (state.get_dtype() == DType::Float32) {
-    auto w_ptr = (float*)w.raw_data_const();
-    auto k_ptr = (float*)k.raw_data_const();
-    auto v_ptr = (float*)v.raw_data_const();
-    auto a_ptr = (float*)a.raw_data_const();
-    auto b_ptr = (float*)b.raw_data_const();
-    auto state_ptr = (float*)state.raw_data_const();
-    auto out0_ptr = (float*)out_0.raw_data();
-    wkv7_naive<float>(seq_length, num_heads, head_size,
-                      out0_ptr,
-                      w_ptr,
-                      k_ptr,
-                      v_ptr,
-                      a_ptr,
-                      b_ptr,
-                      state_ptr);
-  } else if (state.get_dtype() == DType::Float16) {
-    auto w_ptr = (__fp16*)w.raw_data_const();
-    auto k_ptr = (__fp16*)k.raw_data_const();
-    auto v_ptr = (__fp16*)v.raw_data_const();
-    auto a_ptr = (__fp16*)a.raw_data_const();
-    auto b_ptr = (__fp16*)b.raw_data_const();
-    auto state_ptr = (__fp16*)state.raw_data_const();
-    auto out0_ptr = (__fp16*)out_0.raw_data();
-    wkv7_naive<__fp16>(seq_length, num_heads, head_size,
-                      out0_ptr,
-                      w_ptr,
-                      k_ptr,
-                      v_ptr,
-                      a_ptr,
-                      b_ptr,
-                      state_ptr);
   }
 #endif
   return GraphStatus::Success;

@@ -36,7 +36,6 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
             "vtcm_mb": 0,
             "O": 3,
             "graph_names": graph_names,
-            "fp16_relaxed_precision": 1,
         },
         "devices": [{
             "dsp_arch": htp_devices[soc_name]["dsp_arch"],
@@ -49,6 +48,10 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
             }]
         }]
     }
+
+    if soc_name != "SM8635":
+        config["graphs"]["fp16_relaxed_precision"] = 1
+
     if not old_qnn:
         config["graphs"] = [config["graphs"]]
 

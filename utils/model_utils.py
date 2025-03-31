@@ -231,10 +231,8 @@ def onnx_custom_wkv7_state(g, w, k, v, a, b, state):
     return out.setType(k.type().with_dtype(torch.float32).with_sizes([k.type().sizes()[0], n_head, head_size, head_size]))
 
 def onnx_custom_wkv7_output(g, r, state):
-    n_head = state.type().sizes()[1]
-    head_size = state.type().sizes()[2]
     out = g.op("rwkv::wkv7_output", r, state, outputs=1)
-    return out.setType(r.type().with_dtype(torch.float32).with_sizes([r.type().sizes()[0], n_head, 1, head_size]))
+    return out.setType(r.type().with_dtype(torch.float32).with_sizes(r.type().sizes()))
 
 def norm(g, self):
     return g.op("LpNormalization", self, p_i=2, axis_i=-1)
