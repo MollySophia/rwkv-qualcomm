@@ -68,8 +68,6 @@ class Wkv7(nn.Module):
         self.reshape_b = Reshape()
         self.reshape_x = Reshape()
 
-        self.concat_x = Concat(1)
-        self.concat_state = Concat(1)
         self.gather_state = CustomGather()
 
         if custom_wkv:
