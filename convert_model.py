@@ -131,6 +131,18 @@ if type(model) == list:
             onnx_output_path = f"{dirname}/{filename}_chunk{i+1}of{len(model)}.onnx"
         OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model[i], tuple(inputs),
             False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
+        onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
+        graph = gs.import_onnx(onnxmodel)
+        # set output shape for wkv7_output
+        for k, v in graph.tensors().items():
+            if "wkv7_output_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
+            elif "wkv7_state_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, args.head_size, args.head_size])
+
+        onnxmodel = gs.export_onnx(graph)
+        convert_model_to_external_data(onnxmodel)
+        onnx.save(onnxmodel, onnx_output_path)
         shape_inference.infer_shapes_path(onnx_output_path)
         print(f"onnx model chunk{i} saved to {onnx_output_path}")
 
