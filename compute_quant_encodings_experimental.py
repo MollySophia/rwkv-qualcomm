@@ -323,6 +323,8 @@ if args_parser.use_w4_seq_mse:
                             forward_fn=pass_calibration_data_seq_mse)
 
         apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
+    output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
+    sim.save_encodings_to_json(output_path, 'seqmse_encodings.json')
 
 model = model.to('cpu').float()
 torch.cuda.empty_cache()
