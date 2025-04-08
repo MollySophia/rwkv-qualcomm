@@ -37,7 +37,7 @@ bool IOTensor::initialize(Qnn_ContextHandle_t contextHandle) {
     return false;
 #else
     m_bufferManager =
-        std::unique_ptr<IBufferAlloc>(new DmaBufferAllocator(contextHandle, m_qnnInterface));
+        std::unique_ptr<IBufferAlloc>(new rwkv_qualcomm::DmaBufferAllocator(contextHandle, m_qnnInterface));
 #endif
   }
 

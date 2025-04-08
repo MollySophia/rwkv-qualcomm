@@ -20,6 +20,8 @@ typedef void* (*DmaBufCreateFn_t)();
 typedef int (*DmaBufAllocFn_t)(void*, const char*, size_t, unsigned int, size_t);
 typedef void (*DmaBufDeinitFn_t)(void*);
 
+namespace rwkv_qualcomm {
+
 struct DmaBufferData {
   void* dmaBufferAllocator;
   int fd;
@@ -122,3 +124,5 @@ class DmaBufferAllocator final : public IBufferAlloc {
   std::unordered_set<Qnn_Tensor_t*> m_sameMemoryFreeTensors;
   std::unordered_map<Qnn_MemHandle_t, DmaBufferData> m_memHandleToDmaBufMem;
 };
+
+}  // namespace rwkv_qualcomm

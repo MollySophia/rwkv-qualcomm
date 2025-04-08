@@ -35,12 +35,3 @@ StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
 StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath);
 
 StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<std::vector<float>>> states);
-
-#if !defined(_WIN32) && ENABLE_CHAT_APIS
-// Completion functions
-int QnnRwkvTokenizerInit(std::string tokenizerPath);
-
-int QnnRwkvCompletionInit(QnnRwkvBackend_t backend, const char *msgBuffer, const int msgBufferLength, int maxTokenNum);
-
-const char * QnnRwkvCompletionGetTokenStr(QnnRwkvBackend_t backend, float temperature = 1, int topK = 128, float topP = 0.9, float presencePenalty = 0.4, float frequencyPenalty = 0.4, float penaltyDecay = 0.996);
-#endif

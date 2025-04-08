@@ -17,8 +17,6 @@ export TARGET = linux-x86_64
 # specify compiler
 export CXX := clang++-9
 
-export ENABLE_CHAT_APIS := 1
-
 .PHONY: all $(EXE_SOURCES) all_android
 
 all: $(EXE_SOURCES) all_android

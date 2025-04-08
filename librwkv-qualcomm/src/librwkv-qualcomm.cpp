@@ -10,9 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
-#if !defined(_WIN32) && ENABLE_CHAT_APIS
-#include "tokenizer.h"
-#endif
+#include "soc_detect.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -66,23 +64,25 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
             }
         }
 
-        const char* ldLibraryPath = getenv("LD_LIBRARY_PATH");
-        if (ldLibraryPath) {
-            std::string pathStr(ldLibraryPath);
-            std::stringstream ss(pathStr);
-            std::string dir;
-            while (std::getline(ss, dir, ':')) {
-                std::string fullPath = dir + "/libQnnRwkvWkvOpPackage.so";
-                std::ifstream file(fullPath);
-                if (file.good()) {
-                    LOG_ERROR("Found libQnnRwkvWkvOpPackage.so in LD_LIBRARY_PATH");
-                    app->m_opPackagePaths.push_back("libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider");
+        soc_detect detect;
+        detect.detect_platform();
+        std::string htp_arch = detect.get_htp_arch();
+        std::cout << "Htp arch: " << htp_arch << std::endl;
 
-                    if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
-                        LOG_ERROR("Op package registration failure");
-                    }
-                    break;
-                }
+        std::string fullPath;
+        if (modelPath.find_last_of("/") != std::string::npos) {
+            fullPath = modelPath.substr(0, modelPath.find_last_of("/")) + "/libQnnRwkvWkvOpPackage" + htp_arch + ".so";
+        } else {
+            fullPath = "libQnnRwkvWkvOpPackage" + htp_arch + ".so";
+        }
+        std::cout << "Full path: " << fullPath << std::endl;
+        std::fstream file(fullPath);
+        if (file.good()) {
+            LOG_ERROR("Found libQnnRwkvWkvOpPackage.so in LD_LIBRARY_PATH");
+            app->m_opPackagePaths.push_back(fullPath + ":RwkvWkvOpPackageInterfaceProvider");
+
+            if (rwkv_app::StatusCode::SUCCESS != app->registerOpPackages()) {
+                LOG_ERROR("Op package registration failure");
             }
         }
     }
@@ -369,143 +369,3 @@ StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<st
     // TODO
     return StatusCode::SUCCESS;
 }
-
-#if !defined(_WIN32) && ENABLE_CHAT_APIS
-// Completion functions
-static int sample_logits(const float* logits, const size_t size, float temperature, int top_k, float top_p) {
-    temperature = std::max(temperature, 0.1f);
-    temperature = std::min(temperature, 5.f);
-    if (top_k >= size)
-        top_k = size;
-
-    if (top_k == 0 || top_k == 1)
-        return std::max_element(logits, logits + size) - logits;
-
-    // softmax
-    float sum = 0;
-    int *index = new int[size];
-    float *probs = new float[size];
-
-    const float max_logit = *std::max_element(logits, logits + size);
-
-    for (int i = 0; i < size; i++) {
-        probs[i] = std::exp(logits[i] - max_logit);
-        sum += probs[i];
-        index[i] = i;
-    }
-
-    if (top_k != size)
-        std::nth_element(index, index + top_k,
-                index + size,
-                [&](int i, int j) { return probs[i] > probs[j]; });
-    std::sort(index, index + top_k,
-            [&](int i, int j) { return probs[i] > probs[j]; });
-
-    int len = top_k;
-
-    // top-p
-    float cumsum = 0;
-    for (int i = 0; i < len; i++) {
-        probs[index[i]] /= sum;
-        cumsum += probs[index[i]];
-        if (cumsum >= top_p) {
-            len = i + 1;
-            break;
-        }
-    }
-
-    // temperature
-    if (fabs(temperature - 1.f) > 1e-6) {
-        cumsum = 0;
-        for (int i = 0; i < len; i++) {
-            probs[index[i]] = std::pow(probs[index[i]], 1.f / temperature);
-            cumsum += probs[index[i]];
-        }
-    }
-
-    // random choice
-    float random_value = rand() / float(RAND_MAX) * cumsum;
-    
-    int ret = -1;
-    cumsum = 0;
-    for (int i = 0; i < len; i++) {
-        cumsum += probs[index[i]];
-        if (cumsum >= random_value) {
-            ret = index[i];
-            break;
-        }
-    }
-    
-    delete[] index;
-    delete[] probs;
-    return ret;
-}
-
-trie_tokenizer tokenizer;
-std::map<int, float> occurences;
-std::vector<float> logits;
-std::string rawMsg;
-int QnnRwkvTokenizerInit(std::string tokenizerPath) {
-    if (tokenizer.inited() || tokenizer.load(tokenizerPath) == 0) {
-        return 0;
-    } else {
-        return -1;
-    }
-}
-
-int QnnRwkvCompletionInit(QnnRwkvBackend_t backend, const char *msgBuffer, const int msgBufferLength) {
-    if (!backend || !msgBuffer || msgBufferLength <= 0 || tokenizer.inited()) {
-        return -1;
-    }
-    if (logits.empty()) {
-        std::vector<size_t> shape;
-        QnnRwkvGetVocabSize(backend, shape);
-        int64_t elemcount = 1;
-        for (auto dim : shape) {
-            elemcount *= dim;
-        }
-        logits.resize(elemcount);
-    }
-
-    occurences.clear();
-
-    std::string msg(msgBuffer, msgBufferLength);
-    msg = "User: " + msg + "\n\nAssistant:";
-    rawMsg = msg;
-    std::vector<int> prompt_ids = tokenizer.Encode(msg);
-    srand((unsigned)time(NULL));
-
-    for (auto token_id : prompt_ids) {
-        if (QnnRwkvExecute(backend, token_id) != StatusCode::SUCCESS) {
-            return -1;
-        }
-    }
-
-    return prompt_ids.size();
-}
-
-const char * QnnRwkvCompletionGetTokenStr(QnnRwkvBackend_t backend, int *currentTokenNum, float temperature, int topK, float topP, float presencePenalty, float frequencyPenalty, float penaltyDecay) {
-    if (!backend || !currentTokenNum || !tokenizer.inited()) {
-        return nullptr;
-    }
-
-    QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-    for (auto &x : occurences) {
-      logits[x.first] -=
-          frequencyPenalty * x.second + presencePenalty;
-      x.second *= penaltyDecay;
-    }
-    int token = sample_logits(logits.data(), logits.size(), temperature, topK, topP);
-    std::string outputStr = tokenizer.Decode(token);
-    rawMsg += outputStr;
-    (*currentTokenNum)++;
-    occurences[token]++;
-    QnnRwkvExecute(backend, token);
-
-    if (rawMsg.substr(rawMsg.size() - 2) == "\n\n") {
-        return nullptr;
-    }
-
-    return outputStr.c_str();
-}
-#endif

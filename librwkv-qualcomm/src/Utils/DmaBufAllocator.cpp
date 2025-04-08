@@ -26,6 +26,8 @@
 #include "QnnMem.h"
 #include "QnnTypeMacros.hpp"
 
+namespace rwkv_qualcomm {
+
 DmaBufferAllocator::DmaBufferAllocator(Qnn_ContextHandle_t contextHandle,
                                        QNN_INTERFACE_VER_TYPE* qnnInterface)
     : m_libDmaBufHeapHandle(nullptr),
@@ -317,3 +319,5 @@ bool DmaBufferAllocator::afterReadFromBuffer(Qnn_Tensor_t* tensor) {
   }
   return true;
 }
+
+}  // namespace rwkv_qualcomm
