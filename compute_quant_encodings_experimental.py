@@ -9,7 +9,7 @@ from tqdm import tqdm
 from typing import Any, Optional
 import numpy as np
 import random
-
+import copy
 from utils.model_utils import get_dummy_input_for_rwkv_causal_llm, get_dummy_state_kvcache, register_customop_symbols
 
 import argparse
@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description='Compute param encodings for linear
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
 # parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
+parser.add_argument('--blockwise_quant', action='store_true', help='Use blockwise quantization')
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
 parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
@@ -45,45 +46,15 @@ device = torch.device("cuda" if model_args.USE_CUDA else "cpu")
 from aimet_common import quantsim
 from aimet_common.defs import QuantScheme
 from aimet_torch.quantsim import QuantizationSimModel
-# from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
+from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_weights, set_grouped_blockwise_quantization_for_weights, set_activation_quantizers_to_float
 # from aimet_torch.quantization.affine import GroupedBlockQuantizeDequantize, QuantizeDequantize
-from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
+# from aimet_torch.v2.mixed_precision import MixedPrecisionConfigurator
 from aimet_torch.v2.nn import QuantizationMixin
+from aimet_torch.v2.nn.true_quant import QuantizedConv2d
 from aimet_torch.v2 import quantization as Q
 
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
-
-# @QuantizationMixin.implements(Wkv7)
-# class QuantizedWkv7(QuantizationMixin, Wkv7):
-#     def __quant_init__(self):
-#         super().__quant_init__()
-
-#         # Declare the number of input/output quantizers
-#         self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None, None, None])
-#         self.output_quantizers = torch.nn.ModuleList([None])
-
-#     def forward(self, seq_length, r, w, k, v, a, b, state2):
-#         if self.input_quantizers[0]:
-#             r = self.input_quantizers[0](r)
-#         if self.input_quantizers[1]:
-#             w = self.input_quantizers[1](w)
-#         if self.input_quantizers[2]:
-#             k = self.input_quantizers[2](k)
-#         if self.input_quantizers[3]:
-#             v = self.input_quantizers[3](v)
-#         if self.input_quantizers[4]:
-#             a = self.input_quantizers[4](a)
-#         if self.input_quantizers[5]:
-#             b = self.input_quantizers[5](b)
-
-#         with self._patch_quantized_parameters():
-#             ret = super().forward(seq_length, r, w, k, v, a, b, state2)
-
-#         if self.output_quantizers[0]:
-#             ret = (self.output_quantizers[0](ret[0]), ret[1])
-
-#         return ret
 
 @QuantizationMixin.implements(Wkv7State)
 class QuantizedWkv7State(QuantizationMixin, Wkv7State):
@@ -172,7 +143,7 @@ with torch.no_grad():
     )
 torch.cuda.empty_cache()
 
-mp_configurator = MixedPrecisionConfigurator(sim)
+# mp_configurator = MixedPrecisionConfigurator(sim)
 def set_linear_weight_quantizer_to_4bit(module):
     if module.param_quantizers['weight'] is not None:
         module.param_quantizers['weight'].bitwidth = 4
@@ -213,7 +184,7 @@ for block in sim.model.blocks:
     block.att.wkv7.wkv_output.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.att.wkv7.wkv_output.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    if args_parser.use_w4_seq_mse:
+    if args_parser.use_w4_seq_mse or args_parser.blockwise_quant:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
         set_linear_weight_quantizer_to_4bit(block.ffn.value)
         set_linear_weight_quantizer_to_4bit(block.att.output)
@@ -228,10 +199,7 @@ sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth
 sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-mp_configurator.apply()
-
-# print(sim)
-print(sim.model.blocks[0].att)
+# mp_configurator.apply()
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -325,22 +293,26 @@ if args_parser.use_w4_seq_mse:
         apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
     sim.save_encodings_to_json(output_path, 'seqmse_encodings.json')
+elif args_parser.blockwise_quant:
+    fn = lambda module: isinstance(module, QuantizedConv2d) and module.param_quantizers['weight'].bitwidth == 4
+
+    BLOCK_QUANT_SIZE = 16
+    BITWIDTH = 4
+    DECOMPRESSED_BITWIDTH = 8
+
+    set_grouped_blockwise_quantization_for_weights(sim = sim,
+                                                arg = fn,
+                                                bitwidth = BITWIDTH,
+                                                symmetric = True,
+                                                decompressed_bw = DECOMPRESSED_BITWIDTH,
+                                                block_size = BLOCK_QUANT_SIZE,
+                                                block_grouping = -1)
+
+# print(sim)
+print(sim.model.blocks[0].att)
 
 model = model.to('cpu').float()
 torch.cuda.empty_cache()
-
-# NOTE: looks unusable with QNN yet
-# for block in sim.model.blocks:
-#     # set_activation_quantizers_to_float(sim=sim, arg=[block.ffn.value], dtype=torch.float16)
-#     # set_blockwise_quantization_for_weights(sim=sim,
-#     #                                           arg=[block.ffn.value],
-#     #                                           bitwidth=4,
-#     #                                           symmetric=True,
-#     #                                           block_size=128)
-#     set_grouped_blockwise_quantization_for_weights(
-#         sim, [block.ffn.value], bitwidth=4, symmetric=True, decompressed_bw=8, block_size=128, block_grouping=-1
-#     )
-
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
@@ -419,7 +391,7 @@ prefill_filename = filename + '_prefill'
 output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
 
 # if not args_parser.use_old_format:
-if False:
+if args_parser.blockwise_quant:
     # for exporting Qualcomm's LPBQ parameters
     quantsim.encoding_version = '1.0.0'
 
@@ -462,8 +434,8 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-# if args_parser.use_old_format:
-if True:
+if not args_parser.blockwise_quant:
+# if False:
     act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
     dummy_quant_override = [
         {
@@ -520,19 +492,36 @@ else:
                     n['offset'] = entry['offset']
                     n['scale'] = entry['scale']
                     encodings_prefill['activation_encodings'].append(n)
+    dummy_quant_override = {
+        "bw": 16,
+        "dtype": "INT",
+        "enc_type": "PER_TENSOR",
+        "is_sym": False,
+        "name": "state0_in",
+        "offset": [
+            0
+        ],
+        "scale": [
+            1.5259021893143654e-05
+        ]
+    },
     for i in range(model.args.n_layer):
-        for j in range(4):
-            for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
-                encodings['activation_encodings'].append({
-                    "name": f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}',
-                    "bw": 16,
-                    "dtype": "FLOAT",
-                })
-                encodings_prefill['activation_encodings'].append({
-                    "name": f'/blocks.{i}/att/wkv7/split_{o}/Split_output_{j}',
-                    "bw": 16,
-                    "dtype": "FLOAT",
-                })
+        tmp = copy.deepcopy(dummy_quant_override)
+        tmp["name"] = f'state{3*i+1}_in'
+        encodings['activation_encodings'].append(tmp)
+        encodings_prefill['activation_encodings'].append(tmp)
+        tmp = copy.deepcopy(dummy_quant_override)
+        tmp["name"] = f'state{3*i+1}_out'
+        encodings['activation_encodings'].append(tmp)
+        encodings_prefill['activation_encodings'].append(tmp)
+        tmp = copy.deepcopy(dummy_quant_override)
+        tmp["name"] = f'/blocks.{i}/att/wkv7/gather_state/Gather_output_0'
+        encodings['activation_encodings'].append(tmp)
+        encodings_prefill['activation_encodings'].append(tmp)
+        tmp = copy.deepcopy(dummy_quant_override)
+        tmp["name"] = f'/blocks.{i}/att/wkv7/wkv_state/wkv7_state_output_0'
+        encodings['activation_encodings'].append(tmp)
+        encodings_prefill['activation_encodings'].append(tmp)
 
 with open(output_path + '/' + filename + '.encodings', 'w') as f:
     json.dump(encodings, f, indent=4)
