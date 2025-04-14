@@ -20,6 +20,10 @@ htp_devices = {
     "SM8635": {
         "dsp_arch": "v73",
         "soc_id": 68,
+    },
+    "SM7325": {
+        "dsp_arch": "v68",
+        "soc_id": 35,
     }
 }
 
@@ -46,10 +50,13 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
                 "core_id": 0,
                 "perf_profile": "burst"
             }]
-        }]
+        }],
+        "memory": {
+            "mem_type": "shared_buffer"
+        }
     }
 
-    if soc_name != "SM8635":
+    if soc_name != "SM8635" and soc_name != "SM7325":
         config["graphs"]["fp16_relaxed_precision"] = 1
 
     if not old_qnn:

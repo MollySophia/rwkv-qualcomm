@@ -49,6 +49,16 @@ clean_aarch64-android:
 	@rm -rf bin/aarch64-android
 	@rm -rf obj/local/aarch64-android
 
+all_ubuntu_aarch64_gcc94: check_ubuntu_aarch64_gcc94
+	$(call build_if_exists,$(src_folder),-$(MAKE) -f $(make_dir)/Makefile.ubuntu-aarch64-gcc9.4)
+
+clean_ubuntu_aarch64_gcc94:
+	@rm -rf bin/aarch64-ubuntu-gcc9.4 obj/aarch64-ubuntu-gcc9.4
+
+check_ubuntu_aarch64_gcc94:
+ifeq ($(QNN_AARCH64_UBUNTU_GCC_94),)
+	$(error ERROR: QNN_AARCH64_UBUNTU_GCC_94 not set, skipping compilation for Ubuntu platform.)
+endif
 
 # utilities
 # Syntax: $(call build_if_exists <dir>,<cmd>)
