@@ -33,12 +33,13 @@ soc_detect::~soc_detect() {
 }
 
 int soc_detect::detect_platform() {
-#if defined(__ANDROID__)
     std::ifstream file("/sys/devices/soc0/family");
     std::string tmp;
     if (file.is_open()) {
         file >> tmp;
         file.close();
+    } else {
+        return -1;
     }
 
     if (tmp == "Snapdragon") {
@@ -63,7 +64,6 @@ int soc_detect::detect_platform() {
             }
         }
     }
-#endif
     return 0;
 }
 
