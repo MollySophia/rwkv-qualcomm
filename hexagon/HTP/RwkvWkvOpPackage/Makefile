@@ -47,16 +47,20 @@ HEXAGON_SDK_ROOT_V68 := $(HEXAGON_SDK_BASE)/hexagon-sdk-4.2.0
 HEXAGON_SDK_ROOT_V69 := $(HEXAGON_SDK_BASE)/hexagon-sdk-4.3.0
 HEXAGON_SDK_ROOT_V73 := $(HEXAGON_SDK_BASE)/hexagon-sdk-5.4.0
 HEXAGON_SDK_ROOT_V75 := $(HEXAGON_SDK_BASE)/hexagon-sdk-5.4.0
+HEXAGON_SDK_ROOT_V79 := $(HEXAGON_SDK_BASE)/hexagon-sdk-6.2.0
+HEXAGON_SDK_ROOT_V81 := $(HEXAGON_SDK_BASE)/hexagon-sdk-6.2.0
 
 #Updated to point to latest sdk to match with libQnnHtp.so
-HEXAGON_SDK_ROOT_X86 := $(HEXAGON_SDK_BASE)/hexagon-sdk-5.4.0
+HEXAGON_SDK_ROOT_X86 := $(HEXAGON_SDK_ROOT_V81)
 HEXAGON_TOOLS_VERSION_V68 := 8.4.09
 HEXAGON_TOOLS_VERSION_V69 := 8.5.03
 HEXAGON_TOOLS_VERSION_V73 := 8.6.02
 HEXAGON_TOOLS_VERSION_V75 := 8.7.03
+HEXAGON_TOOLS_VERSION_V79 := 8.8.06
+HEXAGON_TOOLS_VERSION_V81 := 19.0.01
 
 #Updated to point to latest sdk to match with libQnnHtp.so
-HEXAGON_TOOLS_VERSION_X86 := 8.7.03
+HEXAGON_TOOLS_VERSION_X86 := 8.8.06
 
 ifndef ANDROID_NDK_ROOT
 ifeq ($(MAKECMDGOALS),htp_aarch64)
@@ -78,7 +82,7 @@ OP_SRC_DIR := src/ops
 OP_INCLUDE_DIR := ./include
 OP_INCLUDES =  #$(wildcard $(OP_INCLUDE_DIR)/*.h) user defined if any op specific headers are needed, add -I to common flags
 LIBRARY_NAME := libQnn$(PACKAGE_NAME).so
-SUPPORTED_TARGETS = x86_64-linux-clang hexagon-v68 hexagon-v69 hexagon-v73 hexagon-v75 aarch64-android
+SUPPORTED_TARGETS = x86_64-linux-clang hexagon-v68 hexagon-v69 hexagon-v73 hexagon-v75 hexagon-v79 hexagon-v81 aarch64-android
 
 
 COMMON_CXX_FLAGS = -std=c++17 -I$(QNN_INCLUDE) -fPIC -Wall -Wreorder -Wno-c++11-narrowing -Wno-missing-braces -Wno-unused-function
@@ -119,7 +123,17 @@ $(error "ERROR: HEXAGON_SDK_ROOT_V75 is set incorrectly. Cannot retrieve $(HEXAG
 endif
 endif
 
+ifeq ($(MAKECMDGOALS),htp_v79)
+ifeq ($(wildcard $(HEXAGON_SDK_ROOT_V79)),)
+$(error "ERROR: HEXAGON_SDK_ROOT_V79 is set incorrectly. Cannot retrieve $(HEXAGON_SDK_ROOT_V79)")
+endif
+endif
 
+ifeq ($(MAKECMDGOALS),htp_v81)
+ifeq ($(wildcard $(HEXAGON_SDK_ROOT_V81)),)
+$(error "ERROR: HEXAGON_SDK_ROOT_V81 is set incorrectly. Cannot retrieve $(HEXAGON_SDK_ROOT_V81)")
+endif
+endif
 
 endif
 OP_SOURCES = $(wildcard $(OP_SRC_DIR)/*.cpp)
@@ -141,6 +155,10 @@ OP_SOURCES_ASM_V73 += $(wildcard $(OP_SRC_DIR)/v73_asm/*.S)
 OP_OBJS_ASM_V73 += $(subst /v73_asm/,/,$(patsubst $(SRC_DIR)/%,%,$(patsubst %.S,%.o,$(OP_SOURCES_ASM_V73))))
 OP_SOURCES_ASM_V75 += $(wildcard $(OP_SRC_DIR)/v75_asm/*.S)
 OP_OBJS_ASM_V75 += $(subst /v75_asm/,/,$(patsubst $(SRC_DIR)/%,%,$(patsubst %.S,%.o,$(OP_SOURCES_ASM_V75))))
+OP_SOURCES_ASM_V79 += $(wildcard $(OP_SRC_DIR)/v79_asm/*.S)
+OP_OBJS_ASM_V79 += $(subst /v79_asm/,/,$(patsubst $(SRC_DIR)/%,%,$(patsubst %.S,%.o,$(OP_SOURCES_ASM_V79))))
+OP_SOURCES_ASM_V81 += $(wildcard $(OP_SRC_DIR)/v81_asm/*.S)
+OP_OBJS_ASM_V81 += $(subst /v81_asm/,/,$(patsubst $(SRC_DIR)/%,%,$(patsubst %.S,%.o,$(OP_SOURCES_ASM_V81))))
 
 OP_SOURCES_ASM_ANDROID += $(wildcard $(OP_SRC_DIR)/android_asm/*.S)
 OP_OBJS_ASM_ANDROID += $(subst /android_asm/,/,$(patsubst $(SRC_DIR)/%,%,$(patsubst %.S,%.o,$(OP_SOURCES_ASM_ANDROID))))
@@ -186,18 +204,34 @@ QHL_INC_DIRS_V75 := $(QHL_DIR_V75)/inc/qhmath $(QHL_DIR_V75)/inc/qhcomplex $(QHL
 QHL_HVX_INC_DIRS_V75 := $(QHL_HVX_DIR_V75)/inc/internal $(QHL_HVX_DIR_V75)/inc/qhdsp_hvx $(QHL_HVX_DIR_V75)/inc/qhblas_hvx
 QHL_INCLUDES_V75 = $(addprefix -I,$(QHL_INC_DIRS_V75)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V75))
 
+QHL_DIR_V79 = $(HEXAGON_SDK_ROOT_V79)/libs/qhl
+QHL_HVX_DIR_V79 = $(HEXAGON_SDK_ROOT_V79)/libs/qhl_hvx
+QHL_INC_DIRS_V79 := $(QHL_DIR_V79)/inc/qhmath $(QHL_DIR_V79)/inc/qhcomplex $(QHL_DIR_V79)/inc/qhdsp $(QHL_DIR_V79)/inc/qhblas
+QHL_HVX_INC_DIRS_V79 := $(QHL_HVX_DIR_V79)/inc/internal $(QHL_HVX_DIR_V79)/inc/qhdsp_hvx $(QHL_HVX_DIR_V79)/inc/qhblas_hvx
+QHL_INCLUDES_V79 = $(addprefix -I,$(QHL_INC_DIRS_V79)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V79))
+
+QHL_DIR_V81 = $(HEXAGON_SDK_ROOT_V81)/libs/qhl
+QHL_HVX_DIR_V81 = $(HEXAGON_SDK_ROOT_V81)/libs/qhl_hvx
+QHL_INC_DIRS_V81 := $(QHL_DIR_V81)/inc/qhmath $(QHL_DIR_V81)/inc/qhcomplex $(QHL_DIR_V81)/inc/qhdsp $(QHL_DIR_V81)/inc/qhblas
+QHL_HVX_INC_DIRS_V81 := $(QHL_HVX_DIR_V81)/inc/internal $(QHL_HVX_DIR_V81)/inc/qhdsp_hvx $(QHL_HVX_DIR_V81)/inc/qhblas_hvx
+QHL_INCLUDES_V81 = $(addprefix -I,$(QHL_INC_DIRS_V81)) $(addprefix -I,$(QHL_HVX_INC_DIRS_V81))
+
 HEXAGON_CXX_FLAGS := $(COMMON_CXX_FLAGS) -mhvx -mhvx-length=128B -mhmx -DUSE_OS_QURT -O2 -Wno-reorder -DPREPARE_DISABLED
 
 HEXAGON_CXX_FLAGS_V68 := $(HEXAGON_CXX_FLAGS) -mv68 -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/qurt -I$(HEXAGON_SDK_ROOT_V68)/rtos/qurt/computev68/include/posix -I$(HEXAGON_SDK_ROOT_V68)/incs -I$(HEXAGON_SDK_ROOT_V68)/incs/stddef
 HEXAGON_CXX_FLAGS_V69 := $(HEXAGON_CXX_FLAGS) -mv69 -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev68/include/qurt -I$(HEXAGON_SDK_ROOT_V69)/rtos/qurt/computev68/include/posix -I$(HEXAGON_SDK_ROOT_V69)/incs -I$(HEXAGON_SDK_ROOT_V69)/incs/stddef
 HEXAGON_CXX_FLAGS_V73 := $(HEXAGON_CXX_FLAGS) -mv73 -I$(HEXAGON_SDK_ROOT_V73)/rtos/qurt/computev73/include/qurt -I$(HEXAGON_SDK_ROOT_V73)/rtos/qurt/computev73/include/posix -I$(HEXAGON_SDK_ROOT_V73)/incs -I$(HEXAGON_SDK_ROOT_V73)/incs/stddef
 HEXAGON_CXX_FLAGS_V75 := $(HEXAGON_CXX_FLAGS) -mv75 -I$(HEXAGON_SDK_ROOT_V75)/rtos/qurt/computev75/include/qurt -I$(HEXAGON_SDK_ROOT_V75)/rtos/qurt/computev75/include/posix -I$(HEXAGON_SDK_ROOT_V75)/incs -I$(HEXAGON_SDK_ROOT_V75)/incs/stddef
+HEXAGON_CXX_FLAGS_V79 := $(HEXAGON_CXX_FLAGS) -mv79 -I$(HEXAGON_SDK_ROOT_V79)/rtos/qurt/computev79/include/qurt -I$(HEXAGON_SDK_ROOT_V79)/rtos/qurt/computev79/include/posix -I$(HEXAGON_SDK_ROOT_V79)/incs -I$(HEXAGON_SDK_ROOT_V79)/incs/stddef
+HEXAGON_CXX_FLAGS_V81 := $(HEXAGON_CXX_FLAGS) -mv81 -I$(HEXAGON_SDK_ROOT_V81)/rtos/qurt/computev81/include/qurt -I$(HEXAGON_SDK_ROOT_V81)/rtos/qurt/computev81/include/posix -I$(HEXAGON_SDK_ROOT_V81)/incs -I$(HEXAGON_SDK_ROOT_V81)/incs/stddef
 
 
 HEXAGON_CXX_V68 := $(HEXAGON_SDK_ROOT_V68)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V68)/Tools/bin/hexagon-clang++
 HEXAGON_CXX_V69 := $(HEXAGON_SDK_ROOT_V69)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V69)/Tools/bin/hexagon-clang++
 HEXAGON_CXX_V73 := $(HEXAGON_SDK_ROOT_V73)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V73)/Tools/bin/hexagon-clang++
 HEXAGON_CXX_V75 := $(HEXAGON_SDK_ROOT_V75)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V75)/Tools/bin/hexagon-clang++
+HEXAGON_CXX_V79 := $(HEXAGON_SDK_ROOT_V79)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V79)/Tools/bin/hexagon-clang++
+HEXAGON_CXX_V81 := $(HEXAGON_SDK_ROOT_V81)/tools/HEXAGON_Tools/$(HEXAGON_TOOLS_VERSION_V81)/Tools/bin/hexagon-clang++
 
 
 HEX_LDFLAGS =
@@ -223,6 +257,9 @@ htp_v73: HEXAGON_BUILD_V73
 
 htp_v75: HEXAGON_BUILD_V75
 
+htp_v79: HEXAGON_BUILD_V79
+
+htp_v81: HEXAGON_BUILD_V81
 
 
 htp_aarch64: AARCH64_BUILD
@@ -237,8 +274,9 @@ HEXAGON_BUILD_V73:  $(WORK)/hexagon-v73/$(LIBRARY_NAME)
 
 HEXAGON_BUILD_V75:  $(WORK)/hexagon-v75/$(LIBRARY_NAME)
 
+HEXAGON_BUILD_V79:  $(WORK)/hexagon-v79/$(LIBRARY_NAME)
 
-
+HEXAGON_BUILD_V81:  $(WORK)/hexagon-v81/$(LIBRARY_NAME)
 X86_BUILD: $(WORK)/x86_64-linux-clang/$(LIBRARY_NAME)
 
 
@@ -265,13 +303,19 @@ $(eval $(call build_objs,$(OP_OBJS_ASM_V73),hexagon-v73))
 $(eval $(call build_objs,$(OTHER_OBJS),hexagon-v75))
 $(eval $(call build_objs,$(OP_OBJS),hexagon-v75))
 $(eval $(call build_objs,$(OP_OBJS_ASM_V75),hexagon-v75))
+$(eval $(call build_objs,$(OTHER_OBJS),hexagon-v79))
+$(eval $(call build_objs,$(OP_OBJS),hexagon-v79))
+$(eval $(call build_objs,$(OP_OBJS_ASM_V79),hexagon-v79))
+$(eval $(call build_objs,$(OTHER_OBJS),hexagon-v81))
+$(eval $(call build_objs,$(OP_OBJS),hexagon-v81))
+$(eval $(call build_objs,$(OP_OBJS_ASM_V81),hexagon-v81))
 
 $(eval $(call build_objs,$(OTHER_OBJS),aarch64-android))
 $(eval $(call build_objs,$(OP_OBJS),aarch64-android))
 $(eval $(call build_objs,$(OP_OBJS_ASM_ANDROID),aarch64-android))
 
 # x86
-$(WORK)/x86_64-linux-clang $(WORK)/hexagon-v68 $(WORK)/hexagon-v69 $(WORK)/hexagon-v73 $(WORK)/hexagon-v75 $(WORK)/aarch64-android:
+$(WORK)/x86_64-linux-clang $(WORK)/hexagon-v68 $(WORK)/hexagon-v69 $(WORK)/hexagon-v73 $(WORK)/hexagon-v75 $(WORK)/hexagon-v79 $(WORK)/hexagon-v81 $(WORK)/aarch64-android:
 	@mkdir -p $@/ops
 
 $(WORK)/x86_64-linux-clang/%.o: $(SRC_DIR)/%.cpp | $(WORK)/x86_64-linux-clang
@@ -338,6 +382,31 @@ $(WORK)/hexagon-v75/ops/%.o: $(OP_SRC_DIR)/v75_asm/%.S | $(WORK)/hexagon-v75
 $(WORK)/hexagon-v75/$(LIBRARY_NAME): $(hexagon-v75_objs) | $(HFILES)
 	$(HEXAGON_CXX_V75) -fPIC -std=c++17 -g -shared -o $@ $^ $(HEX_LDFLAGS)
 
+#v79
+$(WORK)/hexagon-v79/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v79
+	$(HEXAGON_CXX_V79) $(HEXAGON_CXX_FLAGS_V79) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+
+$(WORK)/hexagon-v79/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v79
+	$(HEXAGON_CXX_V79) $(HEXAGON_CXX_FLAGS_V79) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V79) -DUSE_HVX -c $< -o $@
+
+$(WORK)/hexagon-v79/ops/%.o: $(OP_SRC_DIR)/v79_asm/%.S | $(WORK)/hexagon-v79
+	$(HEXAGON_CXX_V79) $(HEXAGON_CXX_FLAGS_V79) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+
+$(WORK)/hexagon-v79/$(LIBRARY_NAME): $(hexagon-v79_objs) | $(HFILES)
+	$(HEXAGON_CXX_V79) -fPIC -std=c++17 -g -shared -o $@ $^ $(HEX_LDFLAGS)
+
+#v81
+$(WORK)/hexagon-v81/%.o: $(SRC_DIR)/%.cpp | $(WORK)/hexagon-v81
+	$(HEXAGON_CXX_V81) $(HEXAGON_CXX_FLAGS_V81) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
+
+$(WORK)/hexagon-v81/$(LIBRARY_NAME): $(hexagon-v81_objs) | $(HFILES)
+	$(HEXAGON_CXX_V81) -fPIC -std=c++17 -g -shared -o $@ $^ $(HEX_LDFLAGS)
+
+$(WORK)/hexagon-v81/ops/%.o: $(OP_SRC_DIR)/%.cpp | $(WORK)/hexagon-v81
+	$(HEXAGON_CXX_V81) $(HEXAGON_CXX_FLAGS_V81) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD $(QHL_INCLUDES_V81) -DUSE_HVX -c $< -o $@
+
+$(WORK)/hexagon-v81/ops/%.o: $(OP_SRC_DIR)/v81_asm/%.S | $(WORK)/hexagon-v81
+	$(HEXAGON_CXX_V81) $(HEXAGON_CXX_FLAGS_V81) -DTHIS_PKG_NAME=$(PACKAGE_NAME) -MMD -c $< -o $@
 
 
 # aarch64
