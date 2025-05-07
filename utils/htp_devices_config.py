@@ -1,6 +1,10 @@
 import json
 
 htp_devices = {
+    "SM8750": {
+        "dsp_arch": "v79",
+        "soc_id": 69,
+    },
     "SM8650": {
         "dsp_arch": "v75",
         "soc_id": 57,
