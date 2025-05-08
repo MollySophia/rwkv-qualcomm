@@ -33,7 +33,7 @@
 - Qualcomm Snapdragon X Elite laptops (without customop support yet)
 
 ### Linux devices
-- Snapdragon QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel)
+- Dragonwing QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel)
 
 ## Usage
 ### 1. Convert model weights to QNN model library file.
