@@ -21,6 +21,20 @@
     - aimet-torch==2.0.0
     - Hardware: Qualcomm Snapdragon SM8650 with HTP v75 (Xiaomi Mi 14)
 
+## Tested Devices
+### Android devices
+- Snapdragon 8 Elite (SM8750) with HTP v79 (Xiaomi Mi 15)
+- Snapdragon 8 Gen 3 (SM8650) with HTP v75 (Xiaomi Mi 14)
+- Snapdragon 8s Gen 3 (SM8635) with HTP v73 (Xiaomi Civi 4 Pro)
+- Snapdragon 8+ Gen 1 (SM8475) with HTP v69 (Xiaomi MiPad 6 Pro)
+- Snapdragon 778G (SM7325) with HTP v68 (Qualcomm QRD7325)
+
+### Windows devices
+- Qualcomm Snapdragon X Elite laptops (without customop support yet)
+
+### Linux devices
+- Snapdragon QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel)
+
 ## Usage
 ### 1. Convert model weights to QNN model library file.
 - **Note: if you see errors below, just ignore them.**
