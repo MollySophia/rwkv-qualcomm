@@ -133,10 +133,14 @@ class RWKV_RNN(torch.nn.Module):
             w[k] = w[k].float()
 
         emb_weight = w['emb.weight']
-        emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
         if self.args.USE_EMBEDDING:
+            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
         else:
+            self.pre_ln = nn.LayerNorm(self.args.n_embd, eps=1e-5)
+            self.pre_ln.weight = nn.Parameter(w['blocks.0.ln0.weight'])
+            self.pre_ln.bias = nn.Parameter(w['blocks.0.ln0.bias'])
+
             if self.args.fp16:
                 self.emb_weight = emb_weight.half()
             else:
@@ -151,8 +155,13 @@ class RWKV_RNN(torch.nn.Module):
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
         # self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
         # self.head.weight = nn.Parameter(w['head.weight'])
-        self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
-        self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
+        if 'head.bias' in w.keys():
+            self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
+            self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
+            self.head.bias = nn.Parameter(w['head.bias'].reshape(-1))
+        else:
+            self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
+            self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
 
         self.head_pre_reshape = Reshape()
         self.head_post_reshape = Reshape()
@@ -173,6 +182,8 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.embedding(in0)
             else:
                 x = in0
+                x = self.pre_ln(x)
+
             try:
                 batch_size, seq_length, _ = x.size()
             except:

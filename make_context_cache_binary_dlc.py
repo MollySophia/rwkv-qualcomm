@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--wkv_customop', action='store_true', help='Use wkv custom op')
     parser.add_argument('--output_name', type=str, default=None, help='Output name for the binary file')
     parser.add_argument('--prefill', action='store_true', help='Include prefill model too')
+    parser.add_argument('--ext_embedding', action='store_true', help='Use external embedding')
     args = parser.parse_args()
     qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
     if not qnn_sdk_root:
@@ -63,6 +64,11 @@ def main():
         if args.prefill:
             model_list.append(model_name + '_prefill')
             print(f"Weights sharing enabled. Processing prefill model {model_list[-1]} as well")
+        if args.ext_embedding:
+            model_list.append(model_name + '_ext_embedding')
+            print(f"External embedding enabled. Processing ext_embedding model {model_list[-1]} as well")
+        if args.prefill and args.ext_embedding:
+            model_list.append(model_name + '_ext_embedding_prefill')
         dump_htp_config(args.platform, model_list, str(args.model_dlc).replace('.dlc', '_htp_config.json'), old_qnn, args.prefill)
         dump_htp_link_config(str(args.model_dlc).replace('.dlc', '_htp_link.json'), qnn_sdk_root)
         convert_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-context-binary-generator"
@@ -71,10 +77,16 @@ def main():
         convert_cmd += f" --dlc_path {args.model_dlc}"
         if args.prefill:
             convert_cmd += "," + str(args.model_dlc).replace('.dlc', '_prefill.dlc')
+        if args.ext_embedding:
+            convert_cmd += "," + str(args.model_dlc).replace('.dlc', '_ext_embedding.dlc')
+        if args.prefill and args.ext_embedding:
+            convert_cmd += "," + str(args.model_dlc).replace('.dlc', '_ext_embedding_prefill.dlc')
         convert_cmd += f" --output_dir {args.output_path}"
         output_name = model_name.replace('lib', '') if args.output_name is None else args.output_name
         if args.prefill:
             output_name += "_combined"
+        if args.ext_embedding:
+            output_name += "_embedding"
         convert_cmd += f" --binary_file {output_name}"
         convert_cmd += f" --config_file {str(args.model_dlc).replace('.dlc', '_htp_link.json')}"
         if args.use_optrace:

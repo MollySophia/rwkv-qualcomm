@@ -19,7 +19,7 @@ register_customop_symbols()
 
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
-parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
+parser.add_argument('--chunks', type=int, default=1, help='Number of chunks')
 parser.add_argument('--qnn_float_width', type=int, default=32, help='QNN float width')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--quant_encodings', type=Path, help='Path to quant encodings')
@@ -75,7 +75,10 @@ if type(model) == list:
             in0 = torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)
 
         inputs = [in0, [states[j] for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]]
-        input_name = ('in' if not parser_args.prefill_model else 'in_prefill') + f'_chunk{i+1}'
+        if parser_args.ext_embedding:
+            input_name = 'in' + f'_chunk{i+1}' if i != 0 else 'in_embedding'
+        else:
+            input_name = ('in' if not parser_args.prefill_model else 'in_prefill') + f'_chunk{i+1}'
         output_name = ('out' if not parser_args.prefill_model else 'out_prefill') + f'_chunk{i+1}'
         input_names = [input_name] + [f'state{j}_in' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
         output_names = [output_name] + [f'state{j}_out' for j in range(3*model[i].layer_begin, 3*model[i].layer_end)]
@@ -83,6 +86,8 @@ if type(model) == list:
         if i == 0:
             encodings_chunk = copy.deepcopy(encodings_all)
             encodings_chunk["activation_encodings"][output_name] = encodings_all["activation_encodings"][f'/blocks.{model[1].layer_begin-1}/ffn/add_feed_forward/Add_output_0']
+            if parser_args.ext_embedding:
+                encodings_chunk["activation_encodings"][input_name] = encodings_all["param_encodings"]['embedding.weight']
             with open(f"{dirname}/quant_encodings_chunk{i}.encodings", "w") as f:
                 json.dump(encodings_chunk, f, sort_keys=True, indent=4)
         else:
@@ -175,7 +180,7 @@ if type(model) == list:
         os.system(converter_cmd)
 
         print("Compiling QNN model library...")
-        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_path.replace('.onnx', '.cpp')} -b {onnx_path.replace('.onnx', '.bin')} -t x86_64-linux-clang"
+        compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_path.replace('.onnx', '.cpp')} -b {onnx_path.replace('.onnx', '.bin')}"# -t x86_64-linux-clang"
         if os.name == 'nt':
             compiling_cmd = "python " + compiling_cmd
         os.system(compiling_cmd)
@@ -191,7 +196,10 @@ else:
     in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)]
     states = get_dummy_state_kvcache(1, args, model.device)
 
-    input_name = 'in' if not parser_args.prefill_model else 'in_prefill'
+    if parser_args.ext_embedding:
+        input_name = 'in_embedding'
+    else:
+        input_name = 'in' if not parser_args.prefill_model else 'in_prefill'
     output_name  = 'out' if not parser_args.prefill_model else 'out_prefill'
     input_names = [input_name] + [f'state{i}_in' for i in range(3*args.n_layer)]
     output_names = [output_name] + [f'state{i}_out' for i in range(3*args.n_layer)]
@@ -232,7 +240,7 @@ else:
     print(converter_cmd)
     os.system(converter_cmd)
     print("Compiling QNN model library...")
-    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_output_path.replace('.onnx', '.cpp')} -b {onnx_output_path.replace('.onnx', '.bin')} -t x86_64-linux-clang"
+    compiling_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qnn-model-lib-generator -c {onnx_output_path.replace('.onnx', '.cpp')} -b {onnx_output_path.replace('.onnx', '.bin')}"# -t x86_64-linux-clang"
     if os.name == 'nt':
         compiling_cmd = "python " + compiling_cmd
     print(compiling_cmd)

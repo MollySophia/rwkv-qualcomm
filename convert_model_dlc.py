@@ -175,7 +175,7 @@ if type(model) == list:
         os.system(converter_cmd)
 
         print("Quantizing QNN dlc model...")
-        quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_path.replace('.onnx', '.dlc')} -o {onnx_path.replace('.onnx', '.dlc')} --enable_float_fallback"
+        quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_path.replace('.onnx', '.dlc')} -o {onnx_path.replace('.onnx', '.dlc')} --enable_float_fallback  --act_bitwidth 16 --bias_bitwidth 8"
         if os.name == 'nt':
             quant_cmd = "python " + quant_cmd
         print(quant_cmd)
@@ -189,18 +189,27 @@ else:
         model.emb_weight.cpu().numpy().astype(np.float16 if args.fp16 else np.float32).tofile(dirname + '/' + filename + ".emb")
     input_dtype = torch.float16 if args.fp16 else torch.float32
 
-    in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else [torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)]
+    in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)
     states = get_dummy_state_kvcache(1, args, model.device)
 
-    input_name = 'in' if not parser_args.prefill_model else 'in_prefill'
-    output_name  = 'out' if not parser_args.prefill_model else 'out_prefill'
+    input_name = 'in'
+    if parser_args.ext_embedding:
+        input_name += '_embedding'
+    if parser_args.prefill_model:
+        input_name += '_prefill'
+    output_name  = 'out'
+    if parser_args.prefill_model:
+        output_name += '_prefill'
     input_names = [input_name] + [f'state{i}_in' for i in range(3*args.n_layer)]
     output_names = [output_name] + [f'state{i}_out' for i in range(3*args.n_layer)]
 
+    onnx_output_path = f"{dirname}/{filename}"
+    if parser_args.ext_embedding:
+        onnx_output_path += "_ext_embedding"
     if parser_args.prefill_model:
-        onnx_output_path = f"{dirname}/{filename}_prefill.onnx"
-    else:
-        onnx_output_path = f"{dirname}/{filename}.onnx"
+        onnx_output_path += "_prefill"
+ 
+    onnx_output_path += ".onnx"
     OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
     onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
@@ -221,6 +230,8 @@ else:
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
     converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
+    if parser_args.ext_embedding:
+        converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
 
     if parser_args.quant_encodings:
         converter_cmd += f" --quantization_overrides {str(parser_args.quant_encodings)}"
@@ -233,8 +244,15 @@ else:
     print(converter_cmd)
     os.system(converter_cmd)
     print("Quantizing QNN dlc model...")
-    quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --dump_encoding_json --debug"
+    quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --act_bitwidth 16 --bias_bitwidth 8 --dump_encoding_json --debug"
     if os.name == 'nt':
         quant_cmd = "python " + quant_cmd
     print(quant_cmd)
     os.system(quant_cmd)
+
+    # Delete all files in output_path except .dlc files
+    for file in os.listdir(dirname):
+        filepath = os.path.join(dirname, file)
+        if not (file.endswith('.dlc') or file.endswith('.json')):
+            if os.path.isfile(filepath):
+                os.remove(filepath)

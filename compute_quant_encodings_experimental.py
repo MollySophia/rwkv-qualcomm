@@ -26,6 +26,7 @@ parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to b
 parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of batches to calibrate on')
 parser.add_argument('--seqmse_num_batches', type=int, default=20, help='Number of batches to calibrate on')
 parser.add_argument('--use_cpu', action='store_true', default=False, help='Use cpu to compute')
+parser.add_argument('--load_encodings', type=Path, default=None, help='Path to load encodings from')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -132,15 +133,16 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, device, model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
-model.eval()
-with torch.no_grad():
-    sim = QuantizationSimModel(model, dummy_input=dummy_input,
-                            quant_scheme=QuantScheme.post_training_tf_enhanced,
-                            default_param_bw=8,
-                            default_output_bw=16,
-                            config_file="quantizers/configs/htp_quantsim_config_v75.json",
-                            #    in_place=True,
-    )
+model = model.eval()
+sim = QuantizationSimModel(model, dummy_input=dummy_input,
+                        quant_scheme=QuantScheme.post_training_tf_enhanced,
+                        # quant_scheme=QuantScheme.post_training_percentile,
+                        default_param_bw=8,
+                        default_output_bw=16,
+                        config_file="quantizers/configs/htp_quantsim_config_v75.json",
+                        #    in_place=True,
+)
+# sim.set_percentile_value(99.999)
 torch.cuda.empty_cache()
 
 # mp_configurator = MixedPrecisionConfigurator(sim)
@@ -282,7 +284,9 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
             if batch >= num_batches:
                 break
 
-if args_parser.use_w4_seq_mse:
+if args_parser.load_encodings:
+    sim.load_encodings(args_parser.load_encodings, allow_overwrite=False)
+elif args_parser.use_w4_seq_mse:
     with torch.no_grad():
         params = SeqMseParams(num_batches=args_parser.seqmse_num_batches,
                             num_candidates=20,
@@ -292,6 +296,7 @@ if args_parser.use_w4_seq_mse:
 
         apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
+    os.path.exists(output_path) or os.makedirs(output_path)
     sim.save_encodings_to_json(output_path, 'seqmse_encodings.json')
 elif args_parser.blockwise_quant:
     fn = lambda module: isinstance(module, QuantizedConv2d) and module.param_quantizers['weight'].bitwidth == 4
@@ -453,6 +458,9 @@ if not args_parser.blockwise_quant:
         if 'state' in key and 'out' in key:
             encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
 
+    encodings['activation_encodings']['/pre_ln/LayerNormalization_output_0'] = encodings['param_encodings']['embedding.weight']
+    encodings_prefill['activation_encodings']['/pre_ln/LayerNormalization_output_0'] = encodings['param_encodings']['embedding.weight']
+
     for i in range(model.args.n_layer):
     #     for j in range(4):
     #         for o in ['r', 'w', 'k', 'v', 'a', 'b', 'state']:
@@ -504,7 +512,7 @@ else:
         "scale": [
             1.5259021893143654e-05
         ]
-    },
+    }
     for i in range(model.args.n_layer):
         tmp = copy.deepcopy(dummy_quant_override)
         tmp["name"] = f'state{3*i+1}_in'
@@ -528,3 +536,10 @@ with open(output_path + '/' + filename + '.encodings', 'w') as f:
 
 with open(output_path + '/' + prefill_filename + '.encodings', 'w') as f:
     json.dump(encodings_prefill, f, indent=4)
+
+# Delete all files in output_path except .encodings and .json files
+for file in os.listdir(output_path):
+    filepath = os.path.join(output_path, file)
+    if not (file.endswith('.encodings') or file.endswith('.json')):
+        if os.path.isfile(filepath):
+            os.remove(filepath)
