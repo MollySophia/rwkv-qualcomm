@@ -67,16 +67,6 @@ class QuantizedWkv7State(QuantizationMixin, Wkv7State):
         self.output_quantizers = torch.nn.ModuleList([None])
 
     def forward(self, w, k, v, a, b, state2):
-        if self.input_quantizers[0]:
-            w = self.input_quantizers[0](w)
-        if self.input_quantizers[1]:
-            k = self.input_quantizers[1](k)
-        if self.input_quantizers[2]:
-            v = self.input_quantizers[2](v)
-        if self.input_quantizers[3]:
-            a = self.input_quantizers[3](a)
-        if self.input_quantizers[4]:
-            b = self.input_quantizers[4](b)
 
         with self._patch_quantized_parameters():
             ret = super().forward(w, k, v, a, b, state2)
@@ -93,8 +83,6 @@ class QuantizedWkv7Output(QuantizationMixin, Wkv7Output):
         self.output_quantizers = torch.nn.ModuleList([None])
 
     def forward(self, r, state2):
-        if self.input_quantizers[0]:
-            r = self.input_quantizers[0](r)
 
         with self._patch_quantized_parameters():
             ret = super().forward(r, state2)
@@ -178,12 +166,12 @@ for block in sim.model.blocks:
     block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    block.att.wkv7.wkv_state.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.wkv_state.output_quantizers[0] = None
     for i in range(6):
-        block.att.wkv7.wkv_state.input_quantizers[i] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+        block.att.wkv7.wkv_state.input_quantizers[i] = None
 
-    block.att.wkv7.wkv_output.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.wkv_output.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.wkv_output.input_quantizers[0] = None
+    block.att.wkv7.wkv_output.input_quantizers[1] = None
     block.att.wkv7.wkv_output.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     if args_parser.use_w4_seq_mse or args_parser.blockwise_quant:

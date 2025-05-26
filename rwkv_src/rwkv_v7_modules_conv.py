@@ -9,7 +9,7 @@ custom_norm_wrapper_src = """
 #include <torch/script.h>
 
 torch::Tensor l2norm(torch::Tensor x) {
-    return x / (x.norm(2, -1, true) + 1e-12);
+    return x / (x.norm(2, -1, true) + 1e-6);
 }
 
 TORCH_LIBRARY(customop, m) {
