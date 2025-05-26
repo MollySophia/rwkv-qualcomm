@@ -285,7 +285,7 @@ elif args_parser.use_w4_seq_mse:
         apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
     os.path.exists(output_path) or os.makedirs(output_path)
-    sim.save_encodings_to_json(output_path, 'seqmse_encodings.json')
+    sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_seqmse')
 elif args_parser.blockwise_quant:
     fn = lambda module: isinstance(module, QuantizedConv2d) and module.param_quantizers['weight'].bitwidth == 4
 
@@ -308,6 +308,10 @@ model = model.to('cpu').float()
 torch.cuda.empty_cache()
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
+
+output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
+os.path.exists(output_path) or os.makedirs(output_path)
+sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_calib')
 
 sim.model.float()
 model.args.fp16 = False
