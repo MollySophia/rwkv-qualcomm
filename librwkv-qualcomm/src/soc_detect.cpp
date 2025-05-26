@@ -34,6 +34,7 @@ soc_detect::~soc_detect() {
 }
 
 int soc_detect::detect_platform() {
+#ifndef _WIN32
     std::ifstream file("/sys/devices/soc0/family");
     std::string tmp;
     if (file.is_open()) {
@@ -65,11 +66,12 @@ int soc_detect::detect_platform() {
             }
         }
     }
+#endif
     return 0;
 }
 
 platform_type soc_detect::get_platform_type() {
-    return m_platform_type; 
+    return m_platform_type;
 }
 
 const char * soc_detect::get_platform_name() {

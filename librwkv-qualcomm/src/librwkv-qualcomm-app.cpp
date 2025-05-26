@@ -5,12 +5,15 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <chrono>
+
 #ifndef _WIN32
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #endif
+
 #include "half.hpp"
 #include "DataUtil.hpp"
 #include "Logger.hpp"
@@ -367,7 +370,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
         return StatusCode::FAILURE;
       }
 
-      status = tools::datautil::readBinaryFromFile(
+      auto status = tools::datautil::readBinaryFromFile(
           m_cachedBinaryPath, buffer, bufferSizes[i]);
       if (status != tools::datautil::StatusCode::SUCCESS) {
         QNN_ERROR("Failed to read binary data.");

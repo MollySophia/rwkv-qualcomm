@@ -24,7 +24,7 @@
 #define TOSTRING(x)  STRINGIFY(x)
 
 static std::set<HMODULE> mod_handles;
-static thread_local char *sg_lastErrMsg = "";
+static thread_local char *sg_lastErrMsg = (char *)"";
 
 void *pal::dynamicloading::dlOpen(const char *filename, int flags) {
   HMODULE mod;
@@ -34,7 +34,7 @@ void *pal::dynamicloading::dlOpen(const char *filename, int flags) {
 
   if (!filename || ::strlen(filename) == 0) {
     // TODO: we don't support empty filename now
-    sg_lastErrMsg = "filename is null or empty";
+    sg_lastErrMsg = (char*)"filename is null or empty";
     return NULL;
   }
 
@@ -46,26 +46,26 @@ void *pal::dynamicloading::dlOpen(const char *filename, int flags) {
     // that would be too costly. SNPE didn't use this feature now
     // , wait until we really need it. keep the flexibility here
     // ask caller MUST pass DL_NOW
-    sg_lastErrMsg = "flags must include DL_NOW";
+    sg_lastErrMsg = (char *)"flags must include DL_NOW";
     return NULL;
   }
 
   cur_proc = GetCurrentProcess();
 
   if (EnumProcessModules(cur_proc, NULL, 0, &as_is) == 0) {
-    sg_lastErrMsg = "enumerate modules failed before loading module";
+    sg_lastErrMsg = (char *)"enumerate modules failed before loading module";
     return NULL;
   }
 
   // search from system lib path first
   mod = LoadLibraryExA(filename, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
   if (!mod) {
-    sg_lastErrMsg = "load library failed";
+    sg_lastErrMsg = (char *)"load library failed";
     return NULL;
   }
 
   if (EnumProcessModules(cur_proc, NULL, 0, &to_be) == 0) {
-    sg_lastErrMsg = "enumerate modules failed after loading module";
+    sg_lastErrMsg = (char *)"enumerate modules failed after loading module";
     FreeLibrary(mod);
     return NULL;
   }
@@ -108,18 +108,18 @@ void *pal::dynamicloading::dlSym(void *handle, const char *symbol) {
   cur_proc = GetCurrentProcess();
 
   if (EnumProcessModules(cur_proc, NULL, 0, &size) == 0) {
-    sg_lastErrMsg = "enumerate modules failed before memory allocation";
+    sg_lastErrMsg = (char *)"enumerate modules failed before memory allocation";
     return NULL;
   }
 
   mod_list = static_cast<HMODULE *>(malloc(size));
   if (!mod_list) {
-    sg_lastErrMsg = "malloc failed";
+    sg_lastErrMsg = (char *)"malloc failed";
     return NULL;
   }
 
   if (EnumProcessModules(cur_proc, mod_list, size, &size_needed) == 0) {
-    sg_lastErrMsg = "enumerate modules failed after memory allocation";
+    sg_lastErrMsg = (char *)"enumerate modules failed after memory allocation";
     free(mod_list);
     return NULL;
   }
@@ -146,7 +146,7 @@ void *pal::dynamicloading::dlSym(void *handle, const char *symbol) {
   free(mod_list);
   sym_addr = GetProcAddress(mod, symbol);
   if (!sym_addr) {
-    sg_lastErrMsg = "can't resolve symbol";
+    sg_lastErrMsg = (char *)"can't resolve symbol";
     return NULL;
   }
 
@@ -202,7 +202,7 @@ int pal::dynamicloading::dlClose(void *handle) {
   HMODULE mod = static_cast<HMODULE>(handle);
 
   if (FreeLibrary(mod) == 0) {
-    sg_lastErrMsg = "free library failed";
+    sg_lastErrMsg = (char *)"free library failed";
     return -1;
   }
 
@@ -214,7 +214,7 @@ int pal::dynamicloading::dlClose(void *handle) {
 char *pal::dynamicloading::dlError(void) {
   char *retStr = sg_lastErrMsg;
 
-  sg_lastErrMsg = "";
+  sg_lastErrMsg = (char *)"";
 
   return retStr;
 }
