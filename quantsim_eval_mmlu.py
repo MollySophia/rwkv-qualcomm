@@ -294,7 +294,7 @@ pbar.close()
 for subject in score_by_subject:
     score_by_subject[subject]["accuracy"] = score_by_subject[subject]["correct"] / score_by_subject[subject]["total"]
 now = datetime.datetime.now()
-file_name = f'logs/mmlu_test_results_{now.strftime("%Y%m%d%H%M%S")}.json'
+file_name = f'mmlu_test_results_{now.strftime("%Y%m%d%H%M%S")}.json'
 with open(file_name, "w") as f:
     json.dump(
         {

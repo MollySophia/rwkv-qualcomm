@@ -44,6 +44,7 @@ model_args = model.args
 
 device = torch.device("cuda" if model_args.USE_CUDA else "cpu")
 
+import aimet_torch
 from aimet_common import quantsim
 from aimet_common.defs import QuantScheme
 from aimet_torch.quantsim import QuantizationSimModel
@@ -197,7 +198,7 @@ dataloader = None
 if args_parser.binidx_dataset is not None:
     from utils.indexed_dataset import MMapIndexedDataset
     dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
-    block_size = 2048
+    block_size = 4096
     len_total = 1
     took = []
     tokens = np.array([0])
@@ -230,7 +231,7 @@ if args_parser.binidx_dataset is not None:
             return input_ids
     dataset = CustomDataset(tokens, block_size)
     def collate_fn(x):
-        return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64)).to(device)}
+        return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64))}
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)
 else:
     dataset_args = types.SimpleNamespace()
@@ -431,8 +432,7 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-if not args_parser.blockwise_quant:
-# if False:
+if not args_parser.blockwise_quant and int(aimet_torch.__version__.split('.')[1]) < 1:
     act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
     dummy_quant_override = [
         {
@@ -476,22 +476,24 @@ else:
     for entry in encodings['activation_encodings']:
         if 'state' in entry['name'] and 'out' in entry['name']:
             idx = int(entry['name'].split('_')[0].replace('state', ''))
-            encodings_prefill['activation_encodings'].append(entry)
             if idx % 3 == 0:
                 for n in encodings_prefill['activation_encodings']:
-                    if n['name'] == f'/blocks.{idx//3}/att/concat_shift/Concat_output_0':
+                    if n['name'] == f'/blocks/blocks.{idx//3}/att/concat_shift/Concat_output_0':
                         n['offset'] = entry['offset']
                         n['scale'] = entry['scale']
             if idx % 3 == 2:
                 for n in encodings_prefill['activation_encodings']:
-                    if n['name'] == f'/blocks.{idx//3}/ffn/concat_shift/Concat_output_0':
+                    if n['name'] == f'/blocks/blocks.{idx//3}/ffn/concat_shift/Concat_output_0':
                         n['offset'] = entry['offset']
                         n['scale'] = entry['scale']
-            for n in encodings['activation_encodings']:
-                if n['name'] == entry['name'].replace('out', 'in'):
-                    n['offset'] = entry['offset']
-                    n['scale'] = entry['scale']
-                    encodings_prefill['activation_encodings'].append(n)
+            if idx % 3 != 1:
+                encodings_prefill['activation_encodings'].append(entry)
+                for n in encodings['activation_encodings']:
+                    if n['name'] == entry['name'].replace('out', 'in'):
+                        n['offset'] = entry['offset']
+                        n['scale'] = entry['scale']
+                        encodings_prefill['activation_encodings'].append(n)
+        # TODO: embedding.weight
     dummy_quant_override = {
         "bw": 16,
         "dtype": "INT",
@@ -515,11 +517,11 @@ else:
         encodings['activation_encodings'].append(tmp)
         encodings_prefill['activation_encodings'].append(tmp)
         tmp = copy.deepcopy(dummy_quant_override)
-        tmp["name"] = f'/blocks.{i}/att/wkv7/gather_state/Gather_output_0'
+        tmp["name"] = f'/blocks/blocks.{i}/att/wkv7/gather_state/Gather_output_0'
         encodings['activation_encodings'].append(tmp)
         encodings_prefill['activation_encodings'].append(tmp)
         tmp = copy.deepcopy(dummy_quant_override)
-        tmp["name"] = f'/blocks.{i}/att/wkv7/wkv_state/wkv7_state_output_0'
+        tmp["name"] = f'/blocks/blocks.{i}/att/wkv7/wkv_state/wkv7_state_output_0'
         encodings['activation_encodings'].append(tmp)
         encodings_prefill['activation_encodings'].append(tmp)
 
