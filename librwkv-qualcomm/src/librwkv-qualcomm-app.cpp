@@ -695,12 +695,16 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::setPowerConfig() {
     powerConfigHMX.hmxV2Config.hmxVoltageCornerMax    = DCVS_EXP_VCORNER_TUR;
 
     // Set power config with different performance parameters
-    const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&powerConfig, &powerConfigHMX, NULL};
+    const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigsHMX[] = {&powerConfig, &powerConfigHMX, NULL};
 
-    Qnn_ErrorHandle_t perfInfraErr = perfInfra.setPowerConfig(powerConfigId, powerConfigs);
+    Qnn_ErrorHandle_t perfInfraErr = perfInfra.setPowerConfig(powerConfigId, powerConfigsHMX);
     if (perfInfraErr != QNN_SUCCESS) {
+      const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&powerConfig, NULL};
+      perfInfraErr = perfInfra.setPowerConfig(powerConfigId, powerConfigs);
+      if (perfInfraErr != QNN_SUCCESS) {
         QNN_ERROR("setPowerConfig failed");
         return StatusCode::FAILURE;
+      }
     }
     return StatusCode::SUCCESS;
 }
