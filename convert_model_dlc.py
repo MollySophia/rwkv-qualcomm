@@ -244,7 +244,7 @@ else:
     print(converter_cmd)
     os.system(converter_cmd)
     print("Quantizing QNN dlc model...")
-    quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --act_bitwidth 16 --bias_bitwidth 8 --dump_encoding_json --debug"
+    quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --act_bitwidth 16 --bias_bitwidth 8"
     if os.name == 'nt':
         quant_cmd = "python " + quant_cmd
     print(quant_cmd)

@@ -6,6 +6,8 @@
 #include <vector>
 #include <cmath>
 #include <map>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "librwkv-qualcomm.h"
 #include "tokenizer.h"
@@ -83,8 +85,8 @@ static int sample_logits(const float* logits, const size_t size, float temperatu
 int main(int argc, char** argv) {
   std::cout.setf(std::ios::unitbuf);
 
-  if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " <tokenizer_path> <model_path>" << std::endl;
+  if (argc != 4) {
+    std::cerr << "Usage: " << argv[0] << " <tokenizer_path> <model_path> <prompt>" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -93,6 +95,19 @@ int main(int argc, char** argv) {
 
   std::string tokenizer_path = argv[1];
   std::string model_path = argv[2];
+  std::string prompt_input = argv[3];
+
+  char *buffer;
+  if ((buffer = getcwd(NULL, 0)) == NULL) {
+    perror("getcwd error");
+  }
+  std::string path = std::string(buffer);
+  setenv("LD_LIBRARY_PATH", path.c_str(), 1);
+  setenv("ADSP_LIBRARY_PATH", path.c_str(), 1);
+  if (buffer) {
+    free(buffer);
+  }
+  std::cout << "cwd: " << path << std::endl;
 
   StatusCode status;
 
@@ -101,14 +116,14 @@ int main(int argc, char** argv) {
 
   if (model_path.find(".so") != std::string::npos) {
     std::cout << "Loading model lib from " << model_path << std::endl;
-    status = QnnRwkvBackendCreate(&backend, &modelHandle, model_path, "libQnnHtp.so");
+    status = QnnRwkvBackendCreate(&backend, &modelHandle, model_path, path + "/libQnnHtp.so");
     if (status != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvBackendCreate failed" << std::endl;
       return EXIT_FAILURE;
     }
   } else if (model_path.find(".bin") != std::string::npos) {
     std::cout << "Loading model context binary from " << model_path << std::endl;
-    status = QnnRwkvBackendCreateWithContext(&backend, &modelHandle, model_path, "libQnnHtp.so", "libQnnSystem.so");
+    status = QnnRwkvBackendCreateWithContext(&backend, &modelHandle, model_path, path + "/libQnnHtp.so", path + "/libQnnSystem.so");
     if (status != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvBackendCreateWithContext failed" << std::endl;
       return EXIT_FAILURE;
@@ -129,6 +144,7 @@ int main(int argc, char** argv) {
 
   std::map<int, float> occurences;
   std::vector<double> inference_durations;
+  // std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>嗯";
   std::string prompt = "User: 请为我写一首诗。\n\n"
   "Assistant: 好的，请告诉我诗歌的主题或者一些关键词，这样我才能更好地为您创作一首诗。\n\n"
   "User: 主题是春天，还有一些关键词可以使用，如花朵、鸟鸣等等。\n\n"
@@ -164,8 +180,10 @@ int main(int argc, char** argv) {
 
   int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
   std::cout << prompt << "\n============== Prompt End ==============\n";
-  for (int i = 0; i < 300; i++) {
+  std::string output = "";
+  for (int i = 0; i < 512; i++) {
     std::cout << tokenizer.Decode(token);
+    // output += tokenizer.Decode(token);
     if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
@@ -179,6 +197,10 @@ int main(int argc, char** argv) {
     }
 
     token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
+
+    // if (token == 0 || (output.size() > 2 && output.substr(output.size() - 2) == "\n\n")) {
+    //   break;
+    // }
 
     occurences[token]++;
   }

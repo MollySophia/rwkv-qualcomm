@@ -1076,7 +1076,7 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::executeSequence(std::vector<int> &tok
   } else {
     int *token_input = (int*)m_ioTensor->getBuffer(&m_prefillInputTensors[0][0]);
     int idx;
-    for (idx = 0; (idx+m_prefillSequenceLength) < tokens.size(); idx += m_prefillSequenceLength) {
+    for (idx = 0; (idx+m_prefillSequenceLength) <= tokens.size(); idx += m_prefillSequenceLength) {
       for (int i = 0; i < m_prefillSequenceLength; i++) {
         token_input[i] = tokens[idx + i];
       }

@@ -91,24 +91,13 @@
     {
       "per_channel_quantization": "False"
     },
-    "GroupNorm":
+    "GroupNormalization":
     {
-      "per_channel_quantization": "False",
-      "params": {
-        "bias":
-        {
-          "is_quantized": "True"
-        }
-      }
+      "per_channel_quantization": "False"
     },
-    "LayerNorm":
+    "LayerNormalization":
     {
-      "per_channel_quantization": "False",
-      "params": {
-        "weight": {
-          "is_symmetric": "False"
-        }
-      }
+      "per_channel_quantization": "False"
     },
     "BatchNormalization":
     {

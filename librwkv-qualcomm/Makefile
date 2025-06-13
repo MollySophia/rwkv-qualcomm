@@ -32,10 +32,13 @@ clean_x86:
 
 # Android Targets
 
-all_android: aarch64-android aarch64-android-demo aarch64-android-eval aarch64-android-mmlu
+all_android: aarch64-android aarch64-android-demo aarch64-android-eval aarch64-android-mmlu aarch64-android-bench
 
 aarch64-android: check_ndk clean_aarch64-android
 	$(call build_if_exists,$(src_folder),$(ANDROID_NDK_ROOT)/ndk-build APP_ALLOW_MISSING_DEPS=true APP_ABI="arm64-v8a" NDK_PROJECT_PATH=./ NDK_APPLICATION_MK=$(make_dir)/Application.mk APP_BUILD_SCRIPT=$(make_dir)/Android.mk)
+
+aarch64-android-bench: check_ndk clean_aarch64-android
+	$(call build_if_exists,$(src_folder),$(ANDROID_NDK_ROOT)/ndk-build APP_ALLOW_MISSING_DEPS=true APP_ABI="arm64-v8a" NDK_PROJECT_PATH=./ NDK_APPLICATION_MK=$(make_dir)/Application.mk APP_BUILD_SCRIPT=$(make_dir)/Android-bench.mk)
 
 aarch64-android-demo: check_ndk clean_aarch64-android
 	$(call build_if_exists,$(src_folder),$(ANDROID_NDK_ROOT)/ndk-build APP_ALLOW_MISSING_DEPS=true APP_ABI="arm64-v8a" NDK_PROJECT_PATH=./ NDK_APPLICATION_MK=$(make_dir)/Application.mk APP_BUILD_SCRIPT=$(make_dir)/Android-demo.mk)
