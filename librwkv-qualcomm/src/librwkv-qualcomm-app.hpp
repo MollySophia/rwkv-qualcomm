@@ -134,6 +134,7 @@ class QnnRwkvApp {
   int m_prefillSequenceLength = 0;
 
   std::chrono::duration<double> m_lastInferenceTime;
+  std::chrono::duration<double> m_lastPrefillTime;
 };
 }  // namespace rwkv_app
 }  // namespace tools

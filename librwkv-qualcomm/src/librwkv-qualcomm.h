@@ -30,6 +30,8 @@ StatusCode QnnRwkvExecuteSequence(QnnRwkvBackend_t backend, std::vector<int> tok
 
 double QnnRwkvGetLastInferenceTime(QnnRwkvBackend_t backend);
 
+double QnnRwkvGetLastPrefillTime(QnnRwkvBackend_t backend);
+
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
 
 StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath);

@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
     return EXIT_FAILURE;
   }
-  auto duration_prefill = QnnRwkvGetLastInferenceTime(backend);
+  auto duration_prefill = QnnRwkvGetLastPrefillTime(backend);
 
   // QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
   for (int i = 0; i < 512; i++) {
@@ -106,7 +106,9 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "\n\nTime to first token (" << prompt_ids.size() << " tokens): " << duration_prefill << "s" << std::endl;
-  std::cout << "Average tokens per second (prefill): " << prompt_ids.size() / duration_prefill << std::endl;
+
+  // prefill graph takes 16 tokens per inference
+  std::cout << "Average tokens per second (prefill): " << (prompt_ids.size() / 16 * 16) / duration_prefill << std::endl;
   std::cout << "Average tokens per second (generation): " << inference_durations.size() / duration_invoke << std::endl;
 
   return EXIT_SUCCESS;

@@ -1097,6 +1097,9 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::executeSequence(std::vector<int> &tok
         }
       }
     }
+    std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
+    m_lastPrefillTime = std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
+
     for (; idx < tokens.size(); idx++) {
       if (execute(tokens[idx]) != StatusCode::SUCCESS) {
         QNN_ERROR("Execute failed.");
@@ -1104,9 +1107,6 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::executeSequence(std::vector<int> &tok
       }
     }
   }
-
-  std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
-  m_lastInferenceTime = std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
 
   return returnStatus;
 }

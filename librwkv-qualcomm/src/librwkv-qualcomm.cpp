@@ -289,6 +289,14 @@ double QnnRwkvGetLastInferenceTime(QnnRwkvBackend_t backend) {
     return app->m_lastInferenceTime.count();
 }
 
+double QnnRwkvGetLastPrefillTime(QnnRwkvBackend_t backend) {
+    if (!backend) {
+        return -1;
+    }
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    return app->m_lastPrefillTime.count();
+}
+
 StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend) {
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
     if (!app->m_tensorsInitialized)

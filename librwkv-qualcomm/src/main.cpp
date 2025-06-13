@@ -144,22 +144,22 @@ int main(int argc, char** argv) {
 
   std::map<int, float> occurences;
   std::vector<double> inference_durations;
-  // std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>嗯";
-  std::string prompt = "User: 请为我写一首诗。\n\n"
-  "Assistant: 好的，请告诉我诗歌的主题或者一些关键词，这样我才能更好地为您创作一首诗。\n\n"
-  "User: 主题是春天，还有一些关键词可以使用，如花朵、鸟鸣等等。\n\n"
-  "Assistant: 在春天的花园里，\n"
-  "舞动着五彩缤纷的翅膀，\n"
-  "莺啼渐远，笑靥如花，\n"
-  "细雨绵绵，润泽着大地。\n"
-  "这就是春天的景象，\n"
-  "让人心旷神怡，陶醉其中。\n"
-  "愿您在春天里畅游，\n"
-  "欣赏美丽的风景和歌声。\n\n"
-  "User: 生成一个关于夏天的段落。\n\n"
-  "Assistant: 夏天到了！阳光明媚，绿树环绕。沙滩上的海水波澜壮阔，海鸥翱翔。游泳、冲浪、野餐，人们都忙于享受夏日的美好时光。在这个季节里，自然界充满了色彩与生机。草木茂盛，花朵盛开；鸟儿欢快地歌唱着，传递着温暖和喜悦。夏天是一个值得庆祝的季节！\n\n"
-  "User: 谢谢你！\n\n"
-  "Assistant:";
+  std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>嗯";
+  // std::string prompt = "User: 请为我写一首诗。\n\n"
+  // "Assistant: 好的，请告诉我诗歌的主题或者一些关键词，这样我才能更好地为您创作一首诗。\n\n"
+  // "User: 主题是春天，还有一些关键词可以使用，如花朵、鸟鸣等等。\n\n"
+  // "Assistant: 在春天的花园里，\n"
+  // "舞动着五彩缤纷的翅膀，\n"
+  // "莺啼渐远，笑靥如花，\n"
+  // "细雨绵绵，润泽着大地。\n"
+  // "这就是春天的景象，\n"
+  // "让人心旷神怡，陶醉其中。\n"
+  // "愿您在春天里畅游，\n"
+  // "欣赏美丽的风景和歌声。\n\n"
+  // "User: 生成一个关于夏天的段落。\n\n"
+  // "Assistant: 夏天到了！阳光明媚，绿树环绕。沙滩上的海水波澜壮阔，海鸥翱翔。游泳、冲浪、野餐，人们都忙于享受夏日的美好时光。在这个季节里，自然界充满了色彩与生机。草木茂盛，花朵盛开；鸟儿欢快地歌唱着，传递着温暖和喜悦。夏天是一个值得庆祝的季节！\n\n"
+  // "User: 谢谢你！\n\n"
+  // "Assistant:";
   srand((unsigned)time(NULL));
 
   const float presence_penalty = 0.4;
@@ -174,16 +174,16 @@ int main(int argc, char** argv) {
     std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
     return EXIT_FAILURE;
   }
-  auto duration_prefill = QnnRwkvGetLastInferenceTime(backend);
+  auto duration_prefill = QnnRwkvGetLastPrefillTime(backend);
 
   QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
 
   int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
   std::cout << prompt << "\n============== Prompt End ==============\n";
   std::string output = "";
-  for (int i = 0; i < 512; i++) {
+  for (int i = 0; i < 2000; i++) {
     std::cout << tokenizer.Decode(token);
-    // output += tokenizer.Decode(token);
+    output += tokenizer.Decode(token);
     if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
       std::cerr << "QnnRwkvExecute failed" << std::endl;
       return EXIT_FAILURE;
@@ -198,9 +198,9 @@ int main(int argc, char** argv) {
 
     token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
 
-    // if (token == 0 || (output.size() > 2 && output.substr(output.size() - 2) == "\n\n")) {
-    //   break;
-    // }
+    if (token == 0 || (output.size() > 2 && output.substr(output.size() - 2) == "\n\n")) {
+      break;
+    }
 
     occurences[token]++;
   }
@@ -212,7 +212,7 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "\n\nTime to first token (" << prompt_ids.size() << " tokens): " << duration_prefill << "s" << std::endl;
-  std::cout << "Average tokens per second (prefill): " << prompt_ids.size() / duration_prefill << std::endl;
+  std::cout << "Average tokens per second (prefill): " << (prompt_ids.size() / 16 * 16) / duration_prefill << std::endl;
   std::cout << "Average tokens per second (generation): " << inference_durations.size() / duration_invoke << std::endl;
 
   return EXIT_SUCCESS;
