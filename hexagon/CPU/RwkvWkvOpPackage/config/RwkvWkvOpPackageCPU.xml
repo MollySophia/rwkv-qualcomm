@@ -125,7 +125,7 @@
         </OpDef>
 
         <OpDef>
-            <Name>wkv7_state</Name>
+            <Name>wkv7</Name>
             <Description>
                 <Content>
                 </Content>
@@ -133,6 +133,20 @@
 
             <Reference Source=""
                         Url=""/>
+
+            <Input>
+                <Name>r</Name>
+                <Description>
+                    <Content>r</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
 
             <Input>
                 <Name>w</Name>
@@ -212,60 +226,8 @@
                 <Mandatory>true</Mandatory>
                 <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
                 <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
-                <Shape>
-                    <Rank>3D</Rank>
-                </Shape>
-            </Input>
-
-            <Output>
-                <Name>state_out</Name>
-                <Description>
-                    <Content>state_out</Content>
-                </Description>
-                <Mandatory>true</Mandatory>
-                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
-                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
-                <Shape>
-                    <Rank>3D</Rank>
-                </Shape>
-            </Output>
-
-            <!--This Op is implemented on these Backends-->
-            <SupportedBackend>CPU</SupportedBackend>
-        </OpDef>
-
-         <OpDef>
-            <Name>wkv7_output</Name>
-            <Description>
-                <Content>
-                </Content>
-            </Description>
-
-            <Reference Source=""
-                        Url=""/>
-
-            <Input>
-                <Name>r</Name>
-                <Description>
-                    <Content>r</Content>
-                </Description>
-                <Mandatory>true</Mandatory>
-                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
-                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
                 <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
-                <Shape>
-                    <Rank>3D</Rank>
-                </Shape>
-            </Input>
-
-            <Input>
-                <Name>state_in</Name>
-                <Description>
-                    <Content>state_in</Content>
-                </Description>
-                <Mandatory>true</Mandatory>
-                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
-                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_INT_32</Datatype>
                 <Shape>
                     <Rank>3D</Rank>
                 </Shape>
@@ -280,6 +242,91 @@
                 <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
                 <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
                 <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <!--This Op is implemented on these Backends-->
+            <SupportedBackend>CPU</SupportedBackend>
+        </OpDef>
+
+        <OpDef>
+            <Name>wkv7_output_x</Name>
+            <Description>
+                <Content>
+                </Content>
+            </Description>
+
+            <Reference Source=""
+                        Url=""/>
+
+            <Input>
+                <Name>input</Name>
+                <Description>
+                    <Content>input</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Output>
+                <Name>output_x</Name>
+                <Description>
+                    <Content>output_x</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Output>
+
+            <!--This Op is implemented on these Backends-->
+            <SupportedBackend>CPU</SupportedBackend>
+        </OpDef>
+
+        <OpDef>
+            <Name>wkv7_output_state</Name>
+            <Description>
+                <Content>
+                </Content>
+            </Description>
+
+            <Reference Source=""
+                        Url=""/>
+
+            <Input>
+                <Name>input</Name>
+                <Description>
+                    <Content>input</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Shape>
+                    <Rank>3D</Rank>
+                </Shape>
+            </Input>
+
+            <Output>
+                <Name>output_state</Name>
+                <Description>
+                    <Content>output_state</Content>
+                </Description>
+                <Mandatory>true</Mandatory>
+                <Datatype>QNN_DATATYPE_FLOAT_32</Datatype>
+                <Datatype>QNN_DATATYPE_FLOAT_16</Datatype>
+                <Datatype>QNN_DATATYPE_UFIXED_POINT_16</Datatype>
+                <Datatype>QNN_DATATYPE_INT_32</Datatype>
                 <Shape>
                     <Rank>3D</Rank>
                 </Shape>

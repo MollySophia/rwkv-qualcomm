@@ -10,12 +10,13 @@
 #include "HTP/core/simple_reg.h"
 
 
-BEGIN_PKG_OP_DEFINITION(PKG_wkv7_state);
+BEGIN_PKG_OP_DEFINITION(PKG_wkv7);
 
 
 // op execute function declarations
 template<typename TensorType>
-GraphStatus wkv7StateFloatImpl(TensorType& out_0,
+GraphStatus wkv7FloatImpl(TensorType& out_0,
+                    const TensorType& r,
                     const TensorType& w,
                     const TensorType& k,
                     const TensorType& v,
@@ -24,7 +25,8 @@ GraphStatus wkv7StateFloatImpl(TensorType& out_0,
                     const TensorType& state);
 
 template<typename TensorType, typename StateType>
-GraphStatus wkv7StateFloat16Impl(StateType& out_0,
+GraphStatus wkv7Float16Impl(StateType& out_0,
+                    const TensorType& r,
                     const TensorType& w,
                     const TensorType& k,
                     const TensorType& v,
@@ -41,31 +43,32 @@ GraphStatus wkv7StateFloat16Impl(StateType& out_0,
 
 DEF_PACKAGE_OPTIMIZATION(
   CLEANUP_GRAPH + 50,
-  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
   IS_FLOAT16("state_in"),
-  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in")
+  Op("wkv7.fp16", "r", "w", "k", "v", "a", "b", "state_in")
 )
 
 DEF_PACKAGE_OPTIMIZATION(
   CLEANUP_GRAPH + 50,
-  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
   IS_QUINT16("w"),
-  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in")
+  Op("wkv7.uint16", "r", "w", "k", "v", "a", "b", "state_in")
 )
 
 DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
   CLEANUP_GRAPH + 51, relaxed_precision_flag,
-  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  MAKE_OP_FP16_AND_INSERT_CAST(Op("wkv7_state.fp16", CAST_TO_FP16("w"), CAST_TO_FP16("k"), CAST_TO_FP16("v"), CAST_TO_FP16("a"), CAST_TO_FP16("b"), CAST_TO_FP16("state_in")))
+  MAKE_OP_FP16_AND_INSERT_CAST(Op("wkv7.fp16", CAST_TO_FP16("r"), CAST_TO_FP16("w"), CAST_TO_FP16("k"), CAST_TO_FP16("v"), CAST_TO_FP16("a"), CAST_TO_FP16("b"), CAST_TO_FP16("state_in")))
 )
 
 DEF_PACKAGE_OPTIMIZATION(
   TILING + 100,
-  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.fp16", "r", "w", "k", "v", "a", "b", "state_in"),
   GT(DIM_HEIGHT("*"), 2),
   AUTOSPLIT(1, "I", 2,
-    Op("wkv7_state.fp16",
+    Op("wkv7.fp16",
+      TYPICAL_SLICE("r", "I"),
       TYPICAL_SLICE("w", "I"),
       TYPICAL_SLICE("k", "I"),
       TYPICAL_SLICE("v", "I"),
@@ -78,10 +81,11 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   TILING + 100,
-  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
   GT(DIM_HEIGHT("*"), 2),
   AUTOSPLIT(1, "I", 2,
-    Op("wkv7_state",
+    Op("wkv7",
+      TYPICAL_SLICE("r", "I"),
       TYPICAL_SLICE("w", "I"),
       TYPICAL_SLICE("k", "I"),
       TYPICAL_SLICE("v", "I"),
@@ -94,10 +98,11 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   TILING + 100,
-  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.uint16", "r", "w", "k", "v", "a", "b", "state_in"),
   GT(DIM_HEIGHT("*"), 2),
   AUTOSPLIT(1, "I", 2,
-    Op("wkv7_state.uint16",
+    Op("wkv7.uint16",
+      TYPICAL_SLICE("r", "I"),
       TYPICAL_SLICE("w", "I"),
       TYPICAL_SLICE("k", "I"),
       TYPICAL_SLICE("v", "I"),
@@ -110,9 +115,10 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 100,
-  Op("wkv7_state", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  Op("wkv7_state.flat",
+  Op("wkv7.flat",
+    WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "r")),
     WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w")),
     WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "k")),
     WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "v")),
@@ -124,9 +130,10 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 100,
-  Op("wkv7_state.fp16", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.fp16", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  Op("wkv7_state.fp16.flat",
+  Op("wkv7.fp16.flat",
+    WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "r")),
     WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w")),
     WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "k")),
     WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "v")),
@@ -138,10 +145,13 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 100,
-  Op("wkv7_state.uint16", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.uint16", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
   WITH_OUTPUT_TYPE(DType::QUInt16, ZERO_OFFSET_OF("*"), STEPSIZE_OF("*"),
-    Op("wkv7_state.uint16.flat.dequant",
+    Op("wkv7.uint16.flat.dequant",
+      WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("r"), STEPSIZE_OF("r"),
+        WITH_SIZE("r", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "r"))))
+      ),
       WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("w"), STEPSIZE_OF("w"),
         WITH_SIZE("w", Op(FROM_DEFAULT_PACKAGE("Dequantize"), WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "w"))))
       ),
@@ -164,10 +174,11 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
-  Op("wkv7_state.fp16.flat", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.fp16.flat", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_state.fp16.flat.tcm",
+    Op("wkv7.fp16.flat.tcm",
+      WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
       WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
       WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
@@ -180,10 +191,11 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
-  Op("wkv7_state.flat", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.flat", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_state.flat.tcm",
+    Op("wkv7.flat.tcm",
+      WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
       WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
       WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
@@ -196,10 +208,11 @@ DEF_PACKAGE_OPTIMIZATION(
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
-  Op("wkv7_state.uint16.flat.dequant", "w", "k", "v", "a", "b", "state_in"),
+  Op("wkv7.uint16.flat.dequant", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_state.uint16.flat.dequant.tcm",
+    Op("wkv7.uint16.flat.dequant.tcm",
+      WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
       WITH_SAME_OUTPUT("k", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "k")),
       WITH_SAME_OUTPUT("v", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "v")),
@@ -210,13 +223,13 @@ DEF_PACKAGE_OPTIMIZATION(
   )
 )
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7_state.fp16.flat", FAST, Flags::RESOURCE_HVX)
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7_state.fp16.flat.tcm", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7.fp16.flat", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7.fp16.flat.tcm", FAST, Flags::RESOURCE_HVX)
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloatImpl<PlainFloatTensor>), "wkv7_state.flat", FAST, Flags::RESOURCE_HVX)
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloatImpl<PlainFloatTensor_TCM>), "wkv7_state.flat.tcm", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7FloatImpl<PlainFloatTensor>), "wkv7.flat", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7FloatImpl<PlainFloatTensor_TCM>), "wkv7.flat.tcm", FAST, Flags::RESOURCE_HVX)
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7StateFloat16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_state.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
 
 /* execute functions for ops */
 #include <hvx_hexagon_protos.h>
@@ -235,18 +248,20 @@ static inline int32_t float_to_int(float scale)
 }
 
 template<typename TensorType>
-GraphStatus wkv7StateFloatImpl(TensorType& out_0,
+GraphStatus wkv7FloatImpl(TensorType& out_0,
+                    const TensorType& r,
                     const TensorType& w,
                     const TensorType& k,
                     const TensorType& v,
                     const TensorType& a,
                     const TensorType& b,
                     const TensorType& state) {
-            
+
 #ifdef USE_HVX
   int num_heads = state.dim(1);
   int head_size = state.dim(2);
   int seq_length = k.dim(0);
+  // auto r_ptr = (float*)r.raw_data_const();
   auto w_ptr = (float*)w.raw_data_const();
   auto k_ptr = (float*)k.raw_data_const();
   auto v_ptr = (float*)v.raw_data_const();
@@ -364,7 +379,8 @@ GraphStatus wkv7StateFloatImpl(TensorType& out_0,
 }
 
 template<typename TensorType, typename StateType>
-GraphStatus wkv7StateFloat16Impl(StateType& out_0,
+GraphStatus wkv7Float16Impl(StateType& out_0,
+                    const TensorType& r,
                     const TensorType& w,
                     const TensorType& k,
                     const TensorType& v,
@@ -375,6 +391,7 @@ GraphStatus wkv7StateFloat16Impl(StateType& out_0,
   int num_heads = state.dim(1);
   int head_size = state.dim(2);
   int seq_length = k.dim(0);
+  __fp16* r_ptr = (__fp16*)r.raw_data_const();
   __fp16* w_ptr = (__fp16*)w.raw_data_const();
   __fp16* k_ptr = (__fp16*)k.raw_data_const();
   __fp16* v_ptr = (__fp16*)v.raw_data_const();
@@ -384,12 +401,18 @@ GraphStatus wkv7StateFloat16Impl(StateType& out_0,
   __fp16* out0_ptr = (__fp16*)out_0.raw_data();
 
   __fp16 __attribute__((aligned(VLEN))) tmp_buf[64];
-  HVX_Vector *out_state_ptr = (HVX_Vector *)(out0_ptr);
+  // HVX_Vector *out_state_ptr = (HVX_Vector *)(out0_ptr);
 
   for (int t = 0; t < seq_length; t++) {
-    HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out0_ptr + (t - 1) * num_heads * head_size * head_size) : (HVX_Vector *)(state_ptr);
+    // HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out0_ptr + (t - 1) * num_heads * head_size * head_size) : (HVX_Vector *)(state_ptr);
 
     for (int h = 0; h < num_heads; h++) {
+      HVX_Vector *prev_state_ptr = t > 0 ? (HVX_Vector *)(out0_ptr + h * (seq_length + head_size) * head_size + seq_length * head_size)
+        : (HVX_Vector *)(state_ptr + h * head_size * head_size);
+      HVX_Vector *out_state_ptr = (HVX_Vector *)(out0_ptr + h * (seq_length + head_size) * head_size + seq_length * head_size);
+      __fp16 *out_x_ptr = out0_ptr + h * (seq_length + head_size) * head_size + t * head_size;
+
+      HVX_Vector r_vec = *(HVX_Vector *)r_ptr;
       HVX_Vector w_vec = *(HVX_Vector *)w_ptr;
       HVX_Vector k_vec = *(HVX_Vector *)k_ptr;
       HVX_Vector a_vec = *(HVX_Vector *)a_ptr;
@@ -474,15 +497,71 @@ GraphStatus wkv7StateFloat16Impl(StateType& out_0,
         state_vec_7 = Q6_Vqf16_vadd_Vqf16Vqf16(Q6_Vqf16_vmpy_VhfVhf(state_vec_7, w_vec), kv_vec_7);
         state_vec_7 = Q6_Vqf16_vadd_Vqf16Vqf16(state_vec_7, Q6_Vqf16_vmpy_VhfVhf(sa_vec_7, b_vec));
 
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_0);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_1);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_2);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_3);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_4);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_5);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_6);
-        *out_state_ptr++ = Q6_Vhf_equals_Vqf16(state_vec_7);
+        state_vec_0 = Q6_Vhf_equals_Vqf16(state_vec_0);
+        state_vec_1 = Q6_Vhf_equals_Vqf16(state_vec_1);
+        state_vec_2 = Q6_Vhf_equals_Vqf16(state_vec_2);
+        state_vec_3 = Q6_Vhf_equals_Vqf16(state_vec_3);
+        state_vec_4 = Q6_Vhf_equals_Vqf16(state_vec_4);
+        state_vec_5 = Q6_Vhf_equals_Vqf16(state_vec_5);
+        state_vec_6 = Q6_Vhf_equals_Vqf16(state_vec_6);
+        state_vec_7 = Q6_Vhf_equals_Vqf16(state_vec_7);
+
+        *out_state_ptr++ = state_vec_0;
+        *out_state_ptr++ = state_vec_1;
+        *out_state_ptr++ = state_vec_2;
+        *out_state_ptr++ = state_vec_3;
+        *out_state_ptr++ = state_vec_4;
+        *out_state_ptr++ = state_vec_5;
+        *out_state_ptr++ = state_vec_6;
+        *out_state_ptr++ = state_vec_7;
+
+        // r @ state
+        HVX_Vector output_vec_0 = Q6_Vqf16_vmpy_VhfVhf(state_vec_0, r_vec);
+        HVX_Vector output_vec_1 = Q6_Vqf16_vmpy_VhfVhf(state_vec_1, r_vec);
+        HVX_Vector output_vec_2 = Q6_Vqf16_vmpy_VhfVhf(state_vec_2, r_vec);
+        HVX_Vector output_vec_3 = Q6_Vqf16_vmpy_VhfVhf(state_vec_3, r_vec);
+        HVX_Vector output_vec_4 = Q6_Vqf16_vmpy_VhfVhf(state_vec_4, r_vec);
+        HVX_Vector output_vec_5 = Q6_Vqf16_vmpy_VhfVhf(state_vec_5, r_vec);
+        HVX_Vector output_vec_6 = Q6_Vqf16_vmpy_VhfVhf(state_vec_6, r_vec);
+        HVX_Vector output_vec_7 = Q6_Vqf16_vmpy_VhfVhf(state_vec_7, r_vec);
+
+        for (int32_t n = 64; n >= 2; n >>= 1) {
+          output_vec_0 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_0, Q6_V_vlalign_VVR(output_vec_0, zero, n));
+          output_vec_1 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_1, Q6_V_vlalign_VVR(output_vec_1, zero, n));
+          output_vec_2 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_2, Q6_V_vlalign_VVR(output_vec_2, zero, n));
+          output_vec_3 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_3, Q6_V_vlalign_VVR(output_vec_3, zero, n));
+          output_vec_4 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_4, Q6_V_vlalign_VVR(output_vec_4, zero, n));
+          output_vec_5 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_5, Q6_V_vlalign_VVR(output_vec_5, zero, n));
+          output_vec_6 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_6, Q6_V_vlalign_VVR(output_vec_6, zero, n));
+          output_vec_7 = Q6_Vqf16_vadd_Vqf16Vqf16(output_vec_7, Q6_V_vlalign_VVR(output_vec_7, zero, n));
+        }
+        output_vec_0 = Q6_Vhf_equals_Vqf16(output_vec_0);
+        output_vec_1 = Q6_Vhf_equals_Vqf16(output_vec_1);
+        output_vec_2 = Q6_Vhf_equals_Vqf16(output_vec_2);
+        output_vec_3 = Q6_Vhf_equals_Vqf16(output_vec_3);
+        output_vec_4 = Q6_Vhf_equals_Vqf16(output_vec_4);
+        output_vec_5 = Q6_Vhf_equals_Vqf16(output_vec_5);
+        output_vec_6 = Q6_Vhf_equals_Vqf16(output_vec_6);
+        output_vec_7 = Q6_Vhf_equals_Vqf16(output_vec_7);
+
+        *(HVX_Vector *)tmp_buf = output_vec_0;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_1;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_2;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_3;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_4;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_5;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_6;
+        *out_x_ptr++ = tmp_buf[63];
+        *(HVX_Vector *)tmp_buf = output_vec_7;
+        *out_x_ptr++ = tmp_buf[63];
       }
+      r_ptr += head_size;
       w_ptr += head_size;
       k_ptr += head_size;
       a_ptr += head_size;
@@ -496,4 +575,4 @@ GraphStatus wkv7StateFloat16Impl(StateType& out_0,
 /* At the bottom of the op file, call END_PKG_OP_DEFINITION(<name>),
    where <name> is as BEGIN_PKG_OP_DEFINITION
 */
-END_PKG_OP_DEFINITION(PKG_wkv7_state);
+END_PKG_OP_DEFINITION(PKG_wkv7);
