@@ -30,19 +30,26 @@ class L2Norm(nn.Module):
     def forward(self, x):
         return torch.ops.customop.l2norm(x)
 
-class Wkv7State(nn.Module):
+class Wkv7Op(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, w, k, v, a, b, state2):
-        return torch.ops.rwkv.wkv7_state(w, k, v, a, b, state2)
+    def forward(self, r, w, k, v, a, b, state2):
+        return torch.ops.rwkv.wkv7(r, w, k, v, a, b, state2)
 
-class Wkv7Output(nn.Module):
+class Wkv7OutputX(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, r, state2):
-        return torch.ops.rwkv.wkv7_output(r, state2)
+    def forward(self, input):
+        return torch.ops.rwkv.wkv7_output_x(input)
+
+class Wkv7OutputState(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        return torch.ops.rwkv.wkv7_output_state(input)
 
 class Wkv7(nn.Module):
     def __init__(self, num_heads, head_size, custom_wkv=False):
@@ -68,7 +75,7 @@ class Wkv7(nn.Module):
         self.reshape_b = Reshape()
         self.reshape_x = Reshape()
 
-        self.gather_state = CustomGather()
+        # self.gather_state = CustomGather()
 
         if custom_wkv:
             # for adding the onnx nodes
@@ -77,8 +84,9 @@ class Wkv7(nn.Module):
                     name='extension', cpp_sources=[wkv_c_impl_src])
             # self.wkv_state_func = torch.ops.rwkv.wkv7_state
             # self.wkv_output_func = torch.ops.rwkv.wkv7_output
-            self.wkv_state = Wkv7State()
-            self.wkv_output = Wkv7Output()
+            self.wkv = Wkv7Op()
+            self.wkv_output_x = Wkv7OutputX()
+            self.wkv_output_state = Wkv7OutputState()
 
     def forward(self, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
@@ -89,10 +97,13 @@ class Wkv7(nn.Module):
             a = self.reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
             b = self.reshape_b(b, [seq_length, self.num_heads, 1, self.head_size])
 
-            state2_out = self.wkv_state(w, k, v, a, b, state2)
-            x = self.wkv_output(r, state2_out)
-            if seq_length != 1:
-                state2_out = self.gather_state(state2_out, torch.LongTensor([-1]).to(state2_out.device), 0)
+            # state2_out = self.wkv_state(w, k, v, a, b, state2)
+            # x = self.wkv_output(r, state2_out)
+            output = self.wkv(r, w, k, v, a, b, state2)
+            x = self.wkv_output_x(output)
+            state2_out = self.wkv_output_state(output)
+            # if seq_length != 1:
+            #     state2_out = self.gather_state(state2_out, torch.LongTensor([-1]).to(state2_out.device), 0)
             x = self.reshape_x(x, [seq_length, self.num_heads, 1, self.head_size])
         else:
             if seq_length == 1:

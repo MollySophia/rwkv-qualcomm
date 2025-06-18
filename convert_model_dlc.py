@@ -135,10 +135,12 @@ if type(model) == list:
         graph = gs.import_onnx(onnxmodel)
         # set output shape for wkv7_output
         for k, v in graph.tensors().items():
-            if "wkv7_output_output_0" in k:
+            if "wkv7_output_x_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
             elif "wkv7_state_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, args.head_size, args.head_size])
+            elif "wkv7_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[args.n_head, args.head_size + seq_length, args.head_size])
 
         onnxmodel = gs.export_onnx(graph)
         convert_model_to_external_data(onnxmodel)
@@ -216,10 +218,12 @@ else:
     graph = gs.import_onnx(onnxmodel)
     # set output shape for wkv7_output
     for k, v in graph.tensors().items():
-        if "wkv7_output_output_0" in k:
+        if "wkv7_output_x_output_0" in k:
             graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
         elif "wkv7_state_output_0" in k:
             graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, args.head_size, args.head_size])
+        elif "wkv7_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[args.n_head, args.head_size + seq_length, args.head_size])
 
     onnxmodel = gs.export_onnx(graph)
     convert_model_to_external_data(onnxmodel)
@@ -251,8 +255,8 @@ else:
     os.system(quant_cmd)
 
     # Delete all files in output_path except .dlc files
-    for file in os.listdir(dirname):
-        filepath = os.path.join(dirname, file)
-        if not (file.endswith('.dlc') or file.endswith('.json')):
-            if os.path.isfile(filepath):
-                os.remove(filepath)
+    # for file in os.listdir(dirname):
+    #     filepath = os.path.join(dirname, file)
+    #     if not (file.endswith('.dlc') or file.endswith('.json')):
+    #         if os.path.isfile(filepath):
+    #             os.remove(filepath)
