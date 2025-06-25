@@ -44,38 +44,38 @@ DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
 )
 
 // split
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_x.fp16", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_x.fp16",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_x.fp16", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_x.fp16",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_x", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_x",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_x", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_x",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_x.uint16", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_x.uint16",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_x.uint16", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_x.uint16",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
 // forceformat
 DEF_PACKAGE_OPTIMIZATION(
@@ -228,20 +228,20 @@ GraphStatus wkv7OutputXFloat16Impl(TensorType& out_0,
   auto inptr = (__fp16*)input.raw_data_const();
 
   for (int i = 0; i < seq_length; i++) {
-    for (int h = 0; h < num_heads; h += 4) {
+    for (int h = 0; h < num_heads; h++) {
       auto in_vec_ptr = (HVX_Vector*)(inptr + h * (seq_length + head_size) * head_size + i * head_size);
       HVX_Vector x_vec_0 = *in_vec_ptr;
-      in_vec_ptr += (seq_length + head_size);
-      HVX_Vector x_vec_1 = *in_vec_ptr;
-      in_vec_ptr += (seq_length + head_size);
-      HVX_Vector x_vec_2 = *in_vec_ptr;
-      in_vec_ptr += (seq_length + head_size);
-      HVX_Vector x_vec_3 = *in_vec_ptr;
+      // in_vec_ptr += (seq_length + head_size);
+      // HVX_Vector x_vec_1 = *in_vec_ptr;
+      // in_vec_ptr += (seq_length + head_size);
+      // HVX_Vector x_vec_2 = *in_vec_ptr;
+      // in_vec_ptr += (seq_length + head_size);
+      // HVX_Vector x_vec_3 = *in_vec_ptr;
 
       *out_vec_ptr++ = x_vec_0;
-      *out_vec_ptr++ = x_vec_1;
-      *out_vec_ptr++ = x_vec_2;
-      *out_vec_ptr++ = x_vec_3;
+      // *out_vec_ptr++ = x_vec_1;
+      // *out_vec_ptr++ = x_vec_2;
+      // *out_vec_ptr++ = x_vec_3;
     }
   }
 #endif

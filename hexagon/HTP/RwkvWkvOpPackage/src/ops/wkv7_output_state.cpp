@@ -44,38 +44,38 @@ DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
 )
 
 // split
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_state.fp16", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_state.fp16",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_state.fp16", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_state.fp16",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_state", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_state",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_state", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_state",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7_output_state.uint16", "input"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7_output_state.uint16",
-      TYPICAL_SLICE("input", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7_output_state.uint16", "input"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7_output_state.uint16",
+//       TYPICAL_SLICE("input", "I")
+//     )
+//   )
+// )
 
 // forceformat
 DEF_PACKAGE_OPTIMIZATION(
@@ -231,41 +231,41 @@ GraphStatus wkv7OutputStateFloat16Impl(TensorType& out_0,
   auto inptr = (__fp16*)input.raw_data_const();
 
   for (int i = 0; i < num_heads; i++) {
-    for (int j = 0; j < head_size; j += 16) {
+    for (int j = 0; j < head_size; j++) {
       auto in_vec_ptr = (HVX_Vector*)(inptr + i * (head_size + seq_length) * head_size + (j + seq_length) * head_size);
       HVX_Vector state_vec_0 = *in_vec_ptr++;
-      HVX_Vector state_vec_1 = *in_vec_ptr++;
-      HVX_Vector state_vec_2 = *in_vec_ptr++;
-      HVX_Vector state_vec_3 = *in_vec_ptr++;
-      HVX_Vector state_vec_4 = *in_vec_ptr++;
-      HVX_Vector state_vec_5 = *in_vec_ptr++;
-      HVX_Vector state_vec_6 = *in_vec_ptr++;
-      HVX_Vector state_vec_7 = *in_vec_ptr++;
-      HVX_Vector state_vec_8 = *in_vec_ptr++;
-      HVX_Vector state_vec_9 = *in_vec_ptr++;
-      HVX_Vector state_vec_10 = *in_vec_ptr++;
-      HVX_Vector state_vec_11 = *in_vec_ptr++;
-      HVX_Vector state_vec_12 = *in_vec_ptr++;
-      HVX_Vector state_vec_13 = *in_vec_ptr++;
-      HVX_Vector state_vec_14 = *in_vec_ptr++;
-      HVX_Vector state_vec_15 = *in_vec_ptr++;
+      // HVX_Vector state_vec_1 = *in_vec_ptr++;
+      // HVX_Vector state_vec_2 = *in_vec_ptr++;
+      // HVX_Vector state_vec_3 = *in_vec_ptr++;
+      // HVX_Vector state_vec_4 = *in_vec_ptr++;
+      // HVX_Vector state_vec_5 = *in_vec_ptr++;
+      // HVX_Vector state_vec_6 = *in_vec_ptr++;
+      // HVX_Vector state_vec_7 = *in_vec_ptr++;
+      // HVX_Vector state_vec_8 = *in_vec_ptr++;
+      // HVX_Vector state_vec_9 = *in_vec_ptr++;
+      // HVX_Vector state_vec_10 = *in_vec_ptr++;
+      // HVX_Vector state_vec_11 = *in_vec_ptr++;
+      // HVX_Vector state_vec_12 = *in_vec_ptr++;
+      // HVX_Vector state_vec_13 = *in_vec_ptr++;
+      // HVX_Vector state_vec_14 = *in_vec_ptr++;
+      // HVX_Vector state_vec_15 = *in_vec_ptr++;
 
       *out_vec_ptr++ = state_vec_0;
-      *out_vec_ptr++ = state_vec_1;
-      *out_vec_ptr++ = state_vec_2;
-      *out_vec_ptr++ = state_vec_3;
-      *out_vec_ptr++ = state_vec_4;
-      *out_vec_ptr++ = state_vec_5;
-      *out_vec_ptr++ = state_vec_6;
-      *out_vec_ptr++ = state_vec_7;
-      *out_vec_ptr++ = state_vec_8;
-      *out_vec_ptr++ = state_vec_9;
-      *out_vec_ptr++ = state_vec_10;
-      *out_vec_ptr++ = state_vec_11;
-      *out_vec_ptr++ = state_vec_12;
-      *out_vec_ptr++ = state_vec_13;
-      *out_vec_ptr++ = state_vec_14;
-      *out_vec_ptr++ = state_vec_15;
+      // *out_vec_ptr++ = state_vec_1;
+      // *out_vec_ptr++ = state_vec_2;
+      // *out_vec_ptr++ = state_vec_3;
+      // *out_vec_ptr++ = state_vec_4;
+      // *out_vec_ptr++ = state_vec_5;
+      // *out_vec_ptr++ = state_vec_6;
+      // *out_vec_ptr++ = state_vec_7;
+      // *out_vec_ptr++ = state_vec_8;
+      // *out_vec_ptr++ = state_vec_9;
+      // *out_vec_ptr++ = state_vec_10;
+      // *out_vec_ptr++ = state_vec_11;
+      // *out_vec_ptr++ = state_vec_12;
+      // *out_vec_ptr++ = state_vec_13;
+      // *out_vec_ptr++ = state_vec_14;
+      // *out_vec_ptr++ = state_vec_15;
     }
   }
 #endif
