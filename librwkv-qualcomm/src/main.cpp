@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
 
   std::map<int, float> occurences;
   std::vector<double> inference_durations;
-  std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>嗯";
+  std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>";
   // std::string prompt = "User: 请为我写一首诗。\n\n"
   // "Assistant: 好的，请告诉我诗歌的主题或者一些关键词，这样我才能更好地为您创作一首诗。\n\n"
   // "User: 主题是春天，还有一些关键词可以使用，如花朵、鸟鸣等等。\n\n"

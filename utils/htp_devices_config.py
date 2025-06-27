@@ -28,6 +28,10 @@ htp_devices = {
     "SM7325": {
         "dsp_arch": "v68",
         "soc_id": 35,
+    },
+    "SSG2125P": {
+        "dsp_arch": "v73",
+        "soc_id": 58,
     }
 }
 
@@ -60,7 +64,7 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
         }
     }
 
-    if soc_name != "SM8635" and soc_name != "SM7325":
+    if soc_name != "SM8635" and soc_name != "SM7325" and soc_name != "SSG2125P":
         config["graphs"]["fp16_relaxed_precision"] = 1
 
     if not old_qnn:
