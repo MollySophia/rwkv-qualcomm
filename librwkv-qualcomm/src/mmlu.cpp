@@ -43,20 +43,29 @@ int main(int argc, char ** argv) {
     }
     std::string prompt_template = "User: You are a very talented expert in <SUBJECT>. Answer this question:\n<Q>\nA. <|A|>\nB. <|B|>\nC. <|C|>\nD. <|D|>\n\nAssistant: The answer is";
 
+    auto replace_all = [](std::string& str, const std::string& from, const std::string& to) {
+        size_t pos = 0;
+        while((pos = str.find(from)) != std::string::npos) {
+            str.replace(pos, from.length(), to);
+        }
+    };
+
     json data = json::parse(file);
     std::vector<MMLU_Question> questions;
     for (const auto& item : data) {
         std::string prompt = prompt_template;
-        prompt = prompt.replace(prompt.find("<SUBJECT>"), 1, item["subject"].get<std::string>());
-        prompt = prompt.replace(prompt.find("<Q>"), 1, item["question"].get<std::string>());
-        prompt = prompt.replace(prompt.find("<|A|>"), 1, item["choices"][0].get<std::string>());
-        prompt = prompt.replace(prompt.find("<|B|>"), 1, item["choices"][1].get<std::string>());
-        prompt = prompt.replace(prompt.find("<|C|>"), 1, item["choices"][2].get<std::string>());
-        prompt = prompt.replace(prompt.find("<|D|>"), 1, item["choices"][3].get<std::string>());
+        std::string subject = item["subject"].get<std::string>();
+        replace_all(subject, "_", " ");
+        replace_all(prompt, "<SUBJECT>", subject);
+        replace_all(prompt, "<Q>", item["question"].get<std::string>());
+        replace_all(prompt, "<|A|>", item["choices"][0].get<std::string>());
+        replace_all(prompt, "<|B|>", item["choices"][1].get<std::string>());
+        replace_all(prompt, "<|C|>", item["choices"][2].get<std::string>());
+        replace_all(prompt, "<|D|>", item["choices"][3].get<std::string>());
         MMLU_Question q;
         q.prompt = prompt;
         q.answer = " " + item["answer"].get<std::string>();
-        q.subject = item["subject"].get<std::string>();
+        q.subject = subject;
         questions.push_back(q);
     }
 
@@ -128,8 +137,8 @@ int main(int argc, char ** argv) {
             return EXIT_FAILURE;
         }
         QnnRwkvCopyLogitsOutput(backend, output.data(), output.size());
-        auto probs = softmax(output);
-        auto output_id = std::max_element(probs.begin(), probs.end()) - probs.begin();
+        // auto probs = softmax(output);
+        auto output_id = std::max_element(output.begin(), output.end()) - output.begin();
         answer = tokenizer.Decode(output_id);
         // printf("Answer: %s\n", answer.c_str());
         // printf("Target: %s\n", q.answer.c_str());
