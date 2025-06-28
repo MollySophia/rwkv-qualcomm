@@ -346,7 +346,7 @@ class Rwkv7SelfAttention(nn.Module):
         gate = self.post_reshape_g(gate, [batch_size, seq_length, self.hidden_size])
         a = self.post_reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
         time_decay = self.post_reshape_w(time_decay, [seq_length, self.num_heads, 1, self.head_size])
-        time_decay = self.exp_w(self.scale_w(self.scale_w_param, self.sigmoid_w(time_decay)))
+        time_decay = self.exp_w(self.scale_w(self.sigmoid_w(time_decay), self.scale_w_param))
 
         kk = self.mix_kk(key, self.k_k)
         kk = self.l2norm(kk)

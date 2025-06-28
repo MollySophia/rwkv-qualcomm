@@ -180,6 +180,24 @@ for block in sim.model.blocks:
     block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
+    # somehow it doesn't quantize the affine parameters of Mul/Add layers with aimet 2.8.0
+    block.att.mul_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.add_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mul_gate.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.scale_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_r.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_v.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_g.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_kk.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_add.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_sub.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mul_r_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.mul_x_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+
     block.att.wkv7.wkv.output_quantizers[0] = None
     for i in range(7):
         block.att.wkv7.wkv.input_quantizers[i] = None
