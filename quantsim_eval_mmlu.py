@@ -1,6 +1,6 @@
 from rwkv_src.rwkv_model import RWKV_RNN
 from rwkv_src.rwkv_tokenizer import RWKV_TOKENIZER
-from rwkv_src.rwkv_v7_modules_conv import Wkv7State, Wkv7Output, L2Norm
+from rwkv_src.rwkv_v7_modules_conv import Wkv7OutputState, Wkv7Op, Wkv7OutputX, L2Norm
 import types
 import torch
 import math
@@ -52,35 +52,48 @@ from aimet_torch.v2 import quantization as Q
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
 
-@QuantizationMixin.implements(Wkv7State)
-class QuantizedWkv7State(QuantizationMixin, Wkv7State):
+@QuantizationMixin.implements(Wkv7Op)
+class QuantizedWkv7Op(QuantizationMixin, Wkv7Op):
     def __quant_init__(self):
         super().__quant_init__()
 
         # Declare the number of input/output quantizers
-        self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None])
+        self.input_quantizers = torch.nn.ModuleList([None, None, None, None, None, None, None])
         self.output_quantizers = torch.nn.ModuleList([None])
 
-    def forward(self, w, k, v, a, b, state2):
-
+    def forward(self, r, w, k, v, a, b, state2):
         with self._patch_quantized_parameters():
-            ret = super().forward(w, k, v, a, b, state2)
+            ret = super().forward(r, w, k, v, a, b, state2)
 
         return ret
 
-@QuantizationMixin.implements(Wkv7Output)
-class QuantizedWkv7Output(QuantizationMixin, Wkv7Output):
+@QuantizationMixin.implements(Wkv7OutputState)
+class QuantizedWkv7OutputState(QuantizationMixin, Wkv7OutputState):
     def __quant_init__(self):
         super().__quant_init__()
 
         # Declare the number of input/output quantizers
-        self.input_quantizers = torch.nn.ModuleList([None, None])
+        self.input_quantizers = torch.nn.ModuleList([None])
         self.output_quantizers = torch.nn.ModuleList([None])
 
-    def forward(self, r, state2):
-
+    def forward(self, input):
         with self._patch_quantized_parameters():
-            ret = super().forward(r, state2)
+            ret = super().forward(input)
+
+        return ret
+
+@QuantizationMixin.implements(Wkv7OutputX)
+class QuantizedWkv7OutputX(QuantizationMixin, Wkv7OutputX):
+    def __quant_init__(self):
+        super().__quant_init__()
+
+        # Declare the number of input/output quantizers
+        self.input_quantizers = torch.nn.ModuleList([None])
+        self.output_quantizers = torch.nn.ModuleList([None])
+
+    def forward(self, input):
+        with self._patch_quantized_parameters():
+            ret = super().forward(input)
 
         if self.output_quantizers[0]:
             ret = self.output_quantizers[0](ret)
@@ -162,13 +175,15 @@ for block in sim.model.blocks:
     block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    block.att.wkv7.wkv_state.output_quantizers[0] = None
-    for i in range(6):
-        block.att.wkv7.wkv_state.input_quantizers[i] = None
+    block.att.wkv7.wkv.output_quantizers[0] = None
+    for i in range(7):
+        block.att.wkv7.wkv.input_quantizers[i] = None
 
-    block.att.wkv7.wkv_output.input_quantizers[0] = None
-    block.att.wkv7.wkv_output.input_quantizers[1] = None
-    block.att.wkv7.wkv_output.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.wkv7.wkv_output_x.input_quantizers[0] = None
+    block.att.wkv7.wkv_output_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+
+    block.att.wkv7.wkv_output_state.input_quantizers[0] = None
+    block.att.wkv7.wkv_output_state.output_quantizers[0] = None
 
     # if args_parser.use_w4_seq_mse or args_parser.blockwise_quant:
     #     set_linear_weight_quantizer_to_4bit(block.ffn.key)
@@ -190,7 +205,7 @@ sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidt
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
 if args_parser.encodings:
-    sim.load_encodings(args_parser.encodings, allow_overwrite=False)
+    sim.load_encodings(args_parser.encodings, allow_overwrite=False, strict=False)
 
 model = model.to('cpu').float()
 torch.cuda.empty_cache()
@@ -198,6 +213,8 @@ torch.cuda.empty_cache()
 sim.model.float()
 model.args.fp16 = False
 sim.model.eval()
+
+sim.fold_param_quantizers()
 
 TEMPLATE = """User: You are a very talented expert in <SUBJECT>. Answer this question:
 <Q>
@@ -275,7 +292,7 @@ for idx, sample in enumerate(mmlu_test):
     state = get_dummy_state_kvcache(1, model.args, model.device)
     input_data = torch.LongTensor([[0] + tokenizer.encode(all_prefix.strip())]).to(model.device)
     logits, _ = sim.model(input_data, state)
-    logits = logits[:, -1, :].detach().to('cpu').float()
+    logits = logits[:, -1, :]
 
     log_prob = F.log_softmax(logits, dim=-1).squeeze()
     target_prob = log_prob[choices_token]
