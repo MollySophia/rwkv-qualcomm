@@ -22,6 +22,8 @@ parser.add_argument('--lambada_test', action='store_true', help='Run lambada tes
 parser.add_argument('--blockwise_quant', action='store_true', help='Use blockwise quantization')
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
+parser.add_argument('--use_w4_omniquant', action='store_true', help='Use int4 quantization with Omniquant optimization')
+parser.add_argument('--use_w4_adascale', action='store_true', help='Use int4 quantization with Adascale optimization')
 parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
 parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of batches to calibrate on')
 parser.add_argument('--seqmse_num_batches', type=int, default=20, help='Number of batches to calibrate on')
@@ -54,6 +56,10 @@ from aimet_torch.v2.quantsim.config_utils import set_blockwise_quantization_for_
 from aimet_torch.v2.nn import QuantizationMixin
 from aimet_torch.v2.nn.true_quant import QuantizedConv2d
 from aimet_torch.v2 import quantization as Q
+from aimet_torch.experimental.omniquant import apply_omniquant
+# from aimet_torch.experimental.adascale import apply_adascale
+# modified to support rwkv
+from quantizers.adascale_optimizer import apply_adascale
 
 from aimet_torch.seq_mse import apply_seq_mse, SeqMseParams
 from utils.dataset_builder import DatasetBuilder
@@ -135,14 +141,16 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, device, model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
+in_place = True if args_parser.use_w4_omniquant else False
+
 model = model.eval()
 sim = QuantizationSimModel(model, dummy_input=dummy_input,
-                        quant_scheme=QuantScheme.post_training_tf_enhanced,
+                        quant_scheme=QuantScheme.post_training_tf_enhanced if not args_parser.use_w4_omniquant else QuantScheme.training_range_learning_with_tf_init,
                         # quant_scheme=QuantScheme.post_training_percentile,
                         default_param_bw=8,
                         default_output_bw=16,
                         config_file="quantizers/configs/htp_quantsim_config_v75.json",
-                        #    in_place=True,
+                        in_place=in_place,
 )
 # sim.set_percentile_value(99.999)
 torch.cuda.empty_cache()
@@ -208,7 +216,7 @@ for block in sim.model.blocks:
     block.att.wkv7.wkv_output_state.input_quantizers[0] = None
     block.att.wkv7.wkv_output_state.output_quantizers[0] = None
 
-    if args_parser.use_w4_seq_mse or args_parser.blockwise_quant:
+    if args_parser.use_w4_seq_mse or args_parser.blockwise_quant or args_parser.use_w4_omniquant:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
         set_linear_weight_quantizer_to_4bit(block.ffn.value)
         set_linear_weight_quantizer_to_4bit(block.att.output)
@@ -286,11 +294,11 @@ else:
     dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
     dataloader = dataset_builder.train_dataloader
 
-def pass_calibration_data_seq_mse(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
+def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     model.eval()
     with torch.no_grad():
         state = get_dummy_state_kvcache(1, model.args, model.device)
-        model(forward_pass_args['input_ids'].to(model.device), state)
+        model(forward_pass_args['input_ids'], state)
 
 def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
     data_loader = forward_pass_args
@@ -308,13 +316,34 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.load_encodings:
     sim.load_encodings(args_parser.load_encodings, allow_overwrite=False)
+elif args_parser.use_w4_adascale:
+    sim.model.config = types.SimpleNamespace()
+    sim.model.config.use_cache = False
+    sim.model.args.fp16 = False
+    apply_adascale(qsim=sim,
+               data_loader=dataloader,
+               forward_fn=pass_calibration_data,
+               num_iterations=1500)
+    output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
+    os.path.exists(output_path) or os.makedirs(output_path)
+    sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_adascale')
+elif args_parser.use_w4_omniquant:
+    sim.model.config = types.SimpleNamespace()
+    sim.model.config.use_cache = False
+    apply_omniquant(quant_sim=sim,
+               dataloader=dataloader,
+               forward_fn=pass_calibration_data,
+               num_iterations=800)
+    output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
+    os.path.exists(output_path) or os.makedirs(output_path)
+    sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_omniquant')
 elif args_parser.use_w4_seq_mse:
     with torch.no_grad():
         params = SeqMseParams(num_batches=args_parser.seqmse_num_batches,
                             num_candidates=20,
                             inp_symmetry='symqt',
                             loss_fn='mse',
-                            forward_fn=pass_calibration_data_seq_mse)
+                            forward_fn=pass_calibration_data)
 
         apply_seq_mse(model=model, sim=sim, data_loader=dataloader, params=params)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
@@ -338,7 +367,8 @@ elif args_parser.blockwise_quant:
 # print(sim)
 print(sim.model.blocks[0].att)
 
-model = model.to('cpu').float()
+if not in_place:
+    model = model.to('cpu').float()
 torch.cuda.empty_cache()
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
