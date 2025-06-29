@@ -91,13 +91,51 @@
     {
       "per_channel_quantization": "False"
     },
+    "GroupNorm":
+    {
+      "per_channel_quantization": "False",
+      "params": {
+        "bias":
+        {
+          "is_quantized": "True"
+        }
+      }
+    },
+    "LayerNorm":
+    {
+      "per_channel_quantization": "False",
+      "params": {
+        "weight": {
+          "is_symmetric": "False"
+        },
+        "bias":
+        {
+          "is_quantized": "True"
+        }
+      }
+    },
     "GroupNormalization":
     {
-      "per_channel_quantization": "False"
+      "per_channel_quantization": "False",
+      "params": {
+        "bias":
+        {
+          "is_quantized": "True"
+        }
+      }
     },
     "LayerNormalization":
     {
-      "per_channel_quantization": "False"
+      "per_channel_quantization": "False",
+      "params": {
+        "weight": {
+          "is_symmetric": "False"
+        },
+        "bias":
+        {
+          "is_quantized": "True"
+        }
+      }
     },
     "BatchNormalization":
     {
