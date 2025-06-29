@@ -78,14 +78,14 @@ class RWKV_Block(nn.Module):
 
     def forward(self, x, state, v_first=None):
         if self.version == 7:
-            if self.layer_id == 0:
-                x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
-                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
-                return x, state, v_first
-            else:
-                x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
-                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
-                return x, state
+            # if self.layer_id == 0:
+            x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
+            x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+            return x, state, v_first
+            # else:
+            #     x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
+            #     x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+            #     return x, state
             
         else:
             x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1])
@@ -191,10 +191,10 @@ class RWKV_RNN(torch.nn.Module):
 
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
-                    if i == 0:
-                        x, state, v_first = self.blocks[i-self.layer_begin](x, state)
-                    else:
-                        x, state = self.blocks[i-self.layer_begin](x, state, v_first)
+                    # if i == 0:
+                    x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first)
+                    # else:
+                    #     x, state = self.blocks[i-self.layer_begin](x, state, v_first)
                 else:
                     x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:

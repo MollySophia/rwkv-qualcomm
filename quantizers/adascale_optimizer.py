@@ -66,6 +66,7 @@ from aimet_torch.blockwise_sampler import (
     change_tensor_and_cache_device_placement,
 )
 from aimet_torch.utils import get_device
+from tqdm import tqdm
 
 _logger = AimetLogger.get_area_logger(AimetLogger.LogAreas.AdaScale)
 
@@ -149,7 +150,7 @@ class AdaScale:
         # replace with adascale weight quantizer which introduces trainable params - beta, gamma, s2, s3
         device = get_device(qsim.model)
         cls._replace_with_adascale_weight_quantizers(adascale_blocks)
-        qsim.model = qsim.model.to("cpu").float()
+        qsim.model = qsim.model.to("cpu").to(torch.bfloat16)
         torch.cuda.empty_cache()
 
         sampler = BlockwiseSampler(
@@ -198,8 +199,8 @@ class AdaScale:
                         del fp_args, fp_kwargs
 
                 curr_iteration = 0
-                while curr_iteration < num_iterations:
-                    for batch_idx in range(len(data_loader)):
+                while curr_iteration < num_iterations and curr_iteration < len(data_loader):
+                    for batch_idx in tqdm(range(len(data_loader)), desc="AdaScale dataset processed"):
                         curr_iteration += 1
                         if curr_iteration > num_iterations:
                             break
@@ -230,6 +231,7 @@ class AdaScale:
                             )
                             torch.cuda.empty_cache()
                             loss = loss_fn(quant_out[0], batch_fp_out)
+                            print(loss)
 
                             loss.backward()
                             optimizer.step()
@@ -240,7 +242,7 @@ class AdaScale:
         del sampler
 
         cls._fold_weights_and_replace_with_qdq(adascale_blocks)
-        qsim.model.half().to(device)
+        qsim.model = qsim.model.half().to(device)
 
     @staticmethod
     def _get_blocks(qsim: QuantizationSimModel):

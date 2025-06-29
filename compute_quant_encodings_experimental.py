@@ -33,7 +33,9 @@ args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False if args_parser.use_cpu else torch.cuda.is_available()
+# model_args.fp16 = True if model_args.USE_CUDA else False
 model_args.fp16 = True if model_args.USE_CUDA else False
+model_args.bf16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
@@ -216,7 +218,7 @@ for block in sim.model.blocks:
     block.att.wkv7.wkv_output_state.input_quantizers[0] = None
     block.att.wkv7.wkv_output_state.output_quantizers[0] = None
 
-    if args_parser.use_w4_seq_mse or args_parser.blockwise_quant or args_parser.use_w4_omniquant:
+    if args_parser.use_w4_seq_mse or args_parser.blockwise_quant or args_parser.use_w4_omniquant or args_parser.use_w4_adascale:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
         set_linear_weight_quantizer_to_4bit(block.ffn.value)
         set_linear_weight_quantizer_to_4bit(block.att.output)
@@ -239,7 +241,7 @@ dataloader = None
 if args_parser.binidx_dataset is not None:
     from utils.indexed_dataset import MMapIndexedDataset
     dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
-    block_size = 4096
+    block_size = 2048
     len_total = 1
     took = []
     tokens = np.array([0])
@@ -253,7 +255,7 @@ if args_parser.binidx_dataset is not None:
             idx = random.randint(0, len(dataset) - 1)
         took.append(idx)
         len_total += len(dataset[idx])
-        tokens = np.concatenate((tokens, np.array(dataset[idx])), axis=0)
+        tokens = np.concatenate((tokens, np.array([0]), np.array(dataset[idx])), axis=0)
 
     class CustomDataset(torch.utils.data.Dataset):
         def __init__(self, tokens, block_size=2048):
@@ -320,13 +322,16 @@ elif args_parser.use_w4_adascale:
     sim.model.config = types.SimpleNamespace()
     sim.model.config.use_cache = False
     sim.model.args.fp16 = False
+    sim.model.args.bf16 = True
     apply_adascale(qsim=sim,
                data_loader=dataloader,
                forward_fn=pass_calibration_data,
-               num_iterations=1500)
+               num_iterations=50)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
     os.path.exists(output_path) or os.makedirs(output_path)
     sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_adascale')
+    sim.model.args.fp16 = True
+    sim.model.args.bf16 = False
 elif args_parser.use_w4_omniquant:
     sim.model.config = types.SimpleNamespace()
     sim.model.config.use_cache = False
@@ -379,6 +384,7 @@ sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_calib')
 
 sim.model.float()
 model.args.fp16 = False
+model.args.bf16 = False
 sim.model.eval()
 
 if args_parser.lambada_test:

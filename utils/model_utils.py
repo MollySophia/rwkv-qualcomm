@@ -11,9 +11,17 @@ def extract_info_from_model_cfg(model_cfg):
     return model_cfg.n_layer, model_cfg.n_head, model_cfg.n_embd
 
 def get_dummy_state_kvcache(batch_size, model_cfg, device):
-    def _cache(shape, fp16):
-        if fp16:
+    use_fp16 = model_cfg.fp16
+    use_bf16 = False
+    try:
+        use_bf16 = model_cfg.bf16
+    except:
+        pass
+    def _cache(shape, use_fp16, use_bf16):
+        if use_fp16:
             return torch.zeros(shape, dtype=torch.float16).to(device=device)
+        elif use_bf16:
+            return torch.zeros(shape, dtype=torch.bfloat16).to(device=device)
         else:
             return torch.zeros(shape).to(device=device)
 
@@ -26,7 +34,7 @@ def get_dummy_state_kvcache(batch_size, model_cfg, device):
  
     state = []
     for _ in range(0, num_layers):
-        state += [_cache(state_0, model_cfg.fp16), _cache(state_1, model_cfg.fp16), _cache(state_2, model_cfg.fp16)]
+        state += [_cache(state_0, use_fp16, use_bf16), _cache(state_1, use_fp16, use_bf16), _cache(state_2, use_fp16, use_bf16)]
     return state
 
 def get_dummy_input_for_rwkv_causal_llm(batch_size, input_length, device, model_cfg=None):
