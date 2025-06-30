@@ -255,8 +255,8 @@ else:
     os.system(quant_cmd)
 
     # Delete all files in output_path except .dlc files
-    # for file in os.listdir(dirname):
-    #     filepath = os.path.join(dirname, file)
-    #     if not (file.endswith('.dlc') or file.endswith('.json')):
-    #         if os.path.isfile(filepath):
-    #             os.remove(filepath)
+    for file in os.listdir(dirname):
+        filepath = os.path.join(dirname, file)
+        if not (file.endswith('.dlc') or file.endswith('.json')):
+            if os.path.isfile(filepath):
+                os.remove(filepath)
