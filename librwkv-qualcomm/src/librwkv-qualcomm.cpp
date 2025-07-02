@@ -164,7 +164,7 @@ StatusCode QnnRwkvBackendCreate(
         }
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle);
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, *modelHandle);
     bool usingHtp = backendPath.find("Htp") != std::string::npos;
     return QnnRwkvBackendInitialize(*backend, false, usingHtp, modelPath);
 }
@@ -202,7 +202,7 @@ StatusCode QnnRwkvBackendCreateWithContext(
       return StatusCode::FAILURE;
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, modelHandle, std::vector<std::vector<float>>({}),
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, *modelHandle, std::vector<std::vector<float>>({}),
         contextPath);
     bool usingHtp = backendPath.find("Htp") != std::string::npos;
     return QnnRwkvBackendInitialize(*backend, true, usingHtp, contextPath);
@@ -376,4 +376,12 @@ StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<st
     // return StatusCode::SUCCESS;
     // TODO
     return StatusCode::SUCCESS;
+}
+
+void QnnRwkvBackendDestroy(QnnRwkvBackend_t backend) {
+    if (!backend) {
+        return;
+    }
+    rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+    delete app;
 }

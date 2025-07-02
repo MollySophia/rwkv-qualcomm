@@ -147,6 +147,6 @@ int main(int argc, char **argv) {
         // }
     }
 
-    
+    QnnRwkvBackendDestroy(backend);
     return 0;
 }

@@ -177,5 +177,7 @@ int main(int argc, char ** argv) {
     std::ofstream out_file(file_name);
     out_file << json_output.dump(2) << std::endl;
 
+    QnnRwkvBackendDestroy(backend);
+
     return 0;
 }

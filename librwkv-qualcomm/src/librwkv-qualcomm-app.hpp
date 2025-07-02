@@ -32,6 +32,8 @@ class QnnRwkvApp {
                std::string cachedBinaryPath            = "",
                std::string saveBinaryName              = "");
 
+  ~QnnRwkvApp();
+
   StatusCode initialize();
 
   StatusCode initializeBackend();
@@ -83,8 +85,6 @@ class QnnRwkvApp {
   StatusCode verifyFailReturnStatus(Qnn_ErrorHandle_t errCode);
 
   void fillQuantizedTensor(float value, Qnn_Tensor_t *tensor);
-
-  virtual ~QnnRwkvApp();
 
   std::vector<half_float::half> m_lastOutput;
 

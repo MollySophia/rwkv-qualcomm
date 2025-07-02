@@ -37,3 +37,5 @@ StatusCode QnnRwkvResetStates(QnnRwkvBackend_t backend);
 StatusCode QnnRwkvSaveContext(QnnRwkvBackend_t backend, std::string contextPath);
 
 StatusCode QnnRwkvSetStates(QnnRwkvBackend_t backend, std::vector<std::vector<std::vector<float>>> states);
+
+void QnnRwkvBackendDestroy(QnnRwkvBackend_t backend);
