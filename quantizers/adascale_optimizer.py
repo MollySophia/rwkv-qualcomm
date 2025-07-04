@@ -199,7 +199,7 @@ class AdaScale:
                         del fp_args, fp_kwargs
 
                 curr_iteration = 0
-                while curr_iteration < num_iterations and curr_iteration < len(data_loader):
+                while curr_iteration < num_iterations:
                     for batch_idx in tqdm(range(len(data_loader)), desc="AdaScale dataset processed"):
                         curr_iteration += 1
                         if curr_iteration > num_iterations:

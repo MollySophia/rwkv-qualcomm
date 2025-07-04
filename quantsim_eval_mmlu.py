@@ -20,8 +20,11 @@ from datasets import load_dataset, load_from_disk
 
 parser = argparse.ArgumentParser(description='Compute param encodings for linear modules')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
-parser.add_argument('encodings', type=Path, help='Path to load encodings from')
+parser.add_argument('--load_encodings', type=Path, default=None, help='Path to load encodings from')
 parser.add_argument('--use_cpu', action='store_true', default=False, help='Use cpu to compute')
+parser.add_argument('--blockwise_quant', action='store_true', help='Use blockwise quantization')
+parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of batches to calibrate')
+parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
 args_parser = parser.parse_args()
 
 model_args = types.SimpleNamespace()
@@ -175,6 +178,24 @@ for block in sim.model.blocks:
     block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
     block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
+    # somehow it doesn't quantize the affine parameters of Mul/Add layers with aimet 2.8.0
+    block.att.mul_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.add_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mul_gate.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.scale_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_r.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_v.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.lerp_mul_g.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_kk.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_add.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_sub.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mix_ka_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.att.mul_r_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    block.ffn.mul_x_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+
     block.att.wkv7.wkv.output_quantizers[0] = None
     for i in range(7):
         block.att.wkv7.wkv.input_quantizers[i] = None
@@ -185,13 +206,13 @@ for block in sim.model.blocks:
     block.att.wkv7.wkv_output_state.input_quantizers[0] = None
     block.att.wkv7.wkv_output_state.output_quantizers[0] = None
 
-    # if args_parser.use_w4_seq_mse or args_parser.blockwise_quant:
-    #     set_linear_weight_quantizer_to_4bit(block.ffn.key)
-    #     set_linear_weight_quantizer_to_4bit(block.ffn.value)
-    #     set_linear_weight_quantizer_to_4bit(block.att.output)
-    #     set_linear_weight_quantizer_to_4bit(block.att.key)
-    #     set_linear_weight_quantizer_to_4bit(block.att.value)
-    #     set_linear_weight_quantizer_to_4bit(block.att.receptance)
+    if args_parser.blockwise_quant:
+        set_linear_weight_quantizer_to_4bit(block.ffn.key)
+        set_linear_weight_quantizer_to_4bit(block.ffn.value)
+        set_linear_weight_quantizer_to_4bit(block.att.output)
+        set_linear_weight_quantizer_to_4bit(block.att.key)
+        set_linear_weight_quantizer_to_4bit(block.att.value)
+        set_linear_weight_quantizer_to_4bit(block.att.receptance)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
     block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
@@ -204,8 +225,104 @@ sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidt
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
-if args_parser.encodings:
-    sim.load_encodings(args_parser.encodings, allow_overwrite=False, strict=False)
+dataloader = None
+if args_parser.binidx_dataset is not None:
+    from utils.indexed_dataset import MMapIndexedDataset
+    dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
+    block_size = 2048
+    len_total = 1
+    took = []
+    tokens = np.array([0])
+    while len_total < args_parser.calib_num_batches * block_size:
+        if len(took) >= len(dataset):
+            break
+        idx = random.randint(0, len(dataset) - 1)
+        while idx in took:
+            if len(took) >= len(dataset):
+                break
+            idx = random.randint(0, len(dataset) - 1)
+        took.append(idx)
+        len_total += len(dataset[idx])
+        tokens = np.concatenate((tokens, np.array([0]), np.array(dataset[idx])), axis=0)
+
+    class CustomDataset(torch.utils.data.Dataset):
+        def __init__(self, tokens, block_size=2048):
+            self.full_tokens = tokens
+            self.block_size = block_size
+            self._len = len(tokens) // block_size
+
+        def __len__(self):
+            return self._len
+
+        def __getitem__(self, idx):
+            start_idx = idx * self.block_size
+            end_idx = (idx+1) * self.block_size
+
+            input_ids = self.full_tokens[start_idx:end_idx]
+            return input_ids
+    dataset = CustomDataset(tokens, block_size)
+    def collate_fn(x):
+        return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64))}
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)
+else:
+    dataset_args = types.SimpleNamespace()
+    dataset_args.calib_dataset_name = "wikitext"
+    dataset_args.calib_dataset_config_name = "wikitext-2-raw-v1"
+    dataset_args.dataset_cache_dir = "./dataset_cache"
+    dataset_args.calib_dataset_split = None
+    dataset_args.calib_dataset_preprocessor = "gpt2"
+    dataset_args.eval_dataset_name = "wikitext"
+    dataset_args.eval_dataset_config_name = "wikitext-103-raw-v1"
+    dataset_args.eval_dataset_split = "test"
+    dataset_args.eval_dataset_preprocessor = "gptq"
+    dataset_args.per_device_calib_batch_size = 1
+    dataset_args.per_device_eval_batch_size = 1
+    dataset_args.block_size = 1024
+    dataset_args.seed = 42
+
+    dataset_builder = DatasetBuilder(dataset_args)
+    dataset_builder.make_dataset(tokenizer=tokenizer, args=dataset_args, column_name="text", shuffle=True)
+    dataloader = dataset_builder.train_dataloader
+
+def pass_calibration_data(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
+    model.eval()
+    with torch.no_grad():
+        state = get_dummy_state_kvcache(1, model.args, model.device)
+        model(forward_pass_args['input_ids'], state)
+
+def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optional[Any]=None):
+    data_loader = forward_pass_args
+
+    num_batches = args_parser.calib_num_batches
+
+    model.eval()
+    with torch.no_grad():
+        for batch, input_data in tqdm(enumerate(data_loader)):
+            state = get_dummy_state_kvcache(1, model.args, model.device)
+            model(input_data['input_ids'].to(model.device), state)
+
+            if batch >= num_batches:
+                break
+
+if args_parser.load_encodings:
+    sim.load_encodings(args_parser.load_encodings, allow_overwrite=False, strict=False)
+elif args_parser.blockwise_quant:
+    fn = lambda module: isinstance(module, QuantizedConv2d) and module.param_quantizers['weight'].bitwidth == 4
+
+    BLOCK_QUANT_SIZE = 16
+    BITWIDTH = 4
+    DECOMPRESSED_BITWIDTH = 8
+
+    set_grouped_blockwise_quantization_for_weights(sim = sim,
+                                                arg = fn,
+                                                bitwidth = BITWIDTH,
+                                                symmetric = True,
+                                                decompressed_bw = DECOMPRESSED_BITWIDTH,
+                                                block_size = BLOCK_QUANT_SIZE,
+                                                block_grouping = -1)
+
+    print(sim.model.blocks[0])
+    sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
 model = model.to('cpu').float()
 torch.cuda.empty_cache()

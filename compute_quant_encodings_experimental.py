@@ -60,6 +60,7 @@ from aimet_torch.v2.nn.true_quant import QuantizedConv2d
 from aimet_torch.v2 import quantization as Q
 from aimet_torch.experimental.omniquant import apply_omniquant
 # from aimet_torch.experimental.adascale import apply_adascale
+from aimet_torch.v2.experimental.quantsim_utils import clip_weights_to_7f7f
 # modified to support rwkv
 from quantizers.adascale_optimizer import apply_adascale
 
@@ -326,7 +327,7 @@ elif args_parser.use_w4_adascale:
     apply_adascale(qsim=sim,
                data_loader=dataloader,
                forward_fn=pass_calibration_data,
-               num_iterations=50)
+               num_iterations=300)
     output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
     os.path.exists(output_path) or os.makedirs(output_path)
     sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_adascale')
@@ -370,7 +371,7 @@ elif args_parser.blockwise_quant:
                                                 block_grouping = -1)
 
 # print(sim)
-print(sim.model.blocks[0].att)
+# print(sim.model.blocks[0].att)
 
 if not in_place:
     model = model.to('cpu').float()
@@ -378,9 +379,13 @@ torch.cuda.empty_cache()
 
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
+clip_weights_to_7f7f(sim)
+
 output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
 os.path.exists(output_path) or os.makedirs(output_path)
-sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_calib')
+if not args_parser.blockwise_quant:
+    # too slow to save encodings for blockwise quant
+    sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_calib')
 
 sim.model.float()
 model.args.fp16 = False
