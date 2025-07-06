@@ -306,6 +306,8 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
 
 if args_parser.load_encodings:
     sim.load_encodings(args_parser.load_encodings, allow_overwrite=False, strict=False)
+    if args_parser.binidx_dataset is not None:
+        sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 elif args_parser.blockwise_quant:
     fn = lambda module: isinstance(module, QuantizedConv2d) and module.param_quantizers['weight'].bitwidth == 4
 

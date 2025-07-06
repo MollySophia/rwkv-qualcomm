@@ -83,7 +83,8 @@ DEF_PACKAGE_OPTIMIZATION(
   Op("wkv7_output_x.fp16", "input"),
   OK,
   Op("wkv7_output_x.fp16.flat",
-    WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+    // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+    "input"
   )
 )
 
@@ -92,7 +93,8 @@ DEF_PACKAGE_OPTIMIZATION(
   Op("wkv7_output_x", "input"),
   OK,
   Op("wkv7_output_x.flat",
-    WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+    // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+    "input"
   )
 )
 
@@ -105,7 +107,8 @@ DEF_PACKAGE_OPTIMIZATION(
       Op(FROM_DEFAULT_PACKAGE("Quantize"),
         WITH_OUTPUT_TYPE(DType::Float16, ZERO_OFFSET_OF("*"), STEPSIZE_OF("*"),
           Op("wkv7_output_x.uint16.flat.dequant",
-            WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+            // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("ForceFormat_Flat"), "input"))
+            "input"
           )
         )
       )
@@ -120,7 +123,8 @@ DEF_PACKAGE_OPTIMIZATION(
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7_output_x.fp16.flat.tcm",
-      WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      "input"
     )
   )
 )
@@ -131,7 +135,8 @@ DEF_PACKAGE_OPTIMIZATION(
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7_output_x.flat.tcm",
-      WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      "input"
     )
   )
 )
@@ -142,7 +147,8 @@ DEF_PACKAGE_OPTIMIZATION(
   OK,
   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7_output_x.uint16.flat.dequant.tcm",
-      WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+      "input"
     )
   )
 )
@@ -153,7 +159,7 @@ DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloatImpl<PlainFloatTensor>), "wkv7_output_x.flat", FAST, Flags::RESOURCE_HVX)
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloatImpl<PlainFloatTensor_TCM>), "wkv7_output_x.flat.tcm", FAST, Flags::RESOURCE_HVX)
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7_output_x.uint16.flat.dequant", FAST, Flags::RESOURCE_HVX)
+// DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7_output_x.uint16.flat.dequant", FAST, Flags::RESOURCE_HVX)
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_output_x.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
 
 /* execute functions for ops */

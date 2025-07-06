@@ -176,7 +176,7 @@ DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
   Op("wkv7.fp16.flat", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+  // Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7.fp16.flat.tcm",
       WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
@@ -186,14 +186,14 @@ DEF_PACKAGE_OPTIMIZATION(
       WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
       WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
     )
-  )
+  // )
 )
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
   Op("wkv7.flat", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+  // Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7.flat.tcm",
       WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
@@ -203,14 +203,14 @@ DEF_PACKAGE_OPTIMIZATION(
       WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
       WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
     )
-  )
+  // )
 )
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 130,
   Op("wkv7.uint16.flat.dequant", "r", "w", "k", "v", "a", "b", "state_in"),
   OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+  // Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
     Op("wkv7.uint16.flat.dequant.tcm",
       WITH_SAME_OUTPUT("r", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "r")),
       WITH_SAME_OUTPUT("w", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "w")),
@@ -220,7 +220,7 @@ DEF_PACKAGE_OPTIMIZATION(
       WITH_SAME_OUTPUT("b", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "b")),
       WITH_SAME_OUTPUT("state_in", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "state_in"))
     )
-  )
+  // )
 )
 
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7.fp16.flat", FAST, Flags::RESOURCE_HVX)
