@@ -560,7 +560,13 @@ else:
                         n['offset'] = entry['offset']
                         n['scale'] = entry['scale']
                         encodings_prefill['activation_encodings'].append(n)
-        # TODO: embedding.weight
+    for entry in encodings['param_encodings']:
+        if 'embedding.weight' in entry['name']:
+            tmp = copy.deepcopy(entry)
+            tmp['name'] = '/pre_ln/LayerNormalization_output_0'
+            encodings['activation_encodings'].append(tmp)
+            encodings_prefill['activation_encodings'].append(tmp)
+
     dummy_quant_override = {
         "bw": 16,
         "dtype": "INT",
@@ -583,10 +589,6 @@ else:
         tmp["name"] = f'state{3*i+1}_out'
         encodings['activation_encodings'].append(tmp)
         encodings_prefill['activation_encodings'].append(tmp)
-        # tmp = copy.deepcopy(dummy_quant_override)
-        # tmp["name"] = f'/blocks/blocks.{i}/att/wkv7/gather_state/Gather_output_0'
-        # encodings['activation_encodings'].append(tmp)
-        # encodings_prefill['activation_encodings'].append(tmp)
         tmp = copy.deepcopy(dummy_quant_override)
         tmp["name"] = f'/blocks/blocks.{i}/att/wkv7/wkv/wkv7_output_0'
         encodings['activation_encodings'].append(tmp)
