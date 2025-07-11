@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-class TRIE_TOKENIZER;
+class OptimizedTrieTokenizer;
 
 class tokenizer_base {
 public:
@@ -30,7 +30,7 @@ public:
     std::string Decode(int id) const;
     bool inited() const;
 private:
-    TRIE_TOKENIZER * _tokenizer;
+    OptimizedTrieTokenizer * _tokenizer;
 };
 
 class abc_tokenizer : public tokenizer_base {

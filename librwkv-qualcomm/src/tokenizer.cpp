@@ -2,7 +2,7 @@
 #include "trie.hpp"
 
 int trie_tokenizer::load(const std::string vocab_file) {
-    _tokenizer = new TRIE_TOKENIZER(vocab_file);
+    _tokenizer = new OptimizedTrieTokenizer(vocab_file);
     if (!_tokenizer->inited())
         return 1;
     return 0;
