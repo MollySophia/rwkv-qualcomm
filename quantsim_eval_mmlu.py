@@ -25,11 +25,22 @@ parser.add_argument('--use_cpu', action='store_true', default=False, help='Use c
 parser.add_argument('--blockwise_quant', action='store_true', help='Use blockwise quantization')
 parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of batches to calibrate')
 parser.add_argument('--binidx_dataset', type=Path, default=None, help='Path to binidx dataset')
+parser.add_argument('--w8_embedding', action='store_true', help='Use int8 quantization for embedding')
 args_parser = parser.parse_args()
+
+# SET RANDOM SEED
+SHUFFLE = False
+SEED = 42
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False if args_parser.use_cpu else torch.cuda.is_available()
-model_args.fp16 = True if model_args.USE_CUDA else False
+model_args.fp16 = False
+model_args.bf16 = True
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
@@ -132,6 +143,8 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, device, model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
+in_place = True
+
 model = model.eval()
 sim = QuantizationSimModel(model, dummy_input=dummy_input,
                         quant_scheme=QuantScheme.post_training_tf_enhanced,
@@ -139,11 +152,13 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
                         default_param_bw=8,
                         default_output_bw=16,
                         config_file="quantizers/configs/htp_quantsim_config_v75.json",
-                        #    in_place=True,
+                        in_place=in_place,
 )
 # sim.set_percentile_value(99.999)
 torch.cuda.empty_cache()
 
+if args_parser.w8_embedding:
+    sim.model.embedding.param_quantizers['weight'] = Q.affine.Quantize((model.args.n_embd,), bitwidth=8, symmetric=True).to(device)
 
 # mp_configurator = MixedPrecisionConfigurator(sim)
 def set_linear_weight_quantizer_to_4bit(module):
@@ -152,75 +167,82 @@ def set_linear_weight_quantizer_to_4bit(module):
         module.param_quantizers['weight'].symmetric = True
 
 for block in sim.model.blocks:
-    block.att.pre_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.pre_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.pre_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.pre_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.post_permute_v1.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.pre_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.pre_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.pre_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.pre_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_g.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.post_permute_v1.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.pre_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.post_conv_transpose.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.pre_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.post_conv_transpose2.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-    block.att.wkv7.reshape_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_r.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_w.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_k.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_v.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_a.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_b.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.reshape_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     # somehow it doesn't quantize the affine parameters of Mul/Add layers with aimet 2.8.0
-    block.att.mul_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.add_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mul_gate.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.scale_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_r.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_v.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.lerp_mul_g.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mix_kk.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mix_ka_add.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mix_ka_sub.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mix_ka_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.att.mul_r_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-    block.ffn.mul_x_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mul_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.add_ln_x.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mul_gate.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.scale_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_r.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_w.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_v.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.lerp_mul_g.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mix_kk.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mix_ka_add.input_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mix_ka_sub.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mix_ka_mul_a.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.mul_r_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.mul_x_k.input_quantizers[1] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     block.att.wkv7.wkv.output_quantizers[0] = None
     for i in range(7):
         block.att.wkv7.wkv.input_quantizers[i] = None
 
     block.att.wkv7.wkv_output_x.input_quantizers[0] = None
-    block.att.wkv7.wkv_output_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.att.wkv7.wkv_output_x.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
     block.att.wkv7.wkv_output_state.input_quantizers[0] = None
     block.att.wkv7.wkv_output_state.output_quantizers[0] = None
 
-    if args_parser.blockwise_quant:
+    # if args_parser.blockwise_quant:
+    if True:
         set_linear_weight_quantizer_to_4bit(block.ffn.key)
         set_linear_weight_quantizer_to_4bit(block.ffn.value)
         set_linear_weight_quantizer_to_4bit(block.att.output)
         set_linear_weight_quantizer_to_4bit(block.att.key)
         set_linear_weight_quantizer_to_4bit(block.att.value)
         set_linear_weight_quantizer_to_4bit(block.att.receptance)
+        if True:
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_a1)
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_g1)
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_time_decay_w1)
+            if block.att.layer_id != 0:
+                set_linear_weight_quantizer_to_4bit(block.att.matmul_v1)
 
     # somehow it doesn't want to quantize ffn.key Linear by default
-    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+    # block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 
-sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
-sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+# sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+# sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+# sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+# sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 # mp_configurator.apply()
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
@@ -305,7 +327,7 @@ def pass_calibration_data_calib(model: torch.nn.Module, forward_pass_args: Optio
                 break
 
 if args_parser.load_encodings:
-    sim.load_encodings(args_parser.load_encodings, allow_overwrite=False, strict=False)
+    sim.load_encodings(args_parser.load_encodings, allow_overwrite=False)
     if args_parser.binidx_dataset is not None:
         sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 elif args_parser.blockwise_quant:
@@ -326,14 +348,15 @@ elif args_parser.blockwise_quant:
     print(sim.model.blocks[0])
     sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
-model = model.to('cpu').float()
+print(sim.model.blocks[0])
+print(sim.model.head)
+
+# model = model.to('cpu').float()
+if not in_place:
+    model = model.to('cpu').float()
 torch.cuda.empty_cache()
 
-sim.model.float()
-model.args.fp16 = False
-sim.model.eval()
-
-sim.fold_param_quantizers()
+# sim.fold_param_quantizers()
 
 TEMPLATE = """User: You are a very talented expert in <SUBJECT>. Answer this question:
 <Q>
@@ -360,15 +383,12 @@ CHOICES = [" A", " B", " C", " D"]
 mmlu_test = load_from_disk("assets/mmlu_test_dataset")
 mmlu_dev = load_from_disk("assets/mmlu_dev_dataset")
 
-########################################################################################################
-# SET RANDOM SEED
-SHUFFLE = False
-SEED = 42
-
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed(SEED)
+state = get_dummy_state_kvcache(1, model.args, model.device)
+input_data = torch.LongTensor([[0]]).to(model.device)
+logits, _ = sim.model(input_data, state)
+print(logits.flatten()[:10])
+for i in range(len(state)):
+    print("state", i, state[i].flatten()[:10])
 
 ########################################################################################################
 # RUN EVALUATION

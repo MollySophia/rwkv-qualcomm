@@ -25,14 +25,15 @@ def main():
     if "chunk" in str(args.model_dlc):
         print("Chunked model detected")
         num_chunks = int(str(args.model_dlc).split('chunk')[-1].replace('.dlc', '').split('of')[-1])
+        input_chunk_num = int(str(args.model_dlc).split('chunk')[-1].replace('.dlc', '').split('of')[-2])
         print(f"Number of chunks: {num_chunks}")
         for i in range(1, num_chunks+1):
-            model_path = str(args.model_dlc).split('chunk')[0] + f"chunk{i}of{num_chunks}.dlc"
+            model_path = str(args.model_dlc).replace(f'chunk{input_chunk_num}of{num_chunks}', f'chunk{i}of{num_chunks}')
             print(f"Processing chunk {model_path}")
             model_name = model_path.split('/')[-1].replace('.dlc', '')
             model_list = [model_name]
             if args.prefill:
-                model_list.append(model_name.replace("chunk", "prefill_chunk"))
+                model_list.append(model_name.replace(f"chunk", "prefill_chunk"))
                 print(f"Weights sharing enabled. Processing prefill model {model_list[-1]} as well")
             dump_htp_config(args.platform, model_list, model_path.replace('.dlc', '_htp_config.json'), old_qnn, args.prefill)
             dump_htp_link_config(model_path.replace('.dlc', '_htp_link.json'), qnn_sdk_root)
@@ -41,7 +42,7 @@ def main():
             convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
             convert_cmd += f" --dlc_path {model_path}"
             if args.prefill:
-                convert_cmd += "," + model_path.replace("chunk", "prefill_chunk")
+                convert_cmd += "," + model_path.replace(f"chunk{i}of{num_chunks}.dlc", f"prefill_chunk{i}of{num_chunks}.dlc")
             convert_cmd += f" --output_dir {args.output_path}"
             output_name = model_name.replace('lib', '') if args.output_name is None else args.output_name + f'_chunk{i}of{num_chunks}'
             if args.prefill:
@@ -55,6 +56,7 @@ def main():
                 convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
 
             convert_cmd += " --input_output_tensor_mem_type memhandle"
+            print(convert_cmd)
             os.system(convert_cmd)
 
     else:

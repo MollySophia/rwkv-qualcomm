@@ -55,7 +55,6 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
             "soc_id": htp_devices[soc_name]["soc_id"],
             "pd_session": "unsigned",
             "cores": [{
-                "core_id": 0,
                 "perf_profile": "burst"
             }]
         }],

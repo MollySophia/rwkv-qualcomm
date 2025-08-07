@@ -15,7 +15,7 @@
 #define RPCMEM_HEAP_ID_SYSTEM 25
 #define RPCMEM_DEFAULT_FLAGS  1
 
-#if 1
+#if 0
 #define TRACE_MEMORY_ALLOC QNN_INFO
 #else
 #define TRACE_MEMORY_ALLOC(fmt, ...)
@@ -68,7 +68,7 @@ RpcMemTensorData* RpcMem::getRpcMemTensorData(Qnn_Tensor_t* tensor) {
   if (tensor == nullptr) return nullptr;
   Qnn_MemHandle_t mem_handle = QNN_TENSOR_GET_MEM_HANDLE(tensor);
   if (mem_handle == nullptr) return nullptr;
-  QNN_INFO("RpcMem :: getRpcMemTensorData %s mem_handle=%p", QNN_TENSOR_GET_NAME(tensor), mem_handle);
+  // QNN_INFO("RpcMem :: getRpcMemTensorData %s mem_handle=%p", QNN_TENSOR_GET_NAME(tensor), mem_handle);
   return &m_memHandleToRpcMem.at(mem_handle);
 }
 

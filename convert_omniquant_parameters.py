@@ -21,15 +21,21 @@ model = torch.load(args.model_path, map_location='cpu')
 
 encodings = {"activation_encodings": {}, "param_encodings": {}}
 
-for i in range(len(omniquant_parameters)):
+for i in omniquant_parameters.keys():
     for key, value in omniquant_parameters[i].items():
         if 'lowbound' in key:
             continue
         model_key = key.replace('attn', 'att').replace('r_proj', 'receptance')
         model_key = model_key.replace('v_proj', 'value').replace('k_proj', 'key')
         model_key = model_key.replace('o_proj', 'output')
+        model_key = model_key.replace('_lora.lora.0', '1')
         model_key = model_key.replace('weight_quantizer', 'weight')
         model_key = f'blocks.{i}.{model_key.replace(".upbound_factor", "")}'
+        if "lora" in key:
+            model[model_key] = model[model_key.replace(".weight", "")].t()
+        if "lm_head" in model_key:
+            model_key = "head.weight"
+
         xmax = model[model_key].max(dim=1, keepdim=True)[0].float()
         xmin = model[model_key].min(dim=1, keepdim=True)[0].float()
 
@@ -44,6 +50,10 @@ for i in range(len(omniquant_parameters)):
 
         scale = (xmax - xmin) / (qmax - qmin)
         offset = symmetric_offset * torch.ones_like(xmax)
+        if "lora" in key:
+            model_key = model_key.replace("a1", "matmul_a1").replace("g1", "matmul_g1")
+            model_key = model_key.replace("w1", "matmul_time_decay_w1").replace("v1", "matmul_v1")
+
         encodings["param_encodings"][model_key] = []
         for c in range(xmax.shape[0]):
             encodings["param_encodings"][model_key].append({

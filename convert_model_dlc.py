@@ -22,20 +22,23 @@ parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
 parser.add_argument('--qnn_float_width', type=int, default=32, help='QNN float width')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
+parser.add_argument('--ext_lmhead', action='store_true', default=False, help='Use external head')
 parser.add_argument('--quant_encodings', type=Path, help='Path to quant encodings')
 parser.add_argument('--prefill_model', action='store_true', help='Convert model for sequential prefill')
 parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
 parser_args = parser.parse_args()
 
-seq_length = 16 if parser_args.prefill_model else 1
+seq_length = 6 if parser_args.prefill_model else 1
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
 model_args.fp16 = False
+model_args.bf16 = False
 model_args.wkv_customop = parser_args.wkv_customop
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 model_args.MODEL_NAME = str(parser_args.model)
 model_args.output_last = True
+model_args.EXTERNAL_HEAD = parser_args.ext_lmhead
 
 if 'ABC' in model_args.MODEL_NAME or 'MIDI' in model_args.MODEL_NAME or parser_args.quant_encodings or 'x070' in model_args.MODEL_NAME:
     model_args.RESCALE_LAYER = 0
@@ -82,39 +85,55 @@ if type(model) == list:
 
         if i == 0:
             encodings_chunk = copy.deepcopy(encodings_all)
-            encodings_chunk["activation_encodings"][output_name] = encodings_all["activation_encodings"][f'/blocks.{model[1].layer_begin-1}/ffn/add_feed_forward/Add_output_0']
+            for v in encodings_all["activation_encodings"]:
+                if f'/blocks.{model[1].layer_begin-1}/ffn/add_feed_forward/Add_output_0' in v['name']:
+                    tmp = copy.deepcopy(v)
+                    tmp['name'] = output_name
+                    encodings_chunk["activation_encodings"].append(tmp)
+            if not args.USE_EMBEDDING:
+                for v in encodings_all["param_encodings"]:
+                    if f'embedding.weight' in v['name']:
+                        tmp = copy.deepcopy(v)
+                        tmp['name'] = input_name
+                        encodings_chunk["activation_encodings"].append(tmp)
+                        break
             with open(f"{dirname}/quant_encodings_chunk{i}.encodings", "w") as f:
                 json.dump(encodings_chunk, f, sort_keys=True, indent=4)
         else:
-            encodings_chunk = {"activation_encodings": {}, "excluded_layers": [], "param_encodings": {}, "quantizer_args": encodings_all["quantizer_args"], "version": encodings_all["version"]}
-            for k, v in encodings_all["activation_encodings"].items():
+            encodings_chunk = {"activation_encodings": [], "excluded_layers": [], "param_encodings": [], "quantizer_args": encodings_all["quantizer_args"], "version": encodings_all["version"]}
+            for v in encodings_all["activation_encodings"]:
                 try:
-                    encoding_block_id = int(k.split(".")[-1].split("/")[0]) if 'block' in k else args.n_layer-1
+                    encoding_block_id = int(v['name'].split(".")[-1].split("/")[0]) if 'block' in v['name'] else args.n_layer-1
                 except ValueError:
-                    encoding_block_id = int(k.split(".")[1]) if 'block' in k else args.n_layer-1
-                if any([f'state{j}' in k for j in range(3*model[i].layer_begin, 3*model[i].layer_end)] + [
+                    encoding_block_id = int(v['name'].split(".")[1]) if 'block' in v['name'] else args.n_layer-1
+                if any([
+                    'state' in v['name'],
                     (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end),
-                    k == '/blocks.0/att/post_permute_v/Transpose_output_0',
-                    k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0',
-                    k == 'out'
+                    v['name'] == '/blocks/blocks.0/att/post_permute_v/Transpose_output_0',
+                    v['name'] == f'/blocks/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0'
                 ]):
-                    if k == '/blocks.0/att/post_permute_v/Transpose_output_0':
-                        encodings_chunk["activation_encodings"][f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}'] = v
-                    elif k == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0':
-                        encodings_chunk["activation_encodings"][input_name] = v
-                    elif k == 'out':
-                        encodings_chunk["activation_encodings"][output_name] = v
+                    if '/blocks.0/att/post_permute_v/Transpose_output_0' in v['name']:
+                        tmp = copy.deepcopy(v)
+                        tmp['name'] = f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}'
+                        encodings_chunk["activation_encodings"].append(tmp)
+                    elif f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0' in v['name']:
+                        tmp = copy.deepcopy(v)
+                        tmp['name'] = input_name
+                        encodings_chunk["activation_encodings"].append(tmp)
                     else:
-                        encodings_chunk["activation_encodings"][k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")] = v
-            for k, v in encodings_all["param_encodings"].items():
-                if 'embedding' in k:
+                        tmp = copy.deepcopy(v)
+                        tmp['name'] = tmp['name'].replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")
+                        encodings_chunk["activation_encodings"].append(tmp)
+            for v in encodings_all["param_encodings"]:
+                if 'embedding' in v['name']:
                     encoding_block_id = 0
                 else:
-                    encoding_block_id = int(k.split(".")[1]) if 'block' in k else args.n_layer-1
-                if any([f'state{j}' in k for j in range(3*model[i].layer_begin, 3*model[i].layer_end)] + [
-                    (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end)
-                ]):
-                    encodings_chunk["param_encodings"][k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")] = v
+                    encoding_block_id = int(v['name'].split(".")[1]) if 'block' in v['name'] else args.n_layer-1
+                if 'state' in v['name'] or (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end):
+                    # encodings_chunk["param_encodings"][k.replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")] = v
+                    tmp = copy.deepcopy(v)
+                    tmp['name'] = tmp['name'].replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}")
+                    encodings_chunk["param_encodings"].append(tmp)
             with open(f"{dirname}/quant_encodings_chunk{i}.encodings", 'w') as f:
                 json.dump(encodings_chunk, f, sort_keys=True, indent=4)
 
@@ -123,7 +142,7 @@ if type(model) == list:
                 output_names += [('v_first_out' if not parser_args.prefill_model else 'v_first_out_prefill') + f'_chunk{i+1}']
             else:
                 input_names += [('v_first_in' if not parser_args.prefill_model else 'v_first_in_prefill') + f'_chunk{i+1}']
-                inputs += [torch.zeros(seq_length, args.n_head, 1, args.head_size, dtype=input_dtype)]
+                inputs += [torch.zeros(seq_length, args.n_embd, dtype=input_dtype)]
 
         if parser_args.prefill_model:
             onnx_output_path = f"{dirname}/{filename}_prefill_chunk{i+1}of{len(model)}.onnx"
@@ -160,8 +179,8 @@ if type(model) == list:
         states_layout = "NONTRIVIAL"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter --input_network {onnx_path} "
         converter_cmd += " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
-        if args.version == 7:
-            converter_cmd += f' --source_model_input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
+        # if args.version == 7:
+        #     converter_cmd += f' --source_model_input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
         if i != 0:
             converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
 
@@ -181,7 +200,13 @@ if type(model) == list:
         if os.name == 'nt':
             quant_cmd = "python " + quant_cmd
         print(quant_cmd)
+
         os.system(quant_cmd)
+        for file in os.listdir(dirname):
+            filepath = os.path.join(dirname, file)
+            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx')):
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
 else:
     args = model.args
     filename = args.MODEL_NAME.split("/")[-1]
@@ -214,6 +239,9 @@ else:
     onnx_output_path += ".onnx"
     OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
+    layer_begin = model.layer_begin
+    layer_end = model.layer_end
+    del model
     onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
     graph = gs.import_onnx(onnxmodel)
     # set output shape for wkv7_output
@@ -230,15 +258,31 @@ else:
     onnx.save(onnxmodel, onnx_output_path)
     shape_inference.infer_shapes_path(onnx_output_path)
     print(f"onnx model saved to {onnx_output_path}")
+    del onnxmodel
+    del graph
+
+    encoding_path = str(parser_args.quant_encodings) if parser_args.quant_encodings else None
+    if encoding_path and not args.USE_EMBEDDING:
+        with open(encoding_path, 'r') as f:
+            encodings_all = json.load(f)
+        for v in encodings_all["param_encodings"]:
+            if f'embedding.weight' in v['name']:
+                tmp = copy.deepcopy(v)
+                tmp['name'] = input_name
+                encodings_all["activation_encodings"].append(tmp)
+                break
+        encoding_path = f"{dirname}/quant_encodings_prefill.encodings" if parser_args.prefill_model else f"{dirname}/quant_encodings.encodings"
+        with open(encoding_path, 'w') as f:
+            json.dump(encodings_all, f, sort_keys=True, indent=4)
 
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
-    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model.layer_begin, model.layer_end)])
+    converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(layer_begin, layer_end)])
     if parser_args.ext_embedding:
         converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
 
     if parser_args.quant_encodings:
-        converter_cmd += f" --quantization_overrides {str(parser_args.quant_encodings)}"
+        converter_cmd += f" --quantization_overrides {encoding_path}"
 
     if model_args.wkv_customop:
         converter_cmd += " --op_package_config hexagon/CPU/RwkvWkvOpPackage/config/RwkvWkvOpPackageCPU.xml"
@@ -257,6 +301,6 @@ else:
     # Delete all files in output_path except .dlc files
     for file in os.listdir(dirname):
         filepath = os.path.join(dirname, file)
-        if not (file.endswith('.dlc') or file.endswith('.json')):
+        if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings')):
             if os.path.isfile(filepath):
                 os.remove(filepath)

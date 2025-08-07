@@ -115,6 +115,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
     if (app->m_embedding.empty() && QNN_TENSOR_GET_DATA_TYPE(app->m_inputTensors[0][0]) != QNN_DATATYPE_INT_32) {
         std::string emb_path = modelPath.substr(0, modelPath.find_last_of(".")) + ".emb";
         std::ifstream emb_file;
+        LOG_ERROR("Embedding file path: " + emb_path);
         emb_file.open(emb_path, std::ios::in|std::ios::binary);
         if (emb_file.is_open()) {
             std::vector<size_t> dims;
@@ -132,6 +133,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
                 app->m_embedding.push_back(emb);
             }
             emb_file.close();
+            LOG_ERROR("Embedding size: " + std::to_string(app->m_embedding.size()) + "x" + std::to_string(app->m_embedding[0].size()));
         }
     }
 

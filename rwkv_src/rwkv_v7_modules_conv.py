@@ -342,7 +342,7 @@ class Rwkv7SelfAttention(nn.Module):
 
         receptance = self.post_reshape_r(receptance, [seq_length, self.num_heads, 1, self.head_size])
         key = self.post_reshape_k(key, [seq_length, self.num_heads, 1, self.head_size])
-        value = self.post_reshape_v(value, [seq_length, self.num_heads, 1, self.head_size])
+        value = self.post_reshape_v(value, [seq_length, self.hidden_size])
         gate = self.post_reshape_g(gate, [batch_size, seq_length, self.hidden_size])
         a = self.post_reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
         time_decay = self.post_reshape_w(time_decay, [seq_length, self.num_heads, 1, self.head_size])
@@ -357,7 +357,7 @@ class Rwkv7SelfAttention(nn.Module):
         else:
             tmp = self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv_premute)))
             tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
-            tmp = self.post_reshape_v1(tmp, [seq_length, self.num_heads, 1, self.head_size])
+            tmp = self.post_reshape_v1(tmp, [seq_length, self.hidden_size])
             value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
 
         b = self.get_b(kk, a)
@@ -369,7 +369,7 @@ class Rwkv7SelfAttention(nn.Module):
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
 
-        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value).view(seq_length, self.hidden_size)
+        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value.view(seq_length, self.num_heads, 1, self.head_size)).view(seq_length, self.hidden_size)
         x = self.add_x_residual(x , rkv)
         x = self.mul_gate(x, gate)
 

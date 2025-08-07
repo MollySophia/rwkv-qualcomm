@@ -137,14 +137,19 @@ class RWKV_RNN(torch.nn.Module):
             emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
             self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
         else:
-            self.pre_ln = nn.LayerNorm(self.args.n_embd, eps=1e-5)
-            self.pre_ln.weight = nn.Parameter(w['blocks.0.ln0.weight'])
-            self.pre_ln.bias = nn.Parameter(w['blocks.0.ln0.bias'])
+            # self.pre_ln = nn.LayerNorm(self.args.n_embd, eps=1e-5)
+            # self.pre_ln.weight = nn.Parameter(w['blocks.0.ln0.weight'])
+            # self.pre_ln.bias = nn.Parameter(w['blocks.0.ln0.bias'])
+            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
 
             if self.args.fp16:
                 self.emb_weight = emb_weight.half()
+            elif self.args.bf16:
+                self.emb_weight = emb_weight.bfloat16()
             else:
-                self.emb_weight = emb_weight
+                self.emb_weight = emb_weight.float()
+            if self.gpu:
+                self.emb_weight = self.emb_weight.to(self.device)
 
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
@@ -170,6 +175,8 @@ class RWKV_RNN(torch.nn.Module):
 
         if self.args.fp16:
             self.half()
+        elif self.args.bf16:
+            self.bfloat16()
         else:
             self.float()
 
@@ -182,7 +189,8 @@ class RWKV_RNN(torch.nn.Module):
                 x = self.embedding(in0)
             else:
                 x = in0
-                x = self.pre_ln(x)
+                # if self.chunk_idx == 0:
+                #     x = self.pre_ln(x)
 
             try:
                 batch_size, seq_length, _ = x.size()
@@ -203,11 +211,12 @@ class RWKV_RNN(torch.nn.Module):
 
             if self.chunk_idx == self.chunks - 1:
                 x = self.ln_out(x)
-                x = self.head_pre_reshape(x, [batch_size, -1, 1, self.args.n_embd])
-                x = self.head_pre_permute(x, [0, 3, 2, 1])
-                x = self.head(x)
-                x = self.head_post_permute(x, [0, 3, 2, 1])
-                x = self.head_post_reshape(x, [batch_size, -1, self.args.vocab_size])
+                if not self.args.EXTERNAL_HEAD:
+                    x = self.head_pre_reshape(x, [batch_size, -1, 1, self.args.n_embd])
+                    x = self.head_pre_permute(x, [0, 3, 2, 1])
+                    x = self.head(x)
+                    x = self.head_post_permute(x, [0, 3, 2, 1])
+                    x = self.head_post_reshape(x, [batch_size, -1, self.head.weight.shape[0]])
             else:
                 x = x.view(batch_size, seq_length, self.args.n_embd)
             if self.args.version == 7 and self.chunk_idx == 0 and self.layer_end < self.args.n_layer:

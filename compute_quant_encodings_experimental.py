@@ -17,8 +17,6 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Compute param encodings for linear modules')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
-parser.add_argument('--lambada_test', action='store_true', help='Run lambada test')
-# parser.add_argument('--use_old_format', action='store_true', help='Use old format for encodings')
 parser.add_argument('--blockwise_quant', action='store_true', help='Use blockwise quantization')
 parser.add_argument('--output_folder', type=Path, help='Output folder for encodings')
 parser.add_argument('--use_w4_seq_mse', action='store_true', help='Use int4 quantization with SeqMse optimization')
@@ -29,17 +27,27 @@ parser.add_argument('--calib_num_batches', type=int, default=10, help='Number of
 parser.add_argument('--seqmse_num_batches', type=int, default=20, help='Number of batches to calibrate on')
 parser.add_argument('--use_cpu', action='store_true', default=False, help='Use cpu to compute')
 parser.add_argument('--load_encodings', type=Path, default=None, help='Path to load encodings from')
+parser.add_argument('--w8_embedding', action='store_true', help='Use int8 quantization for embedding')
+parser.add_argument('--w4_head', action='store_true', help='Use int4 quantization for head')
 args_parser = parser.parse_args()
 
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+
 model_args = types.SimpleNamespace()
-model_args.USE_CUDA = False if args_parser.use_cpu else torch.cuda.is_available()
+model_args.USE_CUDA = False #if args_parser.use_cpu else torch.cuda.is_available()
 # model_args.fp16 = True if model_args.USE_CUDA else False
-model_args.fp16 = True if model_args.USE_CUDA else False
-model_args.bf16 = False
+model_args.bf16 = True if model_args.USE_CUDA else False
+model_args.fp16 = False
+# model_args.bf16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
 model_args.output_last = False
+model_args.EXTERNAL_HEAD = False
 
 model_args.MODEL_NAME = str(args_parser.model)
 
@@ -144,9 +152,8 @@ register_customop_symbols()
 dummy_input = get_dummy_input_for_rwkv_causal_llm(1, 1, device, model.args)
 dummy_input = (dummy_input['in0'], dummy_input['state'])
 
-in_place = True if args_parser.use_w4_omniquant else False
+in_place = False
 
-model = model.eval()
 sim = QuantizationSimModel(model, dummy_input=dummy_input,
                         quant_scheme=QuantScheme.post_training_tf_enhanced if not args_parser.use_w4_omniquant else QuantScheme.training_range_learning_with_tf_init,
                         # quant_scheme=QuantScheme.post_training_percentile,
@@ -157,6 +164,9 @@ sim = QuantizationSimModel(model, dummy_input=dummy_input,
 )
 # sim.set_percentile_value(99.999)
 torch.cuda.empty_cache()
+
+if args_parser.w8_embedding:
+    sim.model.embedding.param_quantizers['weight'] = Q.affine.Quantize((), bitwidth=8, symmetric=False).to(device)
 
 # mp_configurator = MixedPrecisionConfigurator(sim)
 def set_linear_weight_quantizer_to_4bit(module):
@@ -226,15 +236,21 @@ for block in sim.model.blocks:
         set_linear_weight_quantizer_to_4bit(block.att.key)
         set_linear_weight_quantizer_to_4bit(block.att.value)
         set_linear_weight_quantizer_to_4bit(block.att.receptance)
-
-    # somehow it doesn't want to quantize ffn.key Linear by default
-    block.ffn.key.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
+        if True:
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_a1)
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_g1)
+            set_linear_weight_quantizer_to_4bit(block.att.matmul_time_decay_w1)
+            if block.att.layer_id != 0:
+                set_linear_weight_quantizer_to_4bit(block.att.matmul_v1)
 
 sim.model.head_pre_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 sim.model.head_post_permute.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 sim.model.head_pre_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 sim.model.head_post_reshape.output_quantizers[0] = Q.affine.Quantize((), bitwidth=16, symmetric=False).to(device)
 # mp_configurator.apply()
+if args_parser.use_w4_seq_mse or args_parser.blockwise_quant or args_parser.use_w4_omniquant or args_parser.use_w4_adascale:
+    if args_parser.w4_head:
+        set_linear_weight_quantizer_to_4bit(sim.model.head)
 
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
@@ -371,15 +387,28 @@ elif args_parser.blockwise_quant:
                                                 block_grouping = -1)
 
 # print(sim)
-# print(sim.model.blocks[0].att)
+print(sim.model.blocks[0].att)
 
 if not in_place:
     model = model.to('cpu').float()
 torch.cuda.empty_cache()
 
+if torch.cuda.is_available() and not args_parser.use_cpu:
+    device = "cuda"
+    model.args.fp16 = False
+    model.args.bf16 = True
+    sim.model = sim.model.bfloat16().to(device)
+    sim.model.device = device
+    sim.model.args.fp16 = False
+    sim.model.args.bf16 = True
+
 sim.compute_encodings(pass_calibration_data_calib, forward_pass_callback_args=dataloader)
 
 clip_weights_to_7f7f(sim)
+
+from aimet_torch.v2.experimental import propagate_output_encodings
+import aimet_torch._base.nn.modules.custom as aimet_ops
+propagate_output_encodings(sim, aimet_ops.Concat)
 
 output_path = './tmp' if args_parser.output_folder is None else str(args_parser.output_folder)
 os.path.exists(output_path) or os.makedirs(output_path)
@@ -387,64 +416,20 @@ if not args_parser.blockwise_quant:
     # too slow to save encodings for blockwise quant
     sim.save_encodings_to_json(output_path, 'quant_encodings_checkpoint_calib')
 
+sim.model.to('cpu')
+for module in sim.model.modules():
+    module.to('cpu')
+
+for q in sim.qmodules():
+    for _, item in q.param_quantizers.items():
+        if item is not None:
+            item.min.to('cpu')
+            item.max.to('cpu')
+
 sim.model.float()
 model.args.fp16 = False
 model.args.bf16 = False
 sim.model.eval()
-
-if args_parser.lambada_test:
-    lambada_texts = None
-    with open("assets/lambada_test.txt") as f:
-        lambada_texts = ''.join(f.readlines()).split('|')
-
-    xsum = 0
-    xacc = 0
-    xcnt = 0
-    with torch.no_grad():
-        for text in tqdm(lambada_texts[:300]):
-            if len(text) == 0:
-                continue
-
-            src_text = text.rsplit(' ', 1)[0]
-            target_text = " " + text.rsplit(' ', 1)[1]
-            targets = tokenizer.encode(target_text)
-            state = get_dummy_state_kvcache(1, model.args, model.device)
-            input_data = torch.LongTensor([[0] + tokenizer.encode(src_text)]).to(model.device)
-            logits_list = []
-            logits, state = sim.model(input_data, state)
-            # logits, state = model(input_data, state)
-            logits = logits[:, -1, :]
-            for token in tokenizer.encode(target_text):
-                logits = logits.reshape(1, -1, logits.shape[-1])
-                logits_list.append(logits)
-                logits, state = sim.model(torch.LongTensor([[token]]).to(model.device), state)
-                # logits, state = model(torch.LongTensor([[token]]).to(model.device), state)
-
-            logits = torch.cat(logits_list, dim=1)
-            logits = torch.nn.functional.softmax(logits, dim=-1)
-            results = torch.argmax(logits, dim=-1).squeeze().cpu().numpy().tolist()
-            if type(results) == int:
-                results = [results]
-            if results == targets:
-                xacc += 1
-
-            for i in range(len(targets)):
-                xsum += logits[0, i, targets[i]].log().item()
-            xcnt += 1
-
-    print(math.exp(-xsum/xcnt))
-    print(xacc/xcnt)
-    with open("lambada_results.txt", "w") as f:
-        f.write(f"{math.exp(-xsum/xcnt)}\n")
-        f.write(f"{xacc/xcnt}\n")
-
-# 12.279, 0.52 for 300 samples v7 0.1B fp32
-# 7.142, 0.593 for 300 samples v7 0.4B fp32
-
-# 4.336, 0.68 for 300 samples v7 1.5B fp32
-# 4.86, 0.65 for 300 samples v7 1.5B a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
-# 4.03, 0.676 for 300 samples v7 1.5B [ffn.key/value, att.output] a16w4 + others a16w8 in AIMET quantsim (post_training_tf_enhanced schema)
-# (TODO) for 300 samples v7 1.5B a16w8 on actual hardware
 
 input_names = ['in'] + [f'state{j}_in' for j in range(3*model.layer_begin, 3*model.layer_end)]
 output_names = ['out'] + [f'state{j}_out' for j in range(3*model.layer_begin, 3*model.layer_end)]
@@ -467,20 +452,9 @@ if args_parser.blockwise_quant:
     # for exporting Qualcomm's LPBQ parameters
     quantsim.encoding_version = '1.0.0'
 
-sim.model.to('cpu')
-for module in sim.model.modules():
-    module.to('cpu')
-
-for q in sim.qmodules():
-    for _, item in q.param_quantizers.items():
-        if item is not None:
-            item.min.to('cpu')
-            item.max.to('cpu')
-
 torch.cuda.empty_cache()
 
-# why the fuck is it sticking to CUDA
-print(sim.model.device)
+# print(sim.model.device)
 os.path.exists(output_path) or os.makedirs(output_path)
 # sim.export(path=output_path, filename_prefix=filename, dummy_input=dummy_input, onnx_export_args={'input_names': input_names, 'output_names': output_names})
 # sim.export(path=output_path, filename_prefix=prefill_filename, dummy_input=dummy_input_prefill, onnx_export_args={'input_names': input_names_prefill, 'output_names': output_names_prefill})
