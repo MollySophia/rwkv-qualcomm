@@ -28,6 +28,7 @@
 #include "IOTensor.hpp"
 #include "DynamicLoadUtil.hpp"
 #include "PAL/DynamicLoading.hpp"
+#include "rmpack.h"
 #include <stdlib.h>
 
 #include <HTP/QnnHtpPerfInfrastructure.h>
@@ -55,7 +56,6 @@ std::string defaultOutputPath = "./output";
 rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
                                        void* backendLibraryHandle,
                                        void* modelHandle,
-                                       std::vector<std::vector<float>> embedding,
                                        std::string cachedBinaryPath,
                                        std::string saveBinaryName)
     : m_qnnFunctionPointers(qnnFunctionPointers),
@@ -65,7 +65,6 @@ rwkv_app::QnnRwkvApp::QnnRwkvApp(QnnFunctionPointers qnnFunctionPointers,
       m_modelHandle(modelHandle),
       m_isBackendInitialized(false),
       m_isContextCreated(false) {
-  m_embedding = embedding;
   m_outputPath = defaultOutputPath;
 
   m_ioTensor = new IOTensor(BufferAlloc::SHARED_BUFFER, &m_qnnFunctionPointers.qnnInterface);
@@ -223,10 +222,12 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createContext() {
 
 // Free context after done.
 rwkv_app::StatusCode rwkv_app::QnnRwkvApp::freeContext() {
-  if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextFree(m_context[0], nullptr)) {
-    QNN_ERROR("Could not free context");
-    return StatusCode::FAILURE;
+  for (int i = 0; i < n_chunks; i++) {
+    if (QNN_CONTEXT_NO_ERROR !=
+        m_qnnFunctionPointers.qnnInterface.contextFree(m_context[i], nullptr)) {
+      QNN_ERROR("Could not free context");
+      return StatusCode::FAILURE;
+    }
   }
   m_isContextCreated = false;
   return StatusCode::SUCCESS;
@@ -304,8 +305,78 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::finalizeGraphs() {
   return returnStatus;
 }
 
-rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, uint64_t bufferSize) {
-  if (m_cachedBinaryPath.empty() && (nullptr == in_buffer || 0 == bufferSize)) {
+rwkv_app::StatusCode rwkv_app::QnnRwkvApp::parseGraphsInfo(std::vector<GraphInfo_t **> &graphInfos, std::vector<uint32_t> &graphCounts) {
+  m_decodeGraphsCount = 0;
+  m_prefillGraphsCount = 0;
+  for (int i = 0; i < graphInfos.size(); i++) {
+    for (int j = 0; j < graphCounts[i]; j++) {
+      auto graphName = std::string((*graphInfos[i])[j].graphName);
+      if (graphName.find("prefill") != std::string::npos) {
+        m_prefillGraphsCount++;
+      } else {
+        m_decodeGraphsCount++;
+      }
+    }
+  }
+  QNN_INFO("Decode graphs count: %d, Prefill graphs count: %d", m_decodeGraphsCount, m_prefillGraphsCount);
+
+  m_decodeGraphsInfo = (GraphInfo_t **)calloc(m_decodeGraphsCount, sizeof(GraphInfo_t *));
+  m_prefillGraphsInfo = (GraphInfo_t **)calloc(m_prefillGraphsCount, sizeof(GraphInfo_t *));
+  GraphInfo_t *decodeGraphInfoArr =
+      (GraphInfo_t *)calloc(m_decodeGraphsCount, sizeof(GraphInfo_t));
+  GraphInfo_t *prefillGraphInfoArr =
+      (GraphInfo_t *)calloc(m_prefillGraphsCount, sizeof(GraphInfo_t));
+  if (nullptr == m_decodeGraphsInfo || nullptr == m_prefillGraphsInfo || nullptr == decodeGraphInfoArr || nullptr == prefillGraphInfoArr) {
+    QNN_ERROR("Failure to allocate memory for *graphInfo");
+    if (nullptr != m_decodeGraphsInfo) {
+      free(m_decodeGraphsInfo);
+      m_decodeGraphsInfo = nullptr;
+    }
+    if (nullptr != m_prefillGraphsInfo) {
+      free(m_prefillGraphsInfo);
+      m_prefillGraphsInfo = nullptr;
+    }
+    if (nullptr != decodeGraphInfoArr) {
+      free(decodeGraphInfoArr);
+      decodeGraphInfoArr = nullptr;
+    }
+    if (nullptr != prefillGraphInfoArr) {
+      free(prefillGraphInfoArr);
+      prefillGraphInfoArr = nullptr;
+    }
+    return StatusCode::FAILURE;
+  }
+
+  int prefill_gidx = 0, decode_gidx = 0;
+  for (int i = 0; i < graphInfos.size(); i++) {
+    for (int j = 0; j < graphCounts[i]; j++) {
+      auto graphName = std::string((*graphInfos[i])[j].graphName);
+      if (graphName.find("prefill") != std::string::npos) {
+        m_prefillGraphsInfo[prefill_gidx] = prefillGraphInfoArr + prefill_gidx;
+        m_prefillGraphsInfo[prefill_gidx]->graph = (*graphInfos[i])[j].graph;
+        m_prefillGraphsInfo[prefill_gidx]->graphName = strdup((*graphInfos[i])[j].graphName);
+        m_prefillGraphsInfo[prefill_gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
+        m_prefillGraphsInfo[prefill_gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
+        m_prefillGraphsInfo[prefill_gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;
+        m_prefillGraphsInfo[prefill_gidx]->numOutputTensors = (*graphInfos[i])[j].numOutputTensors;
+        prefill_gidx++;
+      } else {
+        m_decodeGraphsInfo[decode_gidx] = decodeGraphInfoArr + decode_gidx;
+        m_decodeGraphsInfo[decode_gidx]->graph = (*graphInfos[i])[j].graph;
+        m_decodeGraphsInfo[decode_gidx]->graphName = strdup((*graphInfos[i])[j].graphName);
+        m_decodeGraphsInfo[decode_gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
+        m_decodeGraphsInfo[decode_gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
+        m_decodeGraphsInfo[decode_gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;
+        m_decodeGraphsInfo[decode_gidx]->numOutputTensors = (*graphInfos[i])[j].numOutputTensors;
+        decode_gidx++;
+      }
+    }
+  }
+  return StatusCode::SUCCESS;
+}
+
+rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(int spill_fill_buffer_size) {
+  if (m_cachedBinaryPath.empty()) {
     QNN_ERROR("No name provided to read binary file from.");
     return StatusCode::FAILURE;
   }
@@ -316,6 +387,16 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
     return StatusCode::FAILURE;
   }
 
+  bool is_rmpack = m_cachedBinaryPath.find(".rmpack") != std::string::npos;
+  if (is_rmpack) {
+    try {
+      m_rmpack = new RMPack(m_cachedBinaryPath);
+    } catch (const std::exception& e) {
+      QNN_ERROR("Failed to load rmpack: %s", e.what());
+      return StatusCode::FAILURE;
+    }
+  }
+
 #if USE_SPILL_FILL
   Qnn_ContextHandle_t first_contextHandle{nullptr};
   QnnHtpContext_CustomConfig_t customConfigSF;
@@ -323,25 +404,66 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
 #endif
 
   std::vector<uint64_t> bufferSizes;
-  auto pos = m_cachedBinaryPath.find("_chunk");
-  int n_chunks = 1;
-  if (pos != std::string::npos) {
-    n_chunks = std::stoi(m_cachedBinaryPath.substr(m_cachedBinaryPath.find("of") + 2));
-    QNN_INFO("Number of chunks: %d", n_chunks);
-  }
-  bufferSizes.resize(n_chunks);
+  n_chunks = 1;
+  auto returnStatus = StatusCode::SUCCESS;
+  size_t pos = 0;
+  if (is_rmpack) {
+    n_chunks = m_rmpack->getConfig()["n_chunks"];
+    spill_fill_buffer_size = m_rmpack->getConfig()["spill_fill_buffer_size"];
+    m_hidden_size = m_rmpack->getConfig()["hidden_size"];
+    m_vocab_size = m_rmpack->getConfig()["vocab_size"];
+    int use_external_lmhead = m_rmpack->getConfig()["use_external_lmhead"];
+    if (use_external_lmhead) {
+      std::string external_lmhead_filetype = m_rmpack->getConfig()["external_lmhead_filetype"];
+      if (external_lmhead_filetype != "raw_fp16") {
+        QNN_ERROR("Unsupported external lmhead filetype: %s", external_lmhead_filetype.c_str());
+        return StatusCode::FAILURE;
+      }
 
-  if (in_buffer && bufferSize) {
-    bufferSizes[0] = bufferSize;
+      m_lmhead_weight = std::shared_ptr<uint8_t>(
+        (uint8_t*)m_rmpack->readFileToMemory("lmhead"), [this](uint8_t* p) {
+          if (p) {
+            m_rmpack->freeFileMemory("lmhead");
+          }
+        }
+      );
+      for (int i = 0; i < 10; i++) {
+        std::cout << ((half_float::half*)m_lmhead_weight.get())[i] << " ";
+      }
+      std::cout << std::endl;
+
+      m_logitsOutput.resize(m_vocab_size);
+    }
+
+    QNN_INFO("Number of chunks: %d", n_chunks);
+    bufferSizes.resize(n_chunks);
+    for (auto rmpack_file : m_rmpack->getFiles()) {
+      if (rmpack_file.filename.find("model_") != std::string::npos) {
+        int index = std::stoi(rmpack_file.filename.substr(rmpack_file.filename.find("_") + 1));
+        bufferSizes[index] = m_rmpack->getFileSize(rmpack_file.filename);
+        QNN_INFO("Reading chunk: %d", index);
+        QNN_INFO("Buffer size: %d", bufferSizes[index]);
+      }
+    }
   } else {
+    pos = m_cachedBinaryPath.find("_chunk");
+    if (pos != std::string::npos) {
+      n_chunks = std::stoi(m_cachedBinaryPath.substr(m_cachedBinaryPath.find("of") + 2));
+      QNN_INFO("Number of chunks: %d", n_chunks);
+    }
+    bufferSizes.resize(n_chunks);
+    if (n_chunks == 4) {
+      spill_fill_buffer_size = 320000000;
+    }
     // read serialized binary into a byte buffer
     tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
     for (int i = 0; i < n_chunks; i++) {
+      std::string tmp_path = m_cachedBinaryPath;
       if (n_chunks > 1) {
-        m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
-        std::cout << "Reading chunk: " << m_cachedBinaryPath << std::endl;
+        tmp_path = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+        std::cout << "Reading chunk: " << tmp_path << std::endl;
       }
-      std::tie(status, bufferSizes[i]) = tools::datautil::getFileSize(m_cachedBinaryPath);
+      std::tie(status, bufferSizes[i]) = tools::datautil::getFileSize(tmp_path);
       if (0 == bufferSizes[i]) {
         QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
         return StatusCode::FAILURE;
@@ -351,25 +473,32 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
   }
 
   // inspect binary info
-  auto returnStatus = StatusCode::SUCCESS;
   std::vector<GraphInfo_t **> graphInfos(n_chunks);
   std::vector<uint32_t> graphCounts(n_chunks);
   uint8_t *buffer;
   for (int i = 0; i < n_chunks; i++)
   {
-    if (n_chunks > 1) {
-      m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
-    }
+    if (is_rmpack) {
 #if USE_MMAP
-      int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
+      buffer = (uint8_t*)m_rmpack->mmapFile("model_" + std::to_string(i));
+#else
+      buffer = (uint8_t*)m_rmpack->readFileToMemory("model_" + std::to_string(i));
+#endif
+    } else {
+      std::string tmp_path = m_cachedBinaryPath;
+      if (n_chunks > 1) {
+        tmp_path = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+      }
+#if USE_MMAP
+      int fd = open(tmp_path.c_str(), O_RDONLY);
       if (fd < 0) {
-        QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
+        QNN_ERROR("Failed to open file %s", tmp_path.c_str());
         return StatusCode::FAILURE;
       }
 
       buffer = (uint8_t*)mmap(NULL, bufferSizes[i], PROT_READ, MAP_SHARED, fd, 0);
       if (buffer == MAP_FAILED) {
-        QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
+        QNN_ERROR("Failed to mmap file %s", tmp_path.c_str());
         close(fd);
         return StatusCode::FAILURE;
       }
@@ -387,6 +516,8 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
         return StatusCode::FAILURE;
       }
 #endif
+    }
+
     QnnSystemContext_Handle_t sysCtxHandle{nullptr};
     if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
       QNN_ERROR("Could not create system handle.");
@@ -421,36 +552,37 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       returnStatus = StatusCode::FAILURE;
     }
 
-    // QnnHtpContext_CustomConfig_t customConfig;
-    // customConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
-    // customConfig.ioMemEstimation = true;
-    // QnnContext_Config_t* cfgs[] = {(QnnContext_Config_t*)&customConfig, NULL};
     QnnHtpContext_CustomConfig_t ioMemEstimation;
     ioMemEstimation.option          = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
     ioMemEstimation.ioMemEstimation = true;
+
     QnnContext_Config_t** cfgs{nullptr};
+
     int cfgs_count = 1;
 #if USE_SPILL_FILL
-    cfgs_count++;
+    if (spill_fill_buffer_size > 0) {
+      cfgs_count++;
+    }
 #endif
     cfgs                  = (QnnContext_Config_t**)malloc((cfgs_count + 1) * sizeof(QnnContext_Config_t*));
     cfgs[0]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
     cfgs[0]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
     cfgs[0]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&ioMemEstimation);
 #if USE_SPILL_FILL
-    QnnHtpContext_GroupRegistration_t groupInfo{nullptr};
-    if (i == 0) {
-      groupInfo.firstGroupHandle = 0x0;
-    } else {
-      groupInfo.firstGroupHandle = first_contextHandle;
-    }
+    if (spill_fill_buffer_size > 0) {
+      QnnHtpContext_GroupRegistration_t groupInfo{nullptr};
+      if (i == 0) {
+        groupInfo.firstGroupHandle = 0x0;
+      } else {
+        groupInfo.firstGroupHandle = first_contextHandle;
+      }
 
-    uint64_t spill_fill_buffer_size = 320000000;
-    groupInfo.maxSpillFillBuffer     = spill_fill_buffer_size;
-    customConfigSF.groupRegistration = groupInfo;
-    cfgs[1]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
-    cfgs[1]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
-    cfgs[1]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&customConfigSF);
+      groupInfo.maxSpillFillBuffer     = spill_fill_buffer_size;
+      customConfigSF.groupRegistration = groupInfo;
+      cfgs[cfgs_count-1]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
+      cfgs[cfgs_count-1]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
+      cfgs[cfgs_count-1]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&customConfigSF);
+    }
 #endif
     cfgs[cfgs_count] = nullptr;
 
@@ -503,78 +635,255 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinary(uint8_t *in_buffer, 
       freeGraphsInfo(&graphInfos[i], graphCounts[i]);
     }
 
+    if (is_rmpack) {
 #if USE_MMAP
-    munmap(buffer, bufferSizes[i]);
+      m_rmpack->unmapFile("model_" + std::to_string(i));
 #else
-    free(buffer);
+      m_rmpack->freeFileMemory("model_" + std::to_string(i));
 #endif
-  }
-
-  m_decodeGraphsCount = 0;
-  m_prefillGraphsCount = 0;
-  for (int i = 0; i < n_chunks; i++) {
-    for (int j = 0; j < graphCounts[i]; j++) {
-      auto graphName = std::string((*graphInfos[i])[j].graphName);
-      if (graphName.find("prefill") != std::string::npos) {
-        m_prefillGraphsCount++;
-      } else {
-        m_decodeGraphsCount++;
-      }
-    }
-  }
-  QNN_INFO("Decode graphs count: %d, Prefill graphs count: %d", m_decodeGraphsCount, m_prefillGraphsCount);
-
-  m_decodeGraphsInfo = (GraphInfo_t **)calloc(m_decodeGraphsCount, sizeof(GraphInfo_t *));
-  m_prefillGraphsInfo = (GraphInfo_t **)calloc(m_prefillGraphsCount, sizeof(GraphInfo_t *));
-  GraphInfo_t *decodeGraphInfoArr =
-      (GraphInfo_t *)calloc(m_decodeGraphsCount, sizeof(GraphInfo_t));
-  GraphInfo_t *prefillGraphInfoArr =
-      (GraphInfo_t *)calloc(m_prefillGraphsCount, sizeof(GraphInfo_t));
-  if (nullptr == m_decodeGraphsInfo || nullptr == m_prefillGraphsInfo || nullptr == decodeGraphInfoArr || nullptr == prefillGraphInfoArr) {
-    QNN_ERROR("Failure to allocate memory for *graphInfo");
-    if (nullptr != m_decodeGraphsInfo) {
-      free(m_decodeGraphsInfo);
-      m_decodeGraphsInfo = nullptr;
-    }
-    if (nullptr != m_prefillGraphsInfo) {
-      free(m_prefillGraphsInfo);
-      m_prefillGraphsInfo = nullptr;
-    }
-    if (nullptr != decodeGraphInfoArr) {
-      free(decodeGraphInfoArr);
-      decodeGraphInfoArr = nullptr;
-    }
-    if (nullptr != prefillGraphInfoArr) {
-      free(prefillGraphInfoArr);
-      prefillGraphInfoArr = nullptr;
+    } else {
+#if USE_MMAP
+      munmap(buffer, bufferSizes[i]);
+#else
+      free(buffer);
+#endif
     }
   }
 
   if (StatusCode::SUCCESS == returnStatus) {
-    int prefill_gidx = 0, decode_gidx = 0;
-    for (int i = 0; i < n_chunks; i++) {
-      for (int j = 0; j < graphCounts[i]; j++) {
-        auto graphName = std::string((*graphInfos[i])[j].graphName);
-        if (graphName.find("prefill") != std::string::npos) {
-          m_prefillGraphsInfo[prefill_gidx] = prefillGraphInfoArr + prefill_gidx;
-          m_prefillGraphsInfo[prefill_gidx]->graph = (*graphInfos[i])[j].graph;
-          m_prefillGraphsInfo[prefill_gidx]->graphName = strdup((*graphInfos[i])[j].graphName);
-          m_prefillGraphsInfo[prefill_gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
-          m_prefillGraphsInfo[prefill_gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
-          m_prefillGraphsInfo[prefill_gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;
-          m_prefillGraphsInfo[prefill_gidx]->numOutputTensors = (*graphInfos[i])[j].numOutputTensors;
-          prefill_gidx++;
-        } else {
-          m_decodeGraphsInfo[decode_gidx] = decodeGraphInfoArr + decode_gidx;
-          m_decodeGraphsInfo[decode_gidx]->graph = (*graphInfos[i])[j].graph;
-          m_decodeGraphsInfo[decode_gidx]->graphName = strdup((*graphInfos[i])[j].graphName);
-          m_decodeGraphsInfo[decode_gidx]->inputTensors = (*graphInfos[i])[j].inputTensors;
-          m_decodeGraphsInfo[decode_gidx]->numInputTensors = (*graphInfos[i])[j].numInputTensors;
-          m_decodeGraphsInfo[decode_gidx]->outputTensors = (*graphInfos[i])[j].outputTensors;
-          m_decodeGraphsInfo[decode_gidx]->numOutputTensors = (*graphInfos[i])[j].numOutputTensors;
-          decode_gidx++;
-        }
+    if (rwkv_app::StatusCode::SUCCESS != parseGraphsInfo(graphInfos, graphCounts)) {
+      QNN_ERROR("Failed to parse graphs info.");
+      returnStatus = StatusCode::FAILURE;
+    }
+  }
+
+  return returnStatus;
+}
+
+void rwkv_app::QnnRwkvApp::contextNotifyFn(Qnn_ContextHandle_t context,
+        Qnn_GraphHandle_t graph,
+        const char* graph_name,
+        QnnContext_createFromBinaryAsyncNotifyType_t completeType,
+        void* notifyParam,
+        Qnn_ErrorHandle_t /*status*/) {
+  std::pair<rwkv_app::QnnRwkvApp*, uint32_t>* pair = reinterpret_cast<std::pair<rwkv_app::QnnRwkvApp*, uint32_t>*>(notifyParam);
+  rwkv_app::QnnRwkvApp* rwkv_app     = pair->first;
+  uint32_t contextId                 = pair->second;
+
+  if (completeType == QnnContext_createFromBinaryAsyncNotifyType_t::QNN_CONTEXT_NOTIFY_TYPE_CONTEXT_INIT) {
+    rwkv_app->updateContext(context, contextId);
+  } else if (completeType == QnnContext_createFromBinaryAsyncNotifyType_t::QNN_CONTEXT_NOTIFY_TYPE_GRAPH_INIT) {
+    rwkv_app->updateQnnApiGraphsandContextsInfo(graph_name, graph, contextId);
+  }
+}
+
+rwkv_app::StatusCode rwkv_app::QnnRwkvApp::createFromBinaryListAsync() {
+  if (m_cachedBinaryPath.empty()) {
+    QNN_ERROR("No name provided to read binary file from.");
+    return StatusCode::FAILURE;
+  }
+  if (nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate ||
+      nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo ||
+      nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextFree) {
+    QNN_ERROR("QNN System function pointers are not populated.");
+    return StatusCode::FAILURE;
+  }
+
+  std::vector<uint64_t> bufferSizes;
+  auto pos = m_cachedBinaryPath.find("_chunk");
+  n_chunks = 1;
+  if (pos != std::string::npos) {
+    n_chunks = std::stoi(m_cachedBinaryPath.substr(m_cachedBinaryPath.find("of") + 2));
+    QNN_INFO("Number of chunks: %d", n_chunks);
+  }
+  bufferSizes.resize(n_chunks);
+
+  // read serialized binary into a byte buffer
+  tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
+  for (int i = 0; i < n_chunks; i++) {
+    if (n_chunks > 1) {
+      m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+      std::cout << "Reading chunk: " << m_cachedBinaryPath << std::endl;
+    }
+    std::tie(status, bufferSizes[i]) = tools::datautil::getFileSize(m_cachedBinaryPath);
+    if (0 == bufferSizes[i]) {
+      QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
+      return StatusCode::FAILURE;
+    }
+    std::cout << "Buffer size: " << bufferSizes[i] << std::endl;
+  }
+
+  // inspect binary info
+  auto returnStatus = StatusCode::SUCCESS;
+  m_graphInfos.resize(n_chunks);
+  m_graphCounts.resize(n_chunks);
+  std::vector<std::shared_ptr<uint8_t>> buffer(n_chunks);
+  std::vector<QnnContext_Params_t*> context_params_list(n_chunks + 1, nullptr);
+
+  QnnHtpContext_CustomConfig_t ioMemEstimation;
+  ioMemEstimation.option          = QNN_HTP_CONTEXT_CONFIG_OPTION_IO_MEM_ESTIMATION;
+  ioMemEstimation.ioMemEstimation = true;
+
+  QnnHtpContext_CustomConfig_t shResConfig;
+  shResConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_SHARE_RESOURCES;
+  shResConfig.shareResources = true;
+
+  QnnHtpContext_CustomConfig_t shResOptConfig;
+  shResOptConfig.option = QNN_HTP_CONTEXT_CONFIG_OPTION_SHARE_RESOURCES_OPTIMIZATION_TYPE;
+  shResOptConfig.shareResOptType = SEQUENTIAL_WITHOUT_VA_OPTIMIZATION;
+
+  QnnContext_Config_t** cfgs{nullptr};
+
+  int cfgs_count = 3;
+  cfgs                  = (QnnContext_Config_t**)malloc((cfgs_count + 1) * sizeof(QnnContext_Config_t*));
+  cfgs[0]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
+  cfgs[0]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
+  cfgs[0]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&ioMemEstimation);
+  cfgs[1]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
+  cfgs[1]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
+  cfgs[1]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&shResConfig);
+  cfgs[2]               = (QnnContext_Config_t*)malloc(sizeof(QnnContext_Config_t));
+  cfgs[2]->option       = QNN_CONTEXT_CONFIG_OPTION_CUSTOM;
+  cfgs[2]->customConfig = reinterpret_cast<QnnContext_CustomConfig_t>(&shResOptConfig);
+  cfgs[cfgs_count] = nullptr;
+
+  for (int i = 0; i < n_chunks; i++)
+  {
+    if (n_chunks > 1) {
+      m_cachedBinaryPath = m_cachedBinaryPath.substr(0, pos) + "_chunk" + std::to_string(i+1) + "of" + std::to_string(n_chunks) + ".bin";
+    }
+#if USE_MMAP
+      int fd = open(m_cachedBinaryPath.c_str(), O_RDONLY);
+      if (fd < 0) {
+        QNN_ERROR("Failed to open file %s", m_cachedBinaryPath.c_str());
+        return StatusCode::FAILURE;
       }
+
+      buffer[i] = std::shared_ptr<uint8_t>(
+        (uint8_t*)mmap(NULL, bufferSizes[i], PROT_READ, MAP_SHARED, fd, 0), [bufferSizes, i](uint8_t* p) {
+            if (p) {
+                munmap(p, bufferSizes[i]);
+            }
+        }
+      );
+      if (buffer[i].get() == MAP_FAILED) {
+        QNN_ERROR("Failed to mmap file %s", m_cachedBinaryPath.c_str());
+        close(fd);
+        return StatusCode::FAILURE;
+      }
+#else
+      buffer[i] = std::shared_ptr<uint8_t>(
+        (uint8_t*)malloc(bufferSizes[i]), [bufferSizes, i](uint8_t* p) {
+            if (p) {
+                free(p);
+            }
+        }
+      );
+      if (!buffer[i]) {
+        QNN_ERROR("Failed to allocate memory.");
+        return StatusCode::FAILURE;
+      }
+
+      auto status = tools::datautil::readBinaryFromFile(
+          m_cachedBinaryPath, buffer[i].get(), bufferSizes[i]);
+      if (status != tools::datautil::StatusCode::SUCCESS) {
+        QNN_ERROR("Failed to read binary data.");
+        return StatusCode::FAILURE;
+      }
+#endif
+    QnnSystemContext_Handle_t sysCtxHandle{nullptr};
+    if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
+      QNN_ERROR("Could not create system handle.");
+      returnStatus = StatusCode::FAILURE;
+    }
+
+    const QnnSystemContext_BinaryInfo_t* binaryInfo{nullptr};
+    Qnn_ContextBinarySize_t binaryInfoSize{0};
+    if (StatusCode::SUCCESS == returnStatus &&
+        QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo(
+                          sysCtxHandle,
+                          static_cast<void*>(buffer[i].get()),
+                          bufferSizes[i],
+                          &binaryInfo,
+                          &binaryInfoSize)) {
+      QNN_ERROR("Failed to get context binary info");
+      returnStatus = StatusCode::FAILURE;
+    }
+
+    // fill GraphInfo_t based on binary info
+    if (StatusCode::SUCCESS == returnStatus &&
+        !copyMetadataToGraphsInfo(binaryInfo, m_graphInfos[i], m_graphCounts[i])) {
+      QNN_ERROR("Failed to copy metadata.");
+      returnStatus = StatusCode::FAILURE;
+    }
+    m_qnnFunctionPointers.qnnSystemInterface.systemContextFree(sysCtxHandle);
+    sysCtxHandle = nullptr;
+
+    if (StatusCode::SUCCESS == returnStatus &&
+        nullptr == m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary) {
+      QNN_ERROR("contextCreateFromBinaryFnHandle is nullptr.");
+      returnStatus = StatusCode::FAILURE;
+    }
+
+    std::pair<rwkv_app::QnnRwkvApp*, uint32_t>* notifyParam =
+        new std::pair<rwkv_app::QnnRwkvApp*, uint32_t>(this, static_cast<size_t>(i));
+
+    QnnContext_Params_t* contextParam = new QnnContext_Params_t{
+        .version = QNN_CONTEXT_PARAMS_VERSION_1,
+        .v1      = QnnContext_ParamsV1_t{nullptr,
+                                    const_cast<const void*>(static_cast<void*>(buffer[i].get())),
+                                    bufferSizes[i],
+                                    nullptr,
+                                    contextNotifyFn,
+                                    static_cast<void*>(notifyParam)}};
+
+    context_params_list[i] = contextParam;
+  }
+
+  if (nullptr == m_qnnFunctionPointers.qnnInterface.contextCreateFromBinaryListAsync) {
+    QNN_ERROR("contextCreateFromBinaryListAsyncFnHandle is nullptr");
+    for (int i = 0; i < n_chunks; i++) {
+      freeGraphsInfo(&m_graphInfos[i], m_graphCounts[i]);
+    }
+    return StatusCode::FAILURE;
+  }
+
+  auto errCode = m_qnnFunctionPointers.qnnInterface.contextCreateFromBinaryListAsync(
+    m_backendHandle,
+    m_deviceHandle,
+    const_cast<const QnnContext_Params_t**>(context_params_list.data()),
+    (const QnnContext_Config_t**)cfgs,
+    nullptr);
+
+  for (int j = 0; j < cfgs_count; j++) {
+    free(cfgs[j]);
+    cfgs[j] = nullptr;
+  }
+  free(cfgs);
+  cfgs = nullptr;
+
+  for (int i = 0; i < n_chunks; i++) {
+    buffer[i].reset();
+  }
+
+  if (errCode == QNN_SUCCESS) {
+    m_isContextCreated = true;
+  } else {
+    QNN_ERROR("Failed to create context from binary list async");
+    returnStatus = StatusCode::FAILURE;
+  }
+
+  if (StatusCode::SUCCESS != returnStatus) {
+    QNN_DEBUG("Cleaning up graph Info structures.");
+    for (int i = 0; i < n_chunks; i++) {
+      freeGraphsInfo(&m_graphInfos[i], m_graphCounts[i]);
+    }
+  }
+
+  if (StatusCode::SUCCESS == returnStatus) {
+    if (rwkv_app::StatusCode::SUCCESS != parseGraphsInfo(m_graphInfos, m_graphCounts)) {
+      QNN_ERROR("Failed to parse graphs info.");
+      returnStatus = StatusCode::FAILURE;
     }
   }
   return returnStatus;
@@ -1044,9 +1353,12 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
       } else if (m_prefillGraphsTensorNameToTensorPointer[0].find("in_embedding_prefill") != m_prefillGraphsTensorNameToTensorPointer[0].end()) {
         tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_embedding_prefill"];
         tensorName = "in_embedding_prefill";
+      } else if (m_prefillGraphsTensorNameToTensorPointer[0].find("in_embedding_prefill_chunk1") != m_prefillGraphsTensorNameToTensorPointer[0].end()) {
+        tensor = (Qnn_Tensor_t*)m_prefillGraphsTensorNameToTensorPointer[0]["in_embedding_prefill_chunk1"];
+        tensorName = "in_embedding_prefill_chunk1";
       }
       m_prefillSequenceLength = 1;
-      if (tensorName == "in_embedding_prefill") {
+      if (tensorName == "in_embedding_prefill" || tensorName == "in_embedding_prefill_chunk1") {
         for (int i = 0; i < QNN_TENSOR_GET_RANK(*tensor) - 1; i++) {
           m_prefillSequenceLength *= *(QNN_TENSOR_GET_DIMENSIONS(*tensor) + i);
         }
@@ -1060,6 +1372,139 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::initializeTensors() {
 
     m_tensorsInitialized = true;
   }
+
+  auto file_exists = [](const std::string& path) {
+      std::ifstream file(path);
+      return file.good();
+  };
+
+  bool is_rmpack = m_rmpack != nullptr;
+  if (m_embedding == nullptr && QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) != QNN_DATATYPE_INT_32) {
+    Qnn_DataType_t emb_file_dtype;
+    std::string emb_path = "";
+    if (is_rmpack) {
+      std::string external_embedding_dtype = m_rmpack->getConfig()["external_embedding_dtype"];
+      if (external_embedding_dtype == "fp32") {
+        emb_file_dtype = QNN_DATATYPE_FLOAT_32;
+      } else if (external_embedding_dtype == "fp16") {
+        emb_file_dtype = QNN_DATATYPE_FLOAT_16;
+      } else if (external_embedding_dtype == "uint16") {
+        emb_file_dtype = QNN_DATATYPE_UFIXED_POINT_16;
+      }
+      emb_path = "embedding";
+    } else {
+      QNN_INFO("Checking embedding file: %s", (m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".uint16.emb").c_str());
+      if (file_exists(m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".uint16.emb")) {
+          emb_file_dtype = QNN_DATATYPE_UFIXED_POINT_16;
+          emb_path = m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".uint16.emb";
+      }
+      else if (file_exists(m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".fp32.emb")) {
+          emb_file_dtype = QNN_DATATYPE_FLOAT_32;
+          emb_path = m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".fp32.emb";
+      }
+      else if (file_exists(m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".fp16.emb")) {
+          emb_file_dtype = QNN_DATATYPE_FLOAT_16;
+          emb_path = m_cachedBinaryPath.substr(0, m_cachedBinaryPath.find_last_of(".")) + ".fp16.emb";
+      }
+
+      if (emb_path.empty()) {
+          QNN_ERROR("Model needs embedding input, but embedding file is not found");
+          return StatusCode::FAILURE;
+      }
+    }
+
+    std::ifstream emb_file;
+    if (!is_rmpack) {
+      QNN_INFO("Embedding file path: %s", emb_path.c_str());
+      emb_file.open(emb_path, std::ios::in|std::ios::binary);
+    }
+    if (is_rmpack || emb_file.is_open()) {
+      int hidden_size = QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[0][0])[QNN_TENSOR_GET_RANK(m_inputTensors[0][0]) - 1];
+      size_t file_size = 0;
+      if (is_rmpack) {
+        file_size = m_rmpack->getFileSize(emb_path);
+      } else {
+        emb_file.seekg(0, std::ios::end);
+        file_size = emb_file.tellg();
+        emb_file.seekg(0, std::ios::beg);
+      }
+      if (file_size <= 0) {
+        QNN_ERROR("Embedding file size is 0");
+        return StatusCode::FAILURE;
+      }
+      if (emb_file_dtype == QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0])) {
+        if (!is_rmpack) {
+#ifndef _WIN32
+          int fd = open(emb_path.c_str(), O_RDONLY);
+          if (fd < 0) {
+              QNN_ERROR("Failed to open file %s", emb_path.c_str());
+              return StatusCode::FAILURE;
+          }
+          m_embedding = std::shared_ptr<uint8_t>(
+              (uint8_t*)mmap(NULL, file_size, PROT_READ, MAP_SHARED, fd, 0), [file_size](uint8_t* p) {
+                  if (p) {
+                      munmap(p, file_size);
+                  }
+              }
+          );
+          QNN_INFO("mmap embedding success");
+#else
+          m_embedding = std::shared_ptr<uint8_t>(
+              (uint8_t*)malloc(file_size), [file_size](uint8_t* p) {
+                  if (p) {
+                      free(p);
+                  }
+              }
+          );
+          if (!m_embedding) {
+              QNN_ERROR("Failed to allocate memory for embedding");
+              return StatusCode::FAILURE;
+          }
+          emb_file.read(reinterpret_cast<char*>(m_embedding.get()), file_size);
+          LOG_ERROR("malloc embedding success");
+#endif
+        } else {
+#ifndef _WIN32
+          m_embedding = std::shared_ptr<uint8_t>(
+            (uint8_t*)m_rmpack->mmapFile(emb_path), [this, emb_path](uint8_t* p) {
+              if (p) {
+                m_rmpack->unmapFile(emb_path);
+              }
+            }
+          );
+          QNN_INFO("mmap embedding success");
+#else
+          m_embedding = std::shared_ptr<uint8_t>(
+            (uint8_t*)m_rmpack->readFileToMemory(emb_path), [this, emb_path](uint8_t* p) {
+              if (p) {
+                m_rmpack->freeFileMemory(emb_path);
+              }
+            }
+          );
+          QNN_INFO("readFileToMemory embedding success");
+#endif
+        }
+      } else {
+          // TODO
+          return StatusCode::FAILURE;
+          // uint8_t *buffer = (uint8_t*)malloc(file_size);
+          // if (!buffer) {
+          //     LOG_ERROR("Failed to allocate memory for embedding");
+          //     return StatusCode::FAILURE;
+          // }
+          // emb_file.read(reinterpret_cast<char*>(buffer), file_size);
+
+          // if (emb_file_dtype == QNN_DATATYPE_FLOAT_16) {
+          // } else if (emb_file_dtype == QNN_DATATYPE_UFIXED_POINT_16) {
+          // } else /* if (emb_file_dtype == QNN_DATATYPE_FLOAT_32) */{
+          // }
+          // free(buffer);
+      }
+      if (!is_rmpack) {
+        emb_file.close();
+      }
+    }
+  }
   return StatusCode::SUCCESS;
 }
 
@@ -1069,36 +1514,22 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
   if (!m_tensorsInitialized)
     return StatusCode::FAILURE;
 
-  if (m_embedding.empty()) {
+  std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
+  if (m_embedding == nullptr) {
     int *token_input = (int*)m_ioTensor->getBuffer(&m_inputTensors[0][0]);
     *token_input = token;
   } else {
     void *buffer = m_ioTensor->getBuffer(&m_inputTensors[0][0]);
-    if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_16) {
-      half_float::half *ptr = (half_float::half*)buffer;
-      for (int i = 0; i < m_embedding.size(); i++) {
-        ptr[i] = half_float::half(m_embedding[token][i]);
-      }
+    int hidden_size = QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[0][0])[QNN_TENSOR_GET_RANK(m_inputTensors[0][0]) - 1];
+    if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_16 || QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_UFIXED_POINT_16) {
+      memcpy(buffer, m_embedding.get() + token * hidden_size * 2, hidden_size * 2);
     } else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_FLOAT_32) {
-      float *ptr = (float*)buffer;
-      memcpy(ptr, m_embedding[token].data(), m_embedding[token].size() * sizeof(float));
-    } else if (QNN_TENSOR_GET_DATA_TYPE(m_inputTensors[0][0]) == QNN_DATATYPE_UFIXED_POINT_16) {
-      std::vector<size_t> dims;
-      for (int j = 0; j < QNN_TENSOR_GET_RANK(m_inputTensors[0][0]); j++) {
-        dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_inputTensors[0][0]) + j));
-      }
-
-      datautil::floatToTfN<uint16_t>(static_cast<uint16_t*>(buffer),
-                                      m_embedding[token].data(),
-                                      QNN_TENSOR_GET_QUANT_PARAMS(m_inputTensors[0][0]).scaleOffsetEncoding.offset,
-                                      QNN_TENSOR_GET_QUANT_PARAMS(m_inputTensors[0][0]).scaleOffsetEncoding.scale,
-                                      datautil::calculateElementCount(dims));
+      memcpy(buffer, m_embedding.get() + token * hidden_size * 4, hidden_size * 4);
     }
   }
 
   for (int graph_id = 0; graph_id < m_decodeGraphsCount; graph_id++) {
     auto graphInfo     = (*m_decodeGraphsInfo)[graph_id];
-    std::chrono::high_resolution_clock::time_point infer_start = std::chrono::high_resolution_clock::now();
     auto executeStatus =
         m_qnnFunctionPointers.qnnInterface.graphExecute(graphInfo.graph,
                                                         m_inputTensors[graph_id],
@@ -1107,73 +1538,14 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::execute(int token) {
                                                         graphInfo.numOutputTensors,
                                                         nullptr,
                                                         nullptr);
-    std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
-    if (!graph_id)
-      m_lastInferenceTime = std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
-    else
-      m_lastInferenceTime += std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
 
     if (QNN_GRAPH_NO_ERROR != executeStatus) {
       returnStatus = StatusCode::FAILURE;
     }
-
-    // for (int x = 0; x < 96; x++) {
-    //   for (auto &tensor : m_decodeGraphsTensorNameToTensorPointer[graph_id]) {
-    //     if (tensor.first.find("state" + std::to_string(x) + "_out") == std::string::npos) {
-    //       continue;
-    //     }
-    //     std::cout << tensor.first << ": ";
-    //     if (x % 3 == 1) {
-    //       __fp16* data = static_cast<__fp16*>(m_ioTensor->getBuffer((Qnn_Tensor_t*)tensor.second));
-    //       for (int i = 0; i < 10; i++) {
-    //         std::cout << data[i] << " ";
-    //       }
-    //       std::cout << std::endl;
-    //     } else {
-    //       std::vector<size_t> dims;
-    //       for (int j = 0; j < QNN_TENSOR_GET_RANK((const Qnn_Tensor_t*)tensor.second); j++) {
-    //         dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS((const Qnn_Tensor_t*)tensor.second) + j));
-    //       }
-    //       std::vector<float> data(datautil::calculateElementCount(dims));
-    //       datautil::tfNToFloat<uint16_t>(data.data(), static_cast<uint16_t*>(m_ioTensor->getBuffer((Qnn_Tensor_t*)tensor.second)), QNN_TENSOR_GET_QUANT_PARAMS((Qnn_Tensor_t*)tensor.second).scaleOffsetEncoding.offset, QNN_TENSOR_GET_QUANT_PARAMS((Qnn_Tensor_t*)tensor.second).scaleOffsetEncoding.scale, datautil::calculateElementCount(dims));
-    //       for (int i = 0; i < 10; i++) {
-    //         std::cout << data[i] << " ";
-    //       }
-    //       std::cout << std::endl;
-    //     }
-    //   }
-    // }
-    // for (auto &tensor : m_decodeGraphsTensorNameToTensorPointer[graph_id]) {
-    //   if (tensor.first.find("chunk") == std::string::npos) {
-    //     continue;
-    //   }
-    //   std::cout << tensor.first << ": ";
-    //   if (QNN_TENSOR_GET_DATA_TYPE((const Qnn_Tensor_t*)tensor.second) == QNN_DATATYPE_FLOAT_16) {
-    //     __fp16* data = static_cast<__fp16*>(m_ioTensor->getBuffer((Qnn_Tensor_t*)tensor.second));
-    //     for (int i = 0; i < 10; i++) {
-    //       std::cout << data[i] << " ";
-    //     }
-    //   } else if (QNN_TENSOR_GET_DATA_TYPE((const Qnn_Tensor_t*)tensor.second) == QNN_DATATYPE_FLOAT_32) {
-    //     float* data = static_cast<float*>(m_ioTensor->getBuffer((Qnn_Tensor_t*)tensor.second));
-    //     for (int i = 0; i < 10; i++) {
-    //       std::cout << data[i] << " ";
-    //     }
-    //   } else if (QNN_TENSOR_GET_DATA_TYPE((const Qnn_Tensor_t*)tensor.second) == QNN_DATATYPE_UFIXED_POINT_16) {
-    //     std::vector<size_t> dims;
-    //     for (int j = 0; j < QNN_TENSOR_GET_RANK((const Qnn_Tensor_t*)tensor.second); j++) {
-    //       dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS((const Qnn_Tensor_t*)tensor.second) + j));
-    //     }
-    //     std::vector<float> data(datautil::calculateElementCount(dims));
-    //     datautil::tfNToFloat<uint16_t>(data.data(), static_cast<uint16_t*>(m_ioTensor->getBuffer((Qnn_Tensor_t*)tensor.second)), QNN_TENSOR_GET_QUANT_PARAMS((Qnn_Tensor_t*)tensor.second).scaleOffsetEncoding.offset, QNN_TENSOR_GET_QUANT_PARAMS((Qnn_Tensor_t*)tensor.second).scaleOffsetEncoding.scale, datautil::calculateElementCount(dims));
-    //     for (int i = 0; i < 10; i++) {
-    //       std::cout << data[i] << " ";
-    //     }
-    //   }
-
-    //   std::cout << std::endl;
-    // }
-      
   }
+
+  std::chrono::high_resolution_clock::time_point infer_end = std::chrono::high_resolution_clock::now();
+  m_lastInferenceTime = std::chrono::duration_cast<std::chrono::microseconds>(infer_end - infer_start);
 
   return returnStatus;
 }
@@ -1197,27 +1569,13 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::executeSequence(std::vector<int> &tok
     int idx;
     for (idx = 0; (idx+m_prefillSequenceLength) <= tokens.size(); idx += m_prefillSequenceLength) {
       for (int i = 0; i < m_prefillSequenceLength; i++) {
-        if (!m_embedding.empty()) {
+        if (m_embedding != nullptr) {
           void *buffer = m_ioTensor->getBuffer(&m_prefillInputTensors[0][0]);
-          std::vector<size_t> dims;
-          for (int j = 0; j < QNN_TENSOR_GET_RANK(m_prefillInputTensors[0][0]); j++) {
-            dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(m_prefillInputTensors[0][0]) + j));
-          }
-          if (QNN_TENSOR_GET_DATA_TYPE(m_prefillInputTensors[0][0]) == QNN_DATATYPE_FLOAT_16) {
-            half_float::half *ptr = (half_float::half*)buffer;
-            for (int j = 0; j < m_embedding[tokens[idx + i]].size(); j++) {
-              ptr[j] = half_float::half(m_embedding[tokens[idx + i]][j]);
-            }
+          int hidden_size = QNN_TENSOR_GET_DIMENSIONS(m_prefillInputTensors[0][0])[QNN_TENSOR_GET_RANK(m_prefillInputTensors[0][0]) - 1];
+          if (QNN_TENSOR_GET_DATA_TYPE(m_prefillInputTensors[0][0]) == QNN_DATATYPE_FLOAT_16 || QNN_TENSOR_GET_DATA_TYPE(m_prefillInputTensors[0][0]) == QNN_DATATYPE_UFIXED_POINT_16) {
+            memcpy((uint16_t*)buffer + i * hidden_size, m_embedding.get() + tokens[idx + i] * hidden_size * 2, hidden_size * 2);
           } else if (QNN_TENSOR_GET_DATA_TYPE(m_prefillInputTensors[0][0]) == QNN_DATATYPE_FLOAT_32) {
-            float *ptr = (float*)buffer;
-            memcpy(ptr, m_embedding[tokens[idx + i]].data(), m_embedding[tokens[idx + i]].size() * sizeof(float));
-          } else if (QNN_TENSOR_GET_DATA_TYPE(m_prefillInputTensors[0][0]) == QNN_DATATYPE_UFIXED_POINT_16) {
-
-            datautil::floatToTfN<uint16_t>(static_cast<uint16_t*>(buffer) + i * datautil::calculateElementCount(dims) / m_prefillSequenceLength,
-                                            m_embedding[tokens[idx + i]].data(),
-                                            QNN_TENSOR_GET_QUANT_PARAMS(m_prefillInputTensors[0][0]).scaleOffsetEncoding.offset,
-                                            QNN_TENSOR_GET_QUANT_PARAMS(m_prefillInputTensors[0][0]).scaleOffsetEncoding.scale,
-                                            datautil::calculateElementCount(dims) / m_prefillSequenceLength);
+            memcpy((float*)buffer + i * hidden_size, m_embedding.get() + tokens[idx + i] * hidden_size * 4, hidden_size * 4);
           }
         } else {
           int *token_input = (int*)m_ioTensor->getBuffer(&m_prefillInputTensors[0][0]);
@@ -1249,6 +1607,40 @@ rwkv_app::StatusCode rwkv_app::QnnRwkvApp::executeSequence(std::vector<int> &tok
         QNN_ERROR("Execute failed.");
         return StatusCode::FAILURE;
       }
+    }
+  }
+
+  if (m_lmhead_weight != nullptr) {
+    auto tensor = (Qnn_Tensor_t*)m_logitsOutputTensor;
+
+    void *buffer = m_ioTensor->getBuffer(tensor);
+    half_float::half *head_weight = (half_float::half*)m_lmhead_weight.get();
+
+    if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_32) {
+      for (int i = 0; i < m_vocab_size; i++) {
+        m_logitsOutput[i] = 0;
+        for (int j = 0; j < m_hidden_size; j++) {
+          m_logitsOutput[i] += head_weight[i * m_hidden_size + j] * ((float*)buffer)[j];
+        }
+      }
+    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_16) {
+        for (int i = 0; i < m_vocab_size; i++) {
+          m_logitsOutput[i] = 0;
+          for (int j = 0; j < m_hidden_size; j++) {
+            m_logitsOutput[i] += head_weight[i * m_hidden_size + j] * ((half_float::half*)buffer)[j];
+          }
+        }
+    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_UFIXED_POINT_16) {
+        int32_t offset = QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.offset;
+        double offsetDouble   = static_cast<double>(offset);
+        double scale = QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.scale;
+        for (int i = 0; i < m_vocab_size; i++) {
+          m_logitsOutput[i] = 0;
+          for (int j = 0; j < m_hidden_size; j++) {
+            double quantizedValue = static_cast<double>(((uint16_t*)buffer)[j]);
+            m_logitsOutput[i] += head_weight[i * m_hidden_size + j] * ((quantizedValue + offsetDouble) * scale);
+          }
+        }
     }
   }
 

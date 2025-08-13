@@ -80,24 +80,33 @@ int main(int argc, char** argv) {
   const float top_p = 0.9;
 
   std::vector<int> prompt_ids;
+  double duration_prefill = 0;
   for (int i = 0; i < 512; i++) {
     prompt_ids.push_back(rand() % vocab_size);
   }
-  if (QnnRwkvExecuteSequence(backend, prompt_ids) != StatusCode::SUCCESS) {
-    std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
-    return EXIT_FAILURE;
-  }
-  auto duration_prefill = QnnRwkvGetLastPrefillTime(backend);
-
-  // QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-  for (int i = 0; i < 512; i++) {
-    int token = rand() % vocab_size;
-    if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
-      std::cerr << "QnnRwkvExecute failed" << std::endl;
+  for (int t = 0; t < 3; t++) {
+    if (QnnRwkvExecuteSequence(backend, prompt_ids) != StatusCode::SUCCESS) {
+      std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
       return EXIT_FAILURE;
     }
-    // QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-    inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
+    duration_prefill += QnnRwkvGetLastPrefillTime(backend);
+    // cool down
+    usleep(1000000);
+  }
+  duration_prefill /= 3;
+
+  for (int t = 0; t < 5; t++) {
+    for (int i = 0; i < 128; i++) {
+      int token = rand() % vocab_size;
+      if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
+        std::cerr << "QnnRwkvExecute failed" << std::endl;
+        return EXIT_FAILURE;
+      }
+      // QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
+      inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
+    }
+    // cool down
+    usleep(1000000);
   }
 
   double duration_invoke = 0;

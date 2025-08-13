@@ -12,6 +12,11 @@
 #include <iostream>
 #include "soc_detect.h"
 
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <fcntl.h>
+#endif
+
 #ifdef ANDROID
 #include <android/log.h>
 
@@ -101,7 +106,7 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
             return StatusCode::FAILURE;
         }
     } else {
-        if (rwkv_app::StatusCode::SUCCESS != app->createFromBinary(app->m_binaryBuffer, app->m_binarySize)) {
+        if (rwkv_app::StatusCode::SUCCESS != app->createFromBinary()) {
             LOG_ERROR("Binary creation failure");
             return StatusCode::FAILURE;
         }
@@ -110,31 +115,6 @@ StatusCode QnnRwkvBackendInitialize(QnnRwkvBackend_t backend, bool context, bool
     if (rwkv_app::StatusCode::SUCCESS != app->initializeTensors()) {
         LOG_ERROR("Tensor initialization failure");
         return StatusCode::FAILURE;
-    }
-
-    if (app->m_embedding.empty() && QNN_TENSOR_GET_DATA_TYPE(app->m_inputTensors[0][0]) != QNN_DATATYPE_INT_32) {
-        std::string emb_path = modelPath.substr(0, modelPath.find_last_of(".")) + ".emb";
-        std::ifstream emb_file;
-        LOG_ERROR("Embedding file path: " + emb_path);
-        emb_file.open(emb_path, std::ios::in|std::ios::binary);
-        if (emb_file.is_open()) {
-            std::vector<size_t> dims;
-            for (int i = 0; i < QNN_TENSOR_GET_RANK(app->m_inputTensors[0][0]); i++) {
-                dims.push_back(*(QNN_TENSOR_GET_DIMENSIONS(app->m_inputTensors[0][0]) + i));
-            }
-
-            int emb_size = dims[dims.size() - 1];
-            emb_file.seekg(0, std::ios::end);
-            size_t file_size = emb_file.tellg();
-            emb_file.seekg(0, std::ios::beg);
-            for (int i = 0; i < file_size / (emb_size * sizeof(float)); i++) {
-                std::vector<float> emb(emb_size);
-                emb_file.read(reinterpret_cast<char*>(emb.data()), emb_size * sizeof(float));
-                app->m_embedding.push_back(emb);
-            }
-            emb_file.close();
-            LOG_ERROR("Embedding size: " + std::to_string(app->m_embedding.size()) + "x" + std::to_string(app->m_embedding[0].size()));
-        }
     }
 
     return StatusCode::SUCCESS;
@@ -204,7 +184,7 @@ StatusCode QnnRwkvBackendCreateWithContext(
       return StatusCode::FAILURE;
     }
 
-    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, *modelHandle, std::vector<std::vector<float>>({}),
+    *backend = new rwkv_app::QnnRwkvApp(qnnFunctionPointers, backendHandle, *modelHandle,
         contextPath);
     bool usingHtp = backendPath.find("Htp") != std::string::npos;
     return QnnRwkvBackendInitialize(*backend, true, usingHtp, contextPath);
@@ -216,26 +196,57 @@ StatusCode QnnRwkvCopyLogitsOutput(QnnRwkvBackend_t backend, float* outputBuffer
     }
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
 
-    int graph_id = app->m_decodeGraphsCount - 1;
-    auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
+    if (app->m_lmhead_weight != nullptr) {
+        std::vector<float> hidden_state(app->m_hidden_size);
+        auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
 
-    void *buffer = app->m_ioTensor->getBuffer(tensor);
+        void *buffer = app->m_ioTensor->getBuffer(tensor);
 
-    if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_32) {
-        memcpy(outputBuffer, buffer, outputSize * sizeof(float));
-    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_16) {
-        half_float::half *ptr = (half_float::half*)buffer;
-        for (int i = 0; i < outputSize; i++) {
-            outputBuffer[i] = ptr[i];
+        if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_32) {
+            memcpy(hidden_state.data(), buffer, app->m_hidden_size * sizeof(float));
+        } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_16) {
+            half_float::half *ptr = (half_float::half*)buffer;
+            for (int i = 0; i < app->m_hidden_size; i++) {
+                hidden_state[i] = ptr[i];
+            }
+        } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_UFIXED_POINT_16) {
+            datautil::tfNToFloat<uint16_t>(hidden_state.data(), reinterpret_cast<uint16_t*>(buffer),
+                QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.offset,
+                QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.scale,
+                app->m_hidden_size);
+        } else {
+            LOG_ERROR("Unsupported data type");
+            return StatusCode::FAILURE;
         }
-    } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_UFIXED_POINT_16) {
-        datautil::tfNToFloat<uint16_t>(outputBuffer, reinterpret_cast<uint16_t*>(buffer),
-            QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.offset,
-            QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.scale,
-            outputSize);
+
+        for (int i = 0; i < app->m_vocab_size; i++) {
+            outputBuffer[i] = 0;
+            for (int j = 0; j < app->m_hidden_size; j++) {
+                outputBuffer[i] += ((half_float::half*)app->m_lmhead_weight.get())[i * app->m_hidden_size + j] * hidden_state[j];
+            }
+        }
     } else {
-        LOG_ERROR("Unsupported data type");
-        return StatusCode::FAILURE;
+
+        auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
+
+        void *buffer = app->m_ioTensor->getBuffer(tensor);
+
+        if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_32) {
+            memcpy(outputBuffer, buffer, outputSize * sizeof(float));
+        } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_FLOAT_16) {
+            half_float::half *ptr = (half_float::half*)buffer;
+            for (int i = 0; i < outputSize; i++) {
+                outputBuffer[i] = ptr[i];
+            }
+        } else if (QNN_TENSOR_GET_DATA_TYPE(*tensor) == QNN_DATATYPE_UFIXED_POINT_16) {
+            datautil::tfNToFloat<uint16_t>(outputBuffer, reinterpret_cast<uint16_t*>(buffer),
+                QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.offset,
+                QNN_TENSOR_GET_QUANT_PARAMS(*tensor).scaleOffsetEncoding.scale,
+                outputSize);
+        } else {
+            LOG_ERROR("Unsupported data type");
+            return StatusCode::FAILURE;
+        }
     }
 
     return StatusCode::SUCCESS;
@@ -247,7 +258,13 @@ StatusCode QnnRwkvGetVocabSize(QnnRwkvBackend_t backend, std::vector<size_t>& sh
     }
 
     rwkv_app::QnnRwkvApp *app = static_cast<rwkv_app::QnnRwkvApp *>(backend);
+
     shape.clear();
+    if (app->m_lmhead_weight != nullptr && app->m_vocab_size > 0) {
+        shape.push_back(app->m_vocab_size);
+        return StatusCode::SUCCESS;
+    }
+
     int graph_id = app->m_decodeGraphsCount - 1;
     auto tensor = (Qnn_Tensor_t*)app->m_logitsOutputTensor;
 

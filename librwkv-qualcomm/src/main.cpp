@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
       std::cerr << "QnnRwkvBackendCreate failed" << std::endl;
       return EXIT_FAILURE;
     }
-  } else if (model_path.find(".bin") != std::string::npos) {
+  } else if (model_path.find(".bin") != std::string::npos || model_path.find(".rmpack") != std::string::npos) {
     std::cout << "Loading model context binary from " << model_path << std::endl;
     status = QnnRwkvBackendCreateWithContext(&backend, &modelHandle, model_path, path + "/libQnnHtp.so", path + "/libQnnSystem.so");
     if (status != StatusCode::SUCCESS) {
@@ -144,12 +144,9 @@ int main(int argc, char** argv) {
 
   std::map<int, float> occurences;
   std::vector<double> inference_durations;
-  // std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>";
-  std::string prompt = "\n\nThe";
-  // std::string prompt = "English: ROCm is an open-source stack, composed primarily of open-source software, designed for graphics processing unit (GPU) computation. ROCm consists of a collection of drivers, development tools, and APIs that enable GPU programming from low-level kernel to end-user applications.\n"
-  //                       "With ROCm, you can customize your GPU software to meet your specific needs.You can develop, collaborate, test, and deploy your applications in a free, open source, integrated, and secure software ecosystem. ROCm is particularly well-suited to GPU-accelerated high-performance computing (HPC), artificial intelligence (AI), scientific computing, and computer aided design (CAD).\n"
-  //                       "ROCm is powered by AMD’s Heterogeneous-computing Interface for Portability (HIP), an open-source software C++ GPU programming environment and its corresponding runtime. HIP allows ROCm developers to create portable applications on different platforms by deploying code on a range of platforms, from dedicated gaming GPUs to exascale HPC clusters.\n"
-  //                       "ROCm supports programming models, such as OpenMP and OpenCL, and includes all necessary open source software compilers, debuggers, and libraries. ROCm is fully integrated into machine learning (ML) frameworks, such as PyTorch and TensorFlow.\n\nChinese:";
+  std::string prompt = "User: " + prompt_input + "\n\nAssistant: <think>\n</think>";
+  // std::string prompt = "English: " + prompt_input + "\n\nChinese:";
+  // std::string prompt = "\n\nThe";
   // "Assistant: 好的，请告诉我诗歌的主题或者一些关键词，这样我才能更好地为您创作一首诗。\n\n"
   // "User: 主题是春天，还有一些关键词可以使用，如花朵、鸟鸣等等。\n\n"
   // "Assistant: 在春天的花园里，\n"
@@ -174,69 +171,51 @@ int main(int argc, char** argv) {
   const float top_p = 0.9;
 
   std::vector<int> prompt_ids = tokenizer.Encode(prompt);
-  // if (QnnRwkvExecuteSequence(backend, prompt_ids) != StatusCode::SUCCESS) {
-  //   std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
-  //   return EXIT_FAILURE;
-  // }
-  // for (auto token : prompt_ids) {
-  //   if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
-  //     std::cerr << "QnnRwkvExecute failed" << std::endl;
-  //     return EXIT_FAILURE;
-  //   }
-  // }
-  // auto duration_prefill = QnnRwkvGetLastPrefillTime(backend);
-
-  // QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-
-  // int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
-  // std::cout << prompt << "\n============== Prompt End ==============\n";
-  // std::string output = "";
-  // for (int i = 0; i < 100; i++) {
-  //   std::cout << tokenizer.Decode(token);
-  //   output += tokenizer.Decode(token);
-  //   if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
-  //     std::cerr << "QnnRwkvExecute failed" << std::endl;
-  //     return EXIT_FAILURE;
-  //   }
-  //   QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-  //   inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
-  //   for (auto &x : occurences) {
-  //     logits[x.first] -=
-  //         freq_penalty * x.second + presence_penalty;
-  //     x.second *= penalty_decay;
-  //   }
-
-  //   token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
-
-  //   if (token == 0 || (output.size() > 2 && output.substr(output.size() - 2) == "\n\n")) {
-  //     break;
-  //   }
-
-  //   occurences[token]++;
-  // }
-  // std::cout << std::endl;
-
-  // double duration_invoke = 0;
-  // for (auto duration : inference_durations) {
-  //   duration_invoke += duration;
-  // }
-
-  // std::cout << "\n\nTime to first token (" << prompt_ids.size() << " tokens): " << duration_prefill << "s" << std::endl;
-  // std::cout << "Average tokens per second (prefill): " << (prompt_ids.size() / 16 * 16) / duration_prefill << std::endl;
-  // std::cout << "Average tokens per second (generation): " << inference_durations.size() / duration_invoke << std::endl;
-  QnnRwkvResetStates(backend);
-  if (QnnRwkvExecute(backend, 0) != StatusCode::SUCCESS) {
-    std::cerr << "QnnRwkvExecute failed" << std::endl;
+  if (QnnRwkvExecuteSequence(backend, prompt_ids) != StatusCode::SUCCESS) {
+    std::cerr << "QnnRwkvExecuteSequence failed" << std::endl;
     return EXIT_FAILURE;
   }
+
+  auto duration_prefill = QnnRwkvGetLastPrefillTime(backend);
+
   QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
-  std::cout << "logits: " << std::endl;
-  for (int i = 0; i < 10; i++) {
-    std::cout << logits[i] << " ";
+
+  int token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
+  std::cout << prompt << "\n============== Prompt End ==============\n";
+  std::string output = "";
+  for (int i = 0; i < 2000; i++) {
+    std::cout << tokenizer.Decode(token);
+    output += tokenizer.Decode(token);
+    if (QnnRwkvExecute(backend, token) != StatusCode::SUCCESS) {
+      std::cerr << "QnnRwkvExecute failed" << std::endl;
+      return EXIT_FAILURE;
+    }
+    QnnRwkvCopyLogitsOutput(backend, logits.data(), logits.size());
+    inference_durations.push_back(QnnRwkvGetLastInferenceTime(backend));
+    for (auto &x : occurences) {
+      logits[x.first] -=
+          freq_penalty * x.second + presence_penalty;
+      x.second *= penalty_decay;
+    }
+
+    token = sample_logits(logits.data(), logits.size(), temperature, top_k, top_p);
+
+    if (token == 0 || (output.size() > 2 && output.substr(output.size() - 2) == "\n\n")) {
+      break;
+    }
+
+    occurences[token]++;
   }
   std::cout << std::endl;
 
-  QnnRwkvBackendDestroy(backend);
+  double duration_invoke = 0;
+  for (auto duration : inference_durations) {
+    duration_invoke += duration;
+  }
+
+  std::cout << "\n\nTime to first token (" << prompt_ids.size() << " tokens): " << duration_prefill << "s" << std::endl;
+  std::cout << "Average tokens per second (prefill): " << (prompt_ids.size() / 16 * 16) / duration_prefill << std::endl;
+  std::cout << "Average tokens per second (generation): " << inference_durations.size() / duration_invoke << std::endl;
 
   return EXIT_SUCCESS;
 }

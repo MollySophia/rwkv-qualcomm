@@ -58,6 +58,7 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
                 "perf_profile": "burst"
             }]
         }],
+        "groupContext": {"share_resources": True},
         "memory": {
             "mem_type": "shared_buffer"
         }
