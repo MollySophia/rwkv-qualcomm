@@ -217,5 +217,6 @@ int main(int argc, char** argv) {
   std::cout << "Average tokens per second (prefill): " << (prompt_ids.size() / 16 * 16) / duration_prefill << std::endl;
   std::cout << "Average tokens per second (generation): " << inference_durations.size() / duration_invoke << std::endl;
 
+  QnnRwkvBackendDestroy(backend);
   return EXIT_SUCCESS;
 }
