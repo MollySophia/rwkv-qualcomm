@@ -13,7 +13,7 @@ from tqdm import tqdm
 import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 # from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
-from rwkv_src.rwkv_v7_modules_conv import Rwkv7SelfAttention, Rwkv7FeedForward
+from rwkv_src.rwkv_v7_modules_conv import Rwkv7SelfAttention, Rwkv7FeedForward, Rwkv7aFeedForward
 from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape
 
 def sample_logits(out, temperature=1.0, top_p=0.8, top_k=128):
@@ -36,6 +36,7 @@ def check_rwkv_info(state_dict):
     n_layer = 0
     version = 5
     n_head = 0
+    has_deepemb = False
     for k in state_dict.keys():
         layer_id = int(k.split('.')[1]) if ('blocks.' in k) else 0
         n_layer = max(n_layer, layer_id + 1)
@@ -55,18 +56,26 @@ def check_rwkv_info(state_dict):
             n_head, _ = state_dict[k].shape
         if int(version) == 6 and 'time_faaaa' in k:
             n_head = state_dict[k].shape[0]
-    return version, n_layer, n_head
+        if 'ffn.s_emb' in k:
+            has_deepemb = True
+    return version, n_layer, n_head, has_deepemb
 
 class RWKV_Block(nn.Module):
-    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, layer_total=0, output_last=False):
+    def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, 
+                 layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, 
+                 layer_total=0, output_last=False, has_deepemb=False):
         super().__init__()
         self.version = version
         self.layer_id = layer_id
         self.layer_offset = layer_id - layer_begin
         self.layer_total = layer_total
+        self.has_deepemb = has_deepemb
         if self.version == 7:
             self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
-            self.ffn = Rwkv7FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
+            if self.has_deepemb:
+                self.ffn = Rwkv7aFeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
+            else:
+                self.ffn = Rwkv7FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
         elif self.version == 6:
             self.att = Rwkv6SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, rescale_layer=rescale_layer, custom_wkv=custom_wkv)
             self.ffn = Rwkv6FeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, rescale_layer=rescale_layer)
@@ -76,11 +85,14 @@ class RWKV_Block(nn.Module):
         else:
             assert False, "Not implemented with new workflow yet"
 
-    def forward(self, x, state, v_first=None):
+    def forward(self, x, state, v_first=None, s_emb=None):
         if self.version == 7:
             # if self.layer_id == 0:
             x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
-            x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
+            if self.has_deepemb:
+                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2], s_emb)
+            else:
+                x, state[3*self.layer_offset+2] = self.ffn(x, state[3*self.layer_offset+2])
             return x, state, v_first
             # else:
             #     x, state[3*self.layer_offset], state[3*self.layer_offset+1] = self.att(x, state[3*self.layer_offset], state[3*self.layer_offset+1], v_first)
@@ -105,7 +117,7 @@ class RWKV_RNN(torch.nn.Module):
         self.args.vocab_size = w['emb.weight'].shape[0]
         self.args.n_att = w['blocks.0.att.key.weight'].shape[0]
         self.args.n_ffn = w['blocks.0.ffn.key.weight'].shape[0]
-        self.args.version, self.args.n_layer, self.args.n_head = check_rwkv_info(w)
+        self.args.version, self.args.n_layer, self.args.n_head, self.args.has_deepemb = check_rwkv_info(w)
         self.args.head_size = self.args.n_embd // self.args.n_head
 
         if self.args.version == 7:
@@ -118,6 +130,7 @@ class RWKV_RNN(torch.nn.Module):
             print("vocab_size:", self.args.vocab_size)
             print("n_att:", self.args.n_att)
             print("n_ffn:", self.args.n_ffn)
+            print("has_deepemb:", self.args.has_deepemb)
 
         layers_per_chunk = self.args.n_layer // chunks
         self.layer_begin = chunk_idx * layers_per_chunk
@@ -130,7 +143,15 @@ class RWKV_RNN(torch.nn.Module):
         self.gpu = True if self.device is not torch.device('cpu') else False
 
         for k in w.keys():
-            w[k] = w[k].float()
+            # w[k] = w[k].float()
+            if self.args.fp16:
+                w[k] = w[k].half()
+            elif self.args.bf16:
+                w[k] = w[k].bfloat16()
+            else:
+                w[k] = w[k].float()
+            if self.gpu:
+                w[k] = w[k].to(self.device)
 
         emb_weight = w['emb.weight']
         if self.args.USE_EMBEDDING:
@@ -151,10 +172,24 @@ class RWKV_RNN(torch.nn.Module):
             if self.gpu:
                 self.emb_weight = self.emb_weight.to(self.device)
 
+        if self.args.has_deepemb:
+            self.s_emb_weights = []
+            for i in range(self.args.n_layer):
+                weight = w[f'blocks.{i}.ffn.s_emb.weight'] + emb_weight @ w[f'blocks.{i}.ffn.s_emb_x.weight'].t()
+                if self.args.fp16:
+                    weight = weight.half()
+                elif self.args.bf16:
+                    weight = weight.bfloat16()
+                else:
+                    weight = weight.float()
+                if self.gpu:
+                    weight = weight.to(self.device)
+                self.s_emb_weights.append(weight)
+
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
             custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
-            output_last=self.args.output_last) for i in range(self.layer_begin, self.layer_end)])
+            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
@@ -162,11 +197,11 @@ class RWKV_RNN(torch.nn.Module):
         # self.head.weight = nn.Parameter(w['head.weight'])
         if 'head.bias' in w.keys():
             self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
-            self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
+            self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
             self.head.bias = nn.Parameter(w['head.bias'].reshape(-1))
         else:
             self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
-            self.head.weight = nn.Parameter(w['head.weight'].view(self.args.vocab_size, self.args.n_embd, 1, 1))
+            self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
 
         self.head_pre_reshape = Reshape()
         self.head_post_reshape = Reshape()
@@ -183,7 +218,7 @@ class RWKV_RNN(torch.nn.Module):
         if self.gpu:
             self.to(self.device)
 
-    def forward(self, in0, state: List[torch.Tensor], v_first: torch.Tensor|None=None):
+    def forward(self, in0, state: List[torch.Tensor], v_first: torch.Tensor|None=None, s_emb: List[torch.Tensor]|None=None):
         with torch.no_grad():
             if self.args.USE_EMBEDDING and self.chunk_idx == 0:
                 x = self.embedding(in0)
@@ -199,10 +234,10 @@ class RWKV_RNN(torch.nn.Module):
 
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
-                    # if i == 0:
-                    x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first)
-                    # else:
-                    #     x, state = self.blocks[i-self.layer_begin](x, state, v_first)
+                    if self.args.has_deepemb:
+                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i-self.layer_begin])
+                    else:
+                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first)
                 else:
                     x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:

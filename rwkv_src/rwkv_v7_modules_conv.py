@@ -395,11 +395,6 @@ class Rwkv7FeedForward(nn.Module):
         self.output_last = output_last
         self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
 
-        # self.key = nn.Linear(hidden_size, intermediate_size, bias=False)
-        # self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'])
-        # self.value = nn.Linear(intermediate_size, hidden_size, bias=False)
-        # self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'])
-
         self.ln_2                   = nn.LayerNorm(hidden_size, eps=1e-5)
         self.ln_2.weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.weight'])
         self.ln_2.bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.bias'])
@@ -471,6 +466,132 @@ class Rwkv7FeedForward(nn.Module):
         key = self.post_conv_reshape2(key, [batch_size, -1, self.intermediate_size])
 
         key = self.pow(self.relu(key), 2)
+
+        key = self.pre_conv_reshape2(key, [batch_size, -1, 1, self.intermediate_size])
+        key = self.pre_conv_transpose2(key, [0, 3, 2, 1])
+        value = self.value(key)
+        value = self.post_conv_transpose(value, [0, 3, 2, 1])
+        value = self.post_conv_reshape(value, [batch_size, -1, self.hidden_size])
+
+        return self.add_feed_forward(value, last_x), state_out
+
+class Rwkv7aFeedForward(nn.Module):
+    def __init__(self, state_dict, hidden_size, intermediate_size, layer_id=0, layer_total=0, output_last=False):
+        super().__init__()
+        prefix = f'blocks.{layer_id}.ffn.'
+        self.layer_id = layer_id
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
+        self.layer_total = layer_total
+        self.output_last = output_last
+        self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
+
+        self.ln_2                   = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.ln_2.weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.weight'])
+        self.ln_2.bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln2.bias'])
+
+        self.sub_shifted            = Subtract()
+        self.mul_x_k                = Multiply()
+        self.add_x_k                = Add()
+        self.relu                   = nn.ReLU()
+        self.pow                    = Pow()
+        self.add_feed_forward       = Add()
+
+        self.concat_shift = Concat(1)
+        self.shift_gather1 = CustomGather()
+        self.shift_gather2 = CustomGather()
+        if self.layer_id == self.layer_total - 1:
+            self.shift_gather3 = CustomGather()
+            self.shift_gather4 = CustomGather()
+            self.shift_split = Split()
+        self.state_reshape = Reshape()
+        self.layer_total = layer_total
+
+        self.key = nn.Conv2d(hidden_size, intermediate_size, 1, bias=False)
+        self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(intermediate_size, hidden_size, 1, 1))
+        self.value = nn.Conv2d(intermediate_size, hidden_size, 1, bias=False)
+        self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, intermediate_size, 1, 1))
+        self.pre_conv_reshape = Reshape()
+        self.pre_conv_transpose = Permute()
+        self.post_conv_transpose = Permute()
+        self.post_conv_reshape = Reshape()
+        self.pre_conv_reshape2 = Reshape()
+        self.pre_conv_transpose2 = Permute()
+        self.post_conv_transpose2 = Permute()
+        self.post_conv_reshape2 = Reshape()
+
+        self.pre_deepemb_s1_reshape = Reshape()
+        self.pre_deepemb_s1_transpose = Permute()
+        self.post_deepemb_s1_transpose = Permute()
+        self.post_deepemb_s1_reshape = Reshape()
+
+        self.pre_deepemb_s2_reshape = Reshape()
+        self.pre_deepemb_s2_transpose = Permute()
+        self.post_deepemb_s2_transpose = Permute()
+        self.post_deepemb_s2_reshape = Reshape()
+
+        self.deepemb_s1 = nn.Conv2d(hidden_size, 32, 1, bias=False)
+        self.deepemb_s1.weight = nn.Parameter(state_dict[prefix + 's1'].t().reshape(32, hidden_size, 1, 1))
+
+        self.deepemb_s2 = nn.Conv2d(32, intermediate_size, 1, bias=True)
+        self.deepemb_s2.weight = nn.Parameter(state_dict[prefix + 's2'].t().reshape(intermediate_size, 32, 1, 1))
+        self.deepemb_s2.bias = nn.Parameter(state_dict[prefix + 's0'].reshape(-1))
+
+        self.matmul_deepemb = MatMul()
+        self.mul_deepemb = Multiply()
+
+    def forward(self, x, state, semb):
+        batch_size, seq_length, _ = x.size()
+        if self.output_last and self.layer_id == self.layer_total - 1:
+            if seq_length == 1:
+                last_x = x
+                x = self.ln_2(x)
+                state_out = x
+                sx = self.sub_shifted(state, x)
+            else:
+                last_x = self.shift_gather4(x, torch.LongTensor([-1]).to(x.device), 1)
+                x = self.shift_gather3(x, torch.LongTensor([-2, -1]).to(x.device), 1)
+                x = self.ln_2(x)
+                past, state_out = self.shift_split(x, 1, dim=1)
+                sx = self.sub_shifted(past, state_out)
+                x = state_out
+        else:
+            last_x = x
+            x = self.ln_2(x)
+            assert batch_size == 1
+            if seq_length == 1:
+                state_out = x
+                sx = self.sub_shifted(state, x)
+            else:
+                state_out = self.shift_gather1(x, torch.LongTensor([-1]).to(x.device), 1)
+                past = self.shift_gather2(x, torch.LongTensor([i for i in range(seq_length-1)]).to(x.device), 1)
+                past = self.concat_shift(self.state_reshape(state, [1, 1, -1]), past)
+                sx = self.sub_shifted(past, x)
+
+        ss = self.pre_deepemb_s1_reshape(x, [batch_size, -1, 1, self.hidden_size])
+        ss = self.pre_deepemb_s1_transpose(ss, [0, 3, 2, 1])
+        ss = self.deepemb_s1(ss)
+        ss = self.post_deepemb_s1_transpose(ss, [0, 3, 2, 1])
+        ss = self.post_deepemb_s1_reshape(ss, [batch_size, -1, 1, 32])
+
+        ss = self.matmul_deepemb(ss, semb.view(batch_size, -1, 32, 32))
+
+        ss = self.pre_deepemb_s2_reshape(ss, [batch_size, -1, 1, 32])
+        ss = self.pre_deepemb_s2_transpose(ss, [0, 3, 2, 1])
+        ss = self.deepemb_s2(ss)
+        ss = self.post_deepemb_s2_transpose(ss, [0, 3, 2, 1])
+        ss = self.post_deepemb_s2_reshape(ss, [batch_size, -1, self.intermediate_size])
+
+        xk = self.add_x_k(x, self.mul_x_k(sx, self.x_k))
+
+        xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
+        xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
+        key = self.key(xk)
+        key = self.post_conv_transpose2(key, [0, 3, 2, 1])
+        key = self.post_conv_reshape2(key, [batch_size, -1, self.intermediate_size])
+
+        key = self.pow(self.relu(key), 2)
+        key = self.mul_deepemb(key, ss.reshape(batch_size, -1, self.intermediate_size))
 
         key = self.pre_conv_reshape2(key, [batch_size, -1, 1, self.intermediate_size])
         key = self.pre_conv_transpose2(key, [0, 3, 2, 1])

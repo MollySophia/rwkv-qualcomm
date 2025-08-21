@@ -67,8 +67,9 @@ if type(model) == list:
         model[-1].head.weight.detach().squeeze().cpu().numpy().astype(np.float16).tofile("onnx/" + filename + f"_chunk1of{len(model)}.fp16.head.weight")
         lm_head = torch.nn.Linear(args.n_embd, model[-1].head.weight.squeeze().shape[0], bias=False)
         lm_head.weight = torch.nn.Parameter(model[-1].head.weight.squeeze())
-        torch.onnx.export(lm_head, (torch.zeros(1, args.n_embd, dtype=input_dtype),), "onnx/" + filename + f"_lmhead.onnx", opset_version=17, input_names=['in'], output_names=['out'], dynamic_axes={'in': {0: 'batch_size'}, 'out': {0: 'batch_size'}})
+        torch.onnx.export(lm_head, (torch.zeros(1, args.n_embd, dtype=input_dtype),), "onnx/" + filename + f"_lmhead.onnx", opset_version=17, input_names=['in'], output_names=['out'])
         print(f"lmhead onnx model saved to onnx/{filename}_lmhead.onnx")
+        quit()
 
     states = get_dummy_state_kvcache(1, args, model[0].device)
     if parser_args.quant_encodings:
@@ -244,13 +245,14 @@ if type(model) == list:
             converter_cmd = "python " + converter_cmd
         os.system(converter_cmd)
 
-        print("Quantizing QNN dlc model...")
-        quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback  --act_bitwidth 16 --bias_bitwidth 8"
-        if os.name == 'nt':
-            quant_cmd = "python " + quant_cmd
-        print(quant_cmd)
+        if parser_args.quant_encodings:
+            print("Quantizing QNN dlc model...")
+            quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback  --act_bitwidth 16 --bias_bitwidth 8"
+            if os.name == 'nt':
+                quant_cmd = "python " + quant_cmd
+            print(quant_cmd)
 
-        os.system(quant_cmd)
+            os.system(quant_cmd)
         for file in os.listdir(dirname):
             filepath = os.path.join(dirname, file)
             if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx')):
@@ -363,12 +365,14 @@ else:
         converter_cmd = "python " + converter_cmd
     print(converter_cmd)
     os.system(converter_cmd)
-    print("Quantizing QNN dlc model...")
-    quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --act_bitwidth 16 --bias_bitwidth 8"
-    if os.name == 'nt':
-        quant_cmd = "python " + quant_cmd
-    print(quant_cmd)
-    os.system(quant_cmd)
+
+    if parser_args.quant_encodings:
+        print("Quantizing QNN dlc model...")
+        quant_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-quantizer -i {onnx_output_path.replace('.onnx', '.dlc')} -o {onnx_output_path.replace('.onnx', '.dlc')} --enable_float_fallback --act_bitwidth 16 --bias_bitwidth 8"
+        if os.name == 'nt':
+            quant_cmd = "python " + quant_cmd
+        print(quant_cmd)
+        os.system(quant_cmd)
 
     # Delete all files in output_path except .dlc files
     for file in os.listdir(dirname):
