@@ -110,6 +110,9 @@ def main():
     parser.add_argument('--spill_fill_buffer_size', type=int, default=0, help='spill fill buffer size')
     parser.add_argument('--external_embedding_file', type=Path, default=None, help='external embedding file')
     parser.add_argument('--external_embedding_dtype', type=str, default='uint16', choices=['uint16', 'fp16', 'fp32'], help='external embedding dtype')
+    parser.add_argument('--external_deep_embedding_file', type=Path, default=None, help='external deep embedding file')
+    parser.add_argument('--external_deep_embedding_dtype', type=str, default='uint16', choices=['uint16', 'fp16', 'fp32'], help='external deep embedding dtype')
+    parser.add_argument('--deep_emb_size', type=int, default=0, help='deep embedding size')
     parser.add_argument('--external_lmhead_file', type=Path, default=None, help='external lmhead file')
     parser.add_argument('--external_lmhead_filetype', type=str, default='mnn', choices=['mnn', 'raw_fp32', 'raw_fp16'], help='external lmhead filetype')
     parser.add_argument('--model_files', type=str, required=True, help='model files')
@@ -126,12 +129,18 @@ def main():
     packer.add_config("external_embedding_dtype", args.external_embedding_dtype if args.external_embedding_file is not None else 'None')
     packer.add_config("use_external_lmhead", 1 if args.external_lmhead_file is not None else 0)
     packer.add_config("external_lmhead_filetype", args.external_lmhead_filetype if args.external_lmhead_file is not None else 'None')
+    packer.add_config("use_external_deep_embedding", 1 if args.external_deep_embedding_file is not None else 0)
+    packer.add_config("external_deep_embedding_dtype", args.external_deep_embedding_dtype if args.external_deep_embedding_file is not None else 'None')
+    packer.add_config("deep_embedding_size", args.deep_emb_size)
 
     if args.external_embedding_file is not None:
         packer.add_file(args.external_embedding_file, "embedding")
 
     if args.external_lmhead_file is not None:
         packer.add_file(args.external_lmhead_file, "lmhead")
+
+    if args.external_deep_embedding_file is not None:
+        packer.add_file(args.external_deep_embedding_file, "deep_embedding")
 
     models = args.model_files.split(',')
     if type(models) == str:

@@ -504,6 +504,7 @@ class Rwkv7aFeedForward(nn.Module):
             self.shift_gather3 = CustomGather()
             self.shift_gather4 = CustomGather()
             self.shift_split = Split()
+            self.shift_semb = CustomGather()
         self.state_reshape = Reshape()
         self.layer_total = layer_total
 
@@ -555,6 +556,7 @@ class Rwkv7aFeedForward(nn.Module):
                 past, state_out = self.shift_split(x, 1, dim=1)
                 sx = self.sub_shifted(past, state_out)
                 x = state_out
+                semb = self.shift_semb(semb, torch.LongTensor([-1]).to(semb.device), 0)
         else:
             last_x = x
             x = self.ln_2(x)
@@ -572,9 +574,9 @@ class Rwkv7aFeedForward(nn.Module):
         ss = self.pre_deepemb_s1_transpose(ss, [0, 3, 2, 1])
         ss = self.deepemb_s1(ss)
         ss = self.post_deepemb_s1_transpose(ss, [0, 3, 2, 1])
-        ss = self.post_deepemb_s1_reshape(ss, [batch_size, -1, 1, 32])
+        ss = self.post_deepemb_s1_reshape(ss, [-1, 1, 32])
 
-        ss = self.matmul_deepemb(ss, semb.view(batch_size, -1, 32, 32))
+        ss = self.matmul_deepemb(ss, semb.view(-1, 32, 32))
 
         ss = self.pre_deepemb_s2_reshape(ss, [batch_size, -1, 1, 32])
         ss = self.pre_deepemb_s2_transpose(ss, [0, 3, 2, 1])

@@ -27,6 +27,7 @@ parser.add_argument('--quant_encodings', type=Path, help='Path to quant encoding
 parser.add_argument('--prefill_model', action='store_true', help='Convert model for sequential prefill')
 parser.add_argument('--prefill_seq_length', type=int, default=16, help='Prefill sequence length')
 parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
+parser.add_argument('--no_cleanup', action='store_true', help='Do not cleanup onnx files')
 parser_args = parser.parse_args()
 
 seq_length = parser_args.prefill_seq_length if parser_args.prefill_model else 1
@@ -47,6 +48,9 @@ else:
     model_args.RESCALE_LAYER = 6
 
 model = make_chunks(parser_args.chunks, model_args) if parser_args.chunks > 1 else RWKV_RNN(model_args)
+has_deepemb = model[0].args.has_deepemb if type(model) == list else model.args.has_deepemb
+if has_deepemb:
+    deep_emb_size = model[0].s_emb_weights[0][0].shape[-1] if type(model) == list else model.s_emb_weights[0][0].shape[-1]
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
@@ -69,7 +73,6 @@ if type(model) == list:
         lm_head.weight = torch.nn.Parameter(model[-1].head.weight.squeeze())
         torch.onnx.export(lm_head, (torch.zeros(1, args.n_embd, dtype=input_dtype),), "onnx/" + filename + f"_lmhead.onnx", opset_version=17, input_names=['in'], output_names=['out'])
         print(f"lmhead onnx model saved to onnx/{filename}_lmhead.onnx")
-        quit()
 
     states = get_dummy_state_kvcache(1, args, model[0].device)
     if parser_args.quant_encodings:
@@ -189,6 +192,9 @@ if type(model) == list:
             else:
                 input_names += [('v_first_in' if not parser_args.prefill_model else 'v_first_in_prefill') + f'_chunk{i+1}']
                 inputs += [torch.zeros(seq_length, args.n_embd, dtype=input_dtype)]
+            if has_deepemb:
+                inputs += [[torch.zeros(seq_length, deep_emb_size, dtype=input_dtype) for _ in range(model[i].layer_begin, model[i].layer_end)]]
+                input_names += [f's_emb{j}_in' for j in range(model[i].layer_begin, model[i].layer_end)]
 
         onnx_output_path = f"{dirname}/{filename}"
         if parser_args.ext_embedding:
@@ -229,6 +235,7 @@ if type(model) == list:
         states_layout = "NONTRIVIAL"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter --input_network {onnx_output_path} "
         converter_cmd += " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
+        converter_cmd += f" --float_bitwidth {parser_args.qnn_float_width} --float_bias_bitwidth {parser_args.qnn_float_width}"
         # if args.version == 7:
         #     converter_cmd += f' --source_model_input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
         if i != 0:
@@ -253,11 +260,12 @@ if type(model) == list:
             print(quant_cmd)
 
             os.system(quant_cmd)
-        for file in os.listdir(dirname):
-            filepath = os.path.join(dirname, file)
-            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx')):
-                if os.path.isfile(filepath):
-                    os.remove(filepath)
+        if not parser_args.no_cleanup:
+            for file in os.listdir(dirname):
+                filepath = os.path.join(dirname, file)
+                if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx')):
+                    if os.path.isfile(filepath):
+                        os.remove(filepath)
 else:
     args = model.args
     filename = args.MODEL_NAME.split("/")[-1]
@@ -265,7 +273,7 @@ else:
     os.path.exists(dirname) or os.mkdir(dirname)
     if not args.USE_EMBEDDING:
         if not parser_args.quant_encodings:
-            model.emb_weight.cpu().numpy().astype(np.float16 if args.fp16 else np.float32).tofile(dirname + '/' + filename + (".fp16" if args.fp16 else ".fp32") + ".emb")
+            model.emb_weight.cpu().numpy().astype(np.float16).tofile(dirname + '/' + filename + ".fp16.emb")
         else:
             offset = 0
             scale = 0
@@ -288,6 +296,15 @@ else:
             emb_quant = emb_quant.clamp(0, true_max)
             emb_quant.numpy().astype(np.uint16).tofile(dirname + '/' + filename + ".uint16.emb")
             print(f"Embedding quantized and saved to {dirname}/{filename}.uint16.emb")
+
+    if has_deepemb:
+        if not parser_args.quant_encodings:
+            deepemb_weights_rearranged = torch.cat([model.s_emb_weights[i].unsqueeze(0) for i in range(model.layer_begin, model.layer_end)], dim=0)
+            deepemb_weights_rearranged = deepemb_weights_rearranged.permute(1, 0, 2).contiguous().reshape(args.vocab_size, -1)
+            deepemb_weights_rearranged.numpy().astype(np.float16).tofile(dirname + '/' + filename + ".fp16.deepemb")
+            print(f"Deep embedding saved to {dirname}/{filename}.fp16.deepemb")
+        else:
+            assert False, "TODO"
     input_dtype = torch.float16 if args.fp16 else torch.float32
 
     in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)
@@ -309,9 +326,14 @@ else:
         onnx_output_path += "_ext_embedding"
     if parser_args.prefill_model:
         onnx_output_path += "_prefill"
- 
+
+    inputs = [in0, states, None]
+    if has_deepemb:
+        inputs += [[torch.zeros(seq_length, deep_emb_size, dtype=input_dtype) for _ in range(model.layer_begin, model.layer_end)]]
+        input_names += [f's_emb{j}_in' if not parser_args.prefill_model else f's_emb{j}_in_prefill' for j in range(model.layer_begin, model.layer_end)]
+
     onnx_output_path += ".onnx"
-    OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, (in0, states),
+    OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, tuple(inputs),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
     layer_begin = model.layer_begin
     layer_end = model.layer_end
@@ -352,8 +374,12 @@ else:
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
     converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(layer_begin, layer_end)])
+    converter_cmd += f" --float_bitwidth {parser_args.qnn_float_width} --float_bias_bitwidth {parser_args.qnn_float_width}"
     if parser_args.ext_embedding:
         converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
+
+    if has_deepemb:
+        converter_cmd += " ".join([f' --source_model_input_layout "s_emb{j}_in" "NFC"' for j in range(layer_begin, layer_end)])
 
     if parser_args.quant_encodings:
         converter_cmd += f" --quantization_overrides {encoding_path}"
@@ -374,9 +400,10 @@ else:
         print(quant_cmd)
         os.system(quant_cmd)
 
-    # Delete all files in output_path except .dlc files
-    for file in os.listdir(dirname):
-        filepath = os.path.join(dirname, file)
-        if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings')):
-            if os.path.isfile(filepath):
-                os.remove(filepath)
+    if not parser_args.no_cleanup:
+        # Delete all files in output_path except .dlc files
+        for file in os.listdir(dirname):
+            filepath = os.path.join(dirname, file)
+            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings')):
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
