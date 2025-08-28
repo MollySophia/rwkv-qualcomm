@@ -173,7 +173,7 @@ class RWKV_RNN(torch.nn.Module):
                 self.emb_weight = self.emb_weight.to(self.device)
 
         if self.args.has_deepemb:
-            self.s_emb_weights = []
+            self.deep_emb = []
             for i in range(self.args.n_layer):
                 weight = w[f'blocks.{i}.ffn.s_emb.weight'] + emb_weight @ w[f'blocks.{i}.ffn.s_emb_x.weight'].t()
                 if self.args.fp16:
@@ -184,7 +184,8 @@ class RWKV_RNN(torch.nn.Module):
                     weight = weight.float()
                 if self.gpu:
                     weight = weight.to(self.device)
-                self.s_emb_weights.append(weight)
+                self.deep_emb.append(nn.Embedding.from_pretrained(weight))
+            self.deep_emb = nn.ModuleList(self.deep_emb)
 
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
@@ -232,10 +233,13 @@ class RWKV_RNN(torch.nn.Module):
             except:
                 batch_size, seq_length = 1, 1
 
+            if self.args.has_deepemb and s_emb is None:
+                s_emb = [self.deep_emb[i](in0) for i in range(self.args.n_layer)]
+
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
                     if self.args.has_deepemb:
-                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i-self.layer_begin])
+                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i])
                     else:
                         x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first)
                 else:

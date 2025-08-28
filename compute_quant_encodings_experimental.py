@@ -53,6 +53,7 @@ model_args.MODEL_NAME = str(args_parser.model)
 
 model = RWKV_RNN(model_args)
 model_args = model.args
+has_deep_embedding = model_args.has_deepemb
 
 device = torch.device("cuda" if model_args.USE_CUDA else "cpu")
 

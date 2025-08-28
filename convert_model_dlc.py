@@ -50,7 +50,7 @@ else:
 model = make_chunks(parser_args.chunks, model_args) if parser_args.chunks > 1 else RWKV_RNN(model_args)
 has_deepemb = model[0].args.has_deepemb if type(model) == list else model.args.has_deepemb
 if has_deepemb:
-    deep_emb_size = model[0].s_emb_weights[0][0].shape[-1] if type(model) == list else model.s_emb_weights[0][0].shape[-1]
+    deep_emb_size = model[0].deep_emb[0].weight.shape[-1] if type(model) == list else model.deep_emb[0].weight.shape[-1]
 
 qnn_sdk_root = os.environ["QNN_SDK_ROOT"]
 if not qnn_sdk_root:
@@ -263,7 +263,7 @@ if type(model) == list:
         if not parser_args.no_cleanup:
             for file in os.listdir(dirname):
                 filepath = os.path.join(dirname, file)
-                if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx')):
+                if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.encodings') or file.endswith('.onnx') or file.endswith('.deepemb')):
                     if os.path.isfile(filepath):
                         os.remove(filepath)
 else:
@@ -304,7 +304,36 @@ else:
             deepemb_weights_rearranged.numpy().astype(np.float16).tofile(dirname + '/' + filename + ".fp16.deepemb")
             print(f"Deep embedding saved to {dirname}/{filename}.fp16.deepemb")
         else:
-            assert False, "TODO"
+            # assert False, "TODO"
+            deepemb_weights_list = []
+            with open(parser_args.quant_encodings, 'r') as f:
+                encodings_all = json.load(f)
+            for i in range(model.layer_begin, model.layer_end):
+                weight = model.deep_emb[i].weight.cpu().squeeze()
+                offset = 0
+                scale = 0
+                bitwidth = 0
+                for v in encodings_all["param_encodings"]:
+                    if f'deep_emb.{i}.weight' in v['name']:
+                        offset = v['offset'][0]
+                        scale = v['scale'][0]
+                        bitwidth = v['bw']
+                        break
+                if offset == 0 and scale == 0 and bitwidth == 0:
+                    assert False, "No quantization encoding found for deep embedding"
+
+                true_max = pow(2, bitwidth) - 1
+                enc_min = offset * scale 
+                enc_max = (true_max + offset) * scale
+                enc_range = enc_max - enc_min
+                weight = true_max * (weight - enc_min) / enc_range
+                weight = weight.clamp(0, true_max)
+                deepemb_weights_list.append(weight)
+
+            deepemb_weights = torch.stack(deepemb_weights_list, dim=0).permute(1, 0, 2).contiguous().reshape(args.vocab_size, -1)
+            deepemb_weights.numpy().astype(np.uint16).tofile(dirname + '/' + filename + ".uint16.deepemb")
+            print(f"Deep embedding quantized and saved to {dirname}/{filename}.uint16.deepemb")
+
     input_dtype = torch.float16 if args.fp16 else torch.float32
 
     in0 = torch.LongTensor([[1]*seq_length]) if args.USE_EMBEDDING else torch.zeros(1, seq_length, args.n_embd, dtype=input_dtype)
@@ -358,15 +387,24 @@ else:
     del graph
 
     encoding_path = str(parser_args.quant_encodings) if parser_args.quant_encodings else None
-    if encoding_path and not args.USE_EMBEDDING:
+    if encoding_path and (not args.USE_EMBEDDING or has_deepemb):
         with open(encoding_path, 'r') as f:
             encodings_all = json.load(f)
-        for v in encodings_all["param_encodings"]:
-            if f'embedding.weight' in v['name']:
-                tmp = copy.deepcopy(v)
-                tmp['name'] = input_name
-                encodings_all["activation_encodings"].append(tmp)
-                break
+        if not args.USE_EMBEDDING:
+            for v in encodings_all["param_encodings"]:
+                if f'embedding.weight' in v['name']:
+                    tmp = copy.deepcopy(v)
+                    tmp['name'] = input_name
+                    encodings_all["activation_encodings"].append(tmp)
+                    break
+        if has_deepemb:
+            for v in encodings_all["param_encodings"]:
+                for i in range(layer_begin, layer_end):
+                    if f'deep_emb.{i}.weight' in v['name']:
+                        tmp = copy.deepcopy(v)
+                        tmp['name'] = f's_emb{i}_in{"_prefill" if parser_args.prefill_model else ""}'
+                        encodings_all["activation_encodings"].append(tmp)
+                        break
         encoding_path = f"{dirname}/quant_encodings_prefill.encodings" if parser_args.prefill_model else f"{dirname}/quant_encodings.encodings"
         with open(encoding_path, 'w') as f:
             json.dump(encodings_all, f, sort_keys=True, indent=4)
@@ -404,6 +442,6 @@ else:
         # Delete all files in output_path except .dlc files
         for file in os.listdir(dirname):
             filepath = os.path.join(dirname, file)
-            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings')):
+            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings') or file.endswith('.deepemb')):
                 if os.path.isfile(filepath):
                     os.remove(filepath)
