@@ -35,7 +35,7 @@ htp_devices = {
     }
 }
 
-def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn = False, weights_sharing=False):
+def dump_htp_config(soc_name: str, graph_names: list, output_path: str):
     if not soc_name in htp_devices.keys():
         raise ValueError(f"Invalid SoC name: {soc_name}")
     if graph_names is None or len(graph_names) == 0:
@@ -43,12 +43,14 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
     for i in range(len(graph_names)):
         graph_names[i] = graph_names[i].replace("lib", "").replace("-", "_")
 
+    weights_sharing = True if len(graph_names) > 1 else False
+
     config = {
-        "graphs": {
+        "graphs": [{
             "vtcm_mb": 0,
             "O": 3,
             "graph_names": graph_names,
-        },
+        }],
         "devices": [{
             "dsp_arch": htp_devices[soc_name]["dsp_arch"],
             "device_id": 0,
@@ -65,10 +67,7 @@ def dump_htp_config(soc_name: str, graph_names: list, output_path: str, old_qnn 
     }
 
     if soc_name != "SM8635" and soc_name != "SM7325" and soc_name != "SSG2125P":
-        config["graphs"]["fp16_relaxed_precision"] = 1
-
-    if not old_qnn:
-        config["graphs"] = [config["graphs"]]
+        config["graphs"][0]["fp16_relaxed_precision"] = 1
 
     if weights_sharing:
         config["context"] = {"weight_sharing_enabled": True}

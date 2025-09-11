@@ -46,6 +46,7 @@ model_args.fp16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
+model_args.use_single_head_wkv = False
 model_args.output_last = False
 model_args.EXTERNAL_HEAD = False
 
@@ -481,91 +482,30 @@ with open(output_path + '/' + filename + '.encodings', 'r') as f:
 with open(output_path + '/' + prefill_filename + '.encodings', 'r') as f:
     encodings_prefill = json.load(f)
 
-if not args_parser.blockwise_quant and int(aimet_torch.__version__.split('.')[1]) < 1:
-    act_fp_override = [{"bitwidth": 16, "dtype": "float"}]
-    dummy_quant_override = [
-        {
-            "bitwidth": 16,
-            "dtype": "int",
-            "is_symmetric": "False",
-            "max": 1.0,
-            "min": 0.0,
-            "offset": 0,
-            "scale": 1.5259021893143654e-05
-        }
-    ]
-    keys = list(encodings['activation_encodings'].keys())
-    for key in keys:
-        if 'state' in key and 'out' in key:
-            encodings['activation_encodings'][key.replace('out', 'in')] = encodings['activation_encodings'][key]
-
-    encodings['activation_encodings']['/pre_ln/LayerNormalization_output_0'] = encodings['param_encodings']['embedding.weight']
-    encodings_prefill['activation_encodings']['/pre_ln/LayerNormalization_output_0'] = encodings['param_encodings']['embedding.weight']
-
-    for i in range(model.args.n_layer):
-        encodings['activation_encodings'][f'state{3*i+1}_in'] = dummy_quant_override
-        encodings['activation_encodings'][f'state{3*i+1}_out'] = dummy_quant_override
-
-    for k in keys:
-        if 'state' in k:
-            encodings_prefill['activation_encodings'][k] = encodings['activation_encodings'][k]
-
-    for i in range(model.args.n_layer):
-        encodings_prefill['activation_encodings'][f'state{3*i+1}_in'] = dummy_quant_override
-        encodings_prefill['activation_encodings'][f'state{3*i+1}_out'] = dummy_quant_override
-        encodings_prefill['activation_encodings'][f'/blocks.{i}/att/wkv7/wkv_state/wkv7_output_0'] = dummy_quant_override
-else:
-    for entry in encodings['activation_encodings']:
-        if 'state' in entry['name'] and 'out' in entry['name']:
-            idx = int(entry['name'].split('_')[0].replace('state', ''))
-            if idx % 3 == 0:
-                for n in encodings_prefill['activation_encodings']:
-                    if n['name'] == f'/blocks/blocks.{idx//3}/att/concat_shift/Concat_output_0':
-                        n['offset'] = entry['offset']
-                        n['scale'] = entry['scale']
-            if idx % 3 == 2:
-                for n in encodings_prefill['activation_encodings']:
-                    if n['name'] == f'/blocks/blocks.{idx//3}/ffn/concat_shift/Concat_output_0':
-                        n['offset'] = entry['offset']
-                        n['scale'] = entry['scale']
-            if idx % 3 != 1:
-                encodings_prefill['activation_encodings'].append(entry)
-                for n in encodings['activation_encodings']:
-                    if n['name'] == entry['name'].replace('out', 'in'):
-                        n['offset'] = entry['offset']
-                        n['scale'] = entry['scale']
-                        encodings_prefill['activation_encodings'].append(n)
-    for entry in encodings['param_encodings']:
-        if 'embedding.weight' in entry['name']:
-            tmp = copy.deepcopy(entry)
-            tmp['name'] = '/pre_ln/LayerNormalization_output_0'
-            encodings['activation_encodings'].append(tmp)
-            encodings_prefill['activation_encodings'].append(tmp)
-
-    dummy_quant_override = {
-        "bw": 16,
-        "dtype": "INT",
-        "enc_type": "PER_TENSOR",
-        "is_sym": False,
-        "name": "state0_in",
-        "offset": [
-            0
-        ],
-        "scale": [
-            1.5259021893143654e-05
-        ]
-    }
-    for i in range(model.args.n_layer):
-        tmp = copy.deepcopy(dummy_quant_override)
-        tmp["name"] = f'state{3*i+1}_in'
-        encodings['activation_encodings'].append(tmp)
-        encodings_prefill['activation_encodings'].append(tmp)
-        tmp = copy.deepcopy(dummy_quant_override)
-        tmp["name"] = f'state{3*i+1}_out'
-        encodings['activation_encodings'].append(tmp)
-        encodings_prefill['activation_encodings'].append(tmp)
-        tmp = copy.deepcopy(dummy_quant_override)
-        tmp["name"] = f'/blocks/blocks.{i}/att/wkv7/wkv/wkv7_output_0'
+for entry in encodings['activation_encodings']:
+    if 'state' in entry['name'] and 'out' in entry['name']:
+        idx = int(entry['name'].split('_')[0].replace('state', ''))
+        if idx % 3 == 0:
+            for n in encodings_prefill['activation_encodings']:
+                if n['name'] == f'/blocks/blocks.{idx//3}/att/concat_shift/Concat_output_0':
+                    n['offset'] = entry['offset']
+                    n['scale'] = entry['scale']
+        if idx % 3 == 2:
+            for n in encodings_prefill['activation_encodings']:
+                if n['name'] == f'/blocks/blocks.{idx//3}/ffn/concat_shift/Concat_output_0':
+                    n['offset'] = entry['offset']
+                    n['scale'] = entry['scale']
+        if idx % 3 != 1:
+            encodings_prefill['activation_encodings'].append(entry)
+            for n in encodings['activation_encodings']:
+                if n['name'] == entry['name'].replace('out', 'in'):
+                    n['offset'] = entry['offset']
+                    n['scale'] = entry['scale']
+                    encodings_prefill['activation_encodings'].append(n)
+for entry in encodings['param_encodings']:
+    if 'embedding.weight' in entry['name']:
+        tmp = copy.deepcopy(entry)
+        tmp['name'] = '/pre_ln/LayerNormalization_output_0'
         encodings['activation_encodings'].append(tmp)
         encodings_prefill['activation_encodings'].append(tmp)
 

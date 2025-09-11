@@ -63,7 +63,7 @@ def check_rwkv_info(state_dict):
 class RWKV_Block(nn.Module):
     def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, 
                  layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, 
-                 layer_total=0, output_last=False, has_deepemb=False):
+                 layer_total=0, output_last=False, has_deepemb=False, single_head_wkv=False):
         super().__init__()
         self.version = version
         self.layer_id = layer_id
@@ -71,7 +71,7 @@ class RWKV_Block(nn.Module):
         self.layer_total = layer_total
         self.has_deepemb = has_deepemb
         if self.version == 7:
-            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
+            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv, single_head_wkv=single_head_wkv)
             if self.has_deepemb:
                 self.ffn = Rwkv7aFeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
             else:
@@ -190,7 +190,8 @@ class RWKV_RNN(torch.nn.Module):
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
             custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
-            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb) for i in range(self.layer_begin, self.layer_end)])
+            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb,
+            single_head_wkv=self.args.use_single_head_wkv) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
@@ -232,6 +233,7 @@ class RWKV_RNN(torch.nn.Module):
                 batch_size, seq_length, _ = x.size()
             except:
                 batch_size, seq_length = 1, 1
+                x = x.reshape(batch_size, seq_length, -1)
 
             if self.args.has_deepemb and s_emb is None:
                 s_emb = [self.deep_emb[i](in0) for i in range(self.args.n_layer)]

@@ -6,6 +6,7 @@ import pathlib
 import onnx
 import re
 from .split_onnx import OnnxSplitter, save_model
+import copy
 
 def extract_info_from_model_cfg(model_cfg):
     return model_cfg.n_layer, model_cfg.n_head, model_cfg.n_embd
@@ -28,9 +29,9 @@ def get_dummy_state_kvcache(batch_size, model_cfg, device):
     num_layers, num_heads, embed_dim = extract_info_from_model_cfg(model_cfg)
     head_size = embed_dim // num_heads
 
-    state_0 = (batch_size, embed_dim)
-    state_1 = (num_heads, head_size, head_size)
-    state_2 = (batch_size, embed_dim)
+    state_0 = (batch_size, 1, embed_dim)
+    state_1 = (batch_size, num_heads, head_size, head_size)
+    state_2 = (batch_size, 1, embed_dim)
  
     state = []
     for _ in range(0, num_layers):
@@ -243,25 +244,28 @@ def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
 #     return out.setType(r.type().with_dtype(torch.float32).with_sizes(r.type().sizes()))
 
 def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
-    n_head = state.type().sizes()[0]
-    head_size = state.type().sizes()[1]
+    batch_size = state.type().sizes()[0]
+    n_head = state.type().sizes()[1]
+    head_size = state.type().sizes()[2]
     seq_length = r.type().sizes()[0]
     out = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=1)
-    return out.setType(r.type().with_dtype(torch.float32).with_sizes([n_head, head_size + seq_length, head_size]))
+    return out.setType(r.type().with_dtype(torch.float32).with_sizes([batch_size, n_head, head_size + seq_length, head_size]))
 
 def onnx_custom_wkv7_output_x(g, input):
-    n_head = input.type().sizes()[0]
-    head_size = input.type().sizes()[2]
-    seq_length = input.type().sizes()[1] - head_size
+    batch_size = input.type().sizes()[0]
+    n_head = input.type().sizes()[1]
+    head_size = input.type().sizes()[3]
+    seq_length = input.type().sizes()[2] - head_size
     out = g.op("rwkv::wkv7_output_x", input, outputs=1)
-    return out.setType(input.type().with_dtype(torch.float32).with_sizes([seq_length, n_head, 1, head_size]))
+    return out.setType(input.type().with_dtype(torch.float32).with_sizes([batch_size * seq_length, n_head, 1, head_size]))
 
 def onnx_custom_wkv7_output_state(g, input):
-    n_head = input.type().sizes()[0]
-    head_size = input.type().sizes()[2]
-    seq_length = input.type().sizes()[1] - head_size
+    batch_size = input.type().sizes()[0]
+    n_head = input.type().sizes()[1]
+    head_size = input.type().sizes()[3]
+    seq_length = input.type().sizes()[2] - head_size
     out = g.op("rwkv::wkv7_output_state", input, outputs=1)
-    return out.setType(input.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
+    return out.setType(input.type().with_dtype(torch.float32).with_sizes([batch_size, n_head, head_size, head_size]))
 
 def norm(g, self):
     return g.op("LpNormalization", self, p_i=2, axis_i=-1)
@@ -274,3 +278,22 @@ def register_customop_symbols():
     register_custom_op_symbolic("rwkv::wkv7", onnx_custom_wkv7, 9)
     register_custom_op_symbolic("rwkv::wkv7_output_x", onnx_custom_wkv7_output_x, 1)
     register_custom_op_symbolic("rwkv::wkv7_output_state", onnx_custom_wkv7_output_state, 1)
+
+def apply_activation_quant_override(name, quant_override, encodings):
+    tmp = copy.deepcopy(quant_override)
+    tmp["name"] = name
+    encodings['activation_encodings'].append(tmp)
+
+dummy_quant_override = {
+    "bw": 16,
+    "dtype": "INT",
+    "enc_type": "PER_TENSOR",
+    "is_sym": False,
+    "name": "state0_in",
+    "offset": [
+        0
+    ],
+    "scale": [
+        1.5259021893143654e-05
+    ]
+}

@@ -44,6 +44,7 @@ model_args.bf16 = True
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
+model_args.use_single_head_wkv = False
 model_args.output_last = False
 
 model_args.MODEL_NAME = str(args_parser.model)

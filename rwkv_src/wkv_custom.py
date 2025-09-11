@@ -44,38 +44,38 @@ torch::Tensor wkv7(
 
     auto kv = torch::matmul(v, k);
     auto ab = torch::matmul(a, b);
-    auto state2_out = torch::zeros({num_head, head_size, head_size}, kv.options());
-    auto wkv = torch::zeros({seq_length, num_head, head_size}, kv.options());
+    auto state2_out = torch::zeros({1, num_head, head_size, head_size}, kv.options());
+    auto wkv = torch::zeros({1, seq_length, num_head, head_size}, kv.options());
     for (int i = 0; i < seq_length; i++) {
         if (i == 0) {
-            state2_out = w[i] * state2 + kv[i] + torch::matmul(state2, ab[i]);
+            state2_out[0] = w[i] * state2 + kv[i] + torch::matmul(state2, ab[i]);
         } else {
-            state2_out = w[i] * state2_out + kv[i] + torch::matmul(state2_out, ab[i]);
+            state2_out[0] = w[i] * state2_out[0] + kv[i] + torch::matmul(state2_out[0], ab[i]);
         }
-        wkv[i] = torch::matmul(state2_out, r[i]).reshape({num_head, head_size});
+        wkv[0][i] = torch::matmul(state2_out, r[i]).reshape({num_head, head_size});
     }
-    wkv = wkv.permute({1, 0, 2}); // (seq_length, num_head, head_size) -> (num_head, seq_length, head_size)
-    auto output = torch::cat({wkv, state2_out}, 1); // (num_head, seq_length + head_size, head_size)
+    wkv = wkv.permute({0, 2, 1, 3}); // (1, seq_length, num_head, head_size) -> (1, num_head, seq_length, head_size)
+    auto output = torch::cat({wkv, state2_out}, 2); // (1, num_head, seq_length + head_size, head_size)
     return output;
 }
 
 torch::Tensor wkv7_output_x(torch::Tensor in) {
-    auto num_head = in.size(0);
-    auto head_size = in.size(2);
-    int seq_length = in.size(1) - head_size;
+    auto num_head = in.size(1);
+    auto head_size = in.size(3);
+    int seq_length = in.size(2) - head_size;
 
     auto x = torch::zeros({seq_length, num_head, 1, head_size}, in.options());
     for (int i = 0; i < seq_length; i++) {
-        x[i] = in.index({torch::indexing::Slice(), i, torch::indexing::Slice()}).reshape({num_head, 1, head_size});
+        x[i] = in.index({torch::indexing::Slice(), torch::indexing::Slice(), i, torch::indexing::Slice()}).reshape({num_head, 1, head_size});
     }
     return x;
 }
 
 torch::Tensor wkv7_output_state(torch::Tensor in) {
-    auto num_head = in.size(0);
-    auto head_size = in.size(2);
-    int seq_length = in.size(1) - head_size;
-    auto state = in.index({torch::indexing::Slice(), torch::indexing::Slice(seq_length, in.size(1)), torch::indexing::Slice()}).reshape({num_head, head_size, head_size});
+    auto num_head = in.size(1);
+    auto head_size = in.size(3);
+    int seq_length = in.size(2) - head_size;
+    auto state = in.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(seq_length, in.size(2)), torch::indexing::Slice()}).reshape({1, num_head, head_size, head_size});
     return state;
 }
 
