@@ -91,7 +91,7 @@ $(OBJ_DIR_WRAPPER_UTILS)/%.o: $(SRC_DIR_WRAPPER_UTILS)/%.cpp
 directories := $(TARGET_DIR) $(OBJ_DIR) $(OBJ_DIR_LOG) $(OBJ_DIR_PAL) $(OBJ_DIR_UTILS) $(OBJ_DIR_WRAPPER_UTILS)
 
 # Compile
-$(rwkv-qualcomm-demo): obj/$(QNN_TARGET)/main.o obj/$(QNN_TARGET)/librwkv-qualcomm-app.o obj/$(QNN_TARGET)/tokenizer.o obj/$(QNN_TARGET)/librwkv-qualcomm.o obj/$(QNN_TARGET)/soc_detect.o $(OBJECTS_LOG) $(OBJECTS_PAL) $(OBJECTS_UTILS) $(OBJECTS_WRAPPER_UTILS) | $(directories)
+$(rwkv-qualcomm-demo): obj/$(QNN_TARGET)/main.o obj/$(QNN_TARGET)/librwkv-qualcomm-app.o obj/$(QNN_TARGET)/tokenizer.o obj/$(QNN_TARGET)/rmpack.o obj/$(QNN_TARGET)/librwkv-qualcomm.o obj/$(QNN_TARGET)/soc_detect.o $(OBJECTS_LOG) $(OBJECTS_PAL) $(OBJECTS_UTILS) $(OBJECTS_WRAPPER_UTILS) | $(directories)
 	$(CXX) $(CXXFLAGS) $(LINKFLAGS) -o $@ $^ $(LIBS)
 
 # rule for object directory resource
