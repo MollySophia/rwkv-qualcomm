@@ -416,13 +416,13 @@ else:
         if not args.USE_EMBEDDING:
             for v in encodings_all["param_encodings"]:
                 if f'embedding.weight' in v['name']:
-                    apply_activation_quant_override(input_name, v)
+                    apply_activation_quant_override(input_name, v, encodings_all)
                     break
         if has_deepemb:
             for v in encodings_all["param_encodings"]:
                 for i in range(layer_begin, layer_end):
                     if f'deep_emb.{i}.weight' in v['name']:
-                        apply_activation_quant_override(f's_emb{i}_in{"_prefill" if parser_args.prefill_model else ""}', v)
+                        apply_activation_quant_override(f's_emb{i}_in{"_prefill" if parser_args.prefill_model else ""}', v, encodings_all)
                         break
         if not parser_args.wkv_customop:
             float_override = {
