@@ -37,6 +37,7 @@
 - Dragonwing QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel)
 
 ## Usage
+### *This tutorial is obsolete. I will update it soon.*
 ### 1. Convert model weights to QNN model library file.
 - **Note: if you see errors below, just ignore them.**
 ```
