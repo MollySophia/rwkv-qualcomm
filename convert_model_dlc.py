@@ -29,7 +29,8 @@ parser.add_argument('--prefill_seq_length', type=int, default=16, help='Prefill 
 parser.add_argument('--wkv_customop', action='store_true', help='Use custom op for wkv')
 parser.add_argument('--no_cleanup', action='store_true', help='Do not cleanup onnx files')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
-parser.add_argument('--use_single_head_wkv', action='store_true', help='Use single head wkv')
+parser.add_argument('--save_input_vectors', action='store_true', help='Save input vectors')
+parser.add_argument('--input_vectors_save_path', type=Path, default="test_vector", help='Path to save input vectors')
 parser_args = parser.parse_args()
 
 seq_length = parser_args.prefill_seq_length if parser_args.prefill_model else 1
@@ -40,7 +41,6 @@ model_args.USE_CUDA = False
 model_args.fp16 = False
 model_args.bf16 = False
 model_args.wkv_customop = parser_args.wkv_customop
-model_args.use_single_head_wkv = False#parser_args.use_single_head_wkv
 model_args.USE_EMBEDDING = False if parser_args.ext_embedding else True
 model_args.MODEL_NAME = str(parser_args.model)
 model_args.output_last = True
@@ -61,6 +61,17 @@ if os.name == 'nt':
     qnn_tools_target = 'x86_64-windows-msvc'
 else:
     qnn_tools_target = 'x86_64-linux-clang'
+
+def save_input_vectors(input_tensors_list, input_vectors_save_path):
+    input_vectors_save_path = str(input_vectors_save_path)
+    os.path.exists(input_vectors_save_path) or os.mkdir(input_vectors_save_path)
+    input_list = []
+    for i in range(len(input_tensors_list)):
+        input_tensors_list[i].cpu().numpy().astype(np.float32).tofile(input_vectors_save_path + f"/input_vector_{i}.bin")
+        input_list.append(input_vectors_save_path + f"/input_vector_{i}.bin")
+    with open(input_vectors_save_path + "/input_list.txt", "w") as f:
+        f.writelines([" ".join(input_list) + "\n"])
+    print(f"Input vectors saved to {input_vectors_save_path}/input_list.txt")
 
 if type(model) == list:
     args = model[0].args
@@ -379,6 +390,9 @@ else:
         inputs += [[torch.zeros(batch_size, seq_length, deep_emb_size, dtype=input_dtype) for _ in range(model.layer_begin, model.layer_end)]]
         input_names += [f's_emb{j}_in{("_bsz" + str(batch_size)) if parser_args.batch_size > 1 else ""}' if not parser_args.prefill_model else f's_emb{j}_in_prefill{("_bsz" + str(batch_size)) if parser_args.batch_size > 1 else ""}' for j in range(model.layer_begin, model.layer_end)]
 
+    if parser_args.save_input_vectors:
+        save_input_vectors([in0] + [*states], parser_args.input_vectors_save_path)
+
     onnx_output_path += ".onnx"
     OnnxSaver.create_onnx_model_with_pytorch_layer_names(onnx_output_path, model, tuple(inputs),
         False, None, {'input_names': input_names, 'output_names': output_names, 'opset_version': 17})
@@ -392,6 +406,8 @@ else:
         if batch_size == 1:
             if "wkv7_output_x_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
+            elif "wkv7_output_state_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
             elif "wkv7_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size + seq_length, args.head_size])
         else:
@@ -496,6 +512,6 @@ else:
         # Delete all files in output_path except .dlc files
         for file in os.listdir(dirname):
             filepath = os.path.join(dirname, file)
-            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings') or file.endswith('.deepemb')):
+            if not (file.endswith('.dlc') or file.endswith('.json') or file.endswith('.emb') or file.endswith('.encodings') or file.endswith('.deepemb') or file.endswith('.onnx')):
                 if os.path.isfile(filepath):
                     os.remove(filepath)
