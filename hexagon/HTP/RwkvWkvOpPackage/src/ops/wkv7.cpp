@@ -62,56 +62,56 @@ DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
   MAKE_OP_FP16_AND_INSERT_CAST(Op("wkv7.fp16", CAST_TO_FP16("r"), CAST_TO_FP16("w"), CAST_TO_FP16("k"), CAST_TO_FP16("v"), CAST_TO_FP16("a"), CAST_TO_FP16("b"), CAST_TO_FP16("state_in")))
 )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7.fp16", "r", "w", "k", "v", "a", "b", "state_in"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7.fp16",
-      TYPICAL_SLICE("r", "I"),
-      TYPICAL_SLICE("w", "I"),
-      TYPICAL_SLICE("k", "I"),
-      TYPICAL_SLICE("v", "I"),
-      TYPICAL_SLICE("a", "I"),
-      TYPICAL_SLICE("b", "I"),
-      TYPICAL_SLICE("state_in", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7.fp16", "r", "w", "k", "v", "a", "b", "state_in"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7.fp16",
+//       TYPICAL_SLICE("r", "I"),
+//       TYPICAL_SLICE("w", "I"),
+//       TYPICAL_SLICE("k", "I"),
+//       TYPICAL_SLICE("v", "I"),
+//       TYPICAL_SLICE("a", "I"),
+//       TYPICAL_SLICE("b", "I"),
+//       TYPICAL_SLICE("state_in", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7",
-      TYPICAL_SLICE("r", "I"),
-      TYPICAL_SLICE("w", "I"),
-      TYPICAL_SLICE("k", "I"),
-      TYPICAL_SLICE("v", "I"),
-      TYPICAL_SLICE("a", "I"),
-      TYPICAL_SLICE("b", "I"),
-      TYPICAL_SLICE("state_in", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7", "r", "w", "k", "v", "a", "b", "state_in"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7",
+//       TYPICAL_SLICE("r", "I"),
+//       TYPICAL_SLICE("w", "I"),
+//       TYPICAL_SLICE("k", "I"),
+//       TYPICAL_SLICE("v", "I"),
+//       TYPICAL_SLICE("a", "I"),
+//       TYPICAL_SLICE("b", "I"),
+//       TYPICAL_SLICE("state_in", "I")
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  TILING + 100,
-  Op("wkv7.uint16", "r", "w", "k", "v", "a", "b", "state_in"),
-  GT(DIM_HEIGHT("*"), 2),
-  AUTOSPLIT(1, "I", 2,
-    Op("wkv7.uint16",
-      TYPICAL_SLICE("r", "I"),
-      TYPICAL_SLICE("w", "I"),
-      TYPICAL_SLICE("k", "I"),
-      TYPICAL_SLICE("v", "I"),
-      TYPICAL_SLICE("a", "I"),
-      TYPICAL_SLICE("b", "I"),
-      TYPICAL_SLICE("state_in", "I")
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   TILING + 100,
+//   Op("wkv7.uint16", "r", "w", "k", "v", "a", "b", "state_in"),
+//   GT(DIM_HEIGHT("*"), 2),
+//   AUTOSPLIT(1, "I", 2,
+//     Op("wkv7.uint16",
+//       TYPICAL_SLICE("r", "I"),
+//       TYPICAL_SLICE("w", "I"),
+//       TYPICAL_SLICE("k", "I"),
+//       TYPICAL_SLICE("v", "I"),
+//       TYPICAL_SLICE("a", "I"),
+//       TYPICAL_SLICE("b", "I"),
+//       TYPICAL_SLICE("state_in", "I")
+//     )
+//   )
+// )
 
 DEF_PACKAGE_OPTIMIZATION(
   HARD_OPS + 100,
@@ -390,7 +390,7 @@ GraphStatus wkv7Float16Impl(StateType& out_0,
 #ifdef USE_HVX
   int num_heads = state.dim(1);
   int head_size = state.dim(2);
-  int seq_length = k.dim(0);
+  int seq_length = k.dim(1);
   __fp16* r_ptr = (__fp16*)r.raw_data_const();
   __fp16* w_ptr = (__fp16*)w.raw_data_const();
   __fp16* k_ptr = (__fp16*)k.raw_data_const();

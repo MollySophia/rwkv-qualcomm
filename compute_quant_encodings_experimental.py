@@ -46,7 +46,6 @@ model_args.fp16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True
-model_args.use_single_head_wkv = False
 model_args.output_last = False
 model_args.EXTERNAL_HEAD = False
 
@@ -59,6 +58,8 @@ has_deep_embedding = model_args.has_deepemb
 device = torch.device("cuda" if model_args.USE_CUDA else "cpu")
 
 import aimet_torch
+from aimet_torch import onnx_utils
+onnx_utils.EXPORT_TO_ONNX_DIRECT = True
 from aimet_common import quantsim
 from aimet_common.defs import QuantScheme
 from aimet_torch.quantsim import QuantizationSimModel

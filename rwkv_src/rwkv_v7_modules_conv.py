@@ -145,18 +145,18 @@ class Wkv7(nn.Module):
                 # state2_out = self.wkv_output_state(output)
                 # state2_out = self.reshape_state_out(state2_out, [batch_size, self.num_heads, self.head_size, self.head_size])
             else:
-                r = self.reshape_r(r, [seq_length, self.num_heads, 1, self.head_size])
-                w = self.reshape_w(w, [seq_length, self.num_heads, 1, self.head_size])
-                k = self.reshape_k(k, [seq_length, self.num_heads, 1, self.head_size])
-                v = self.reshape_v(v, [seq_length, self.num_heads, 1, self.head_size])
-                a = self.reshape_a(a, [seq_length, self.num_heads, 1, self.head_size])
-                b = self.reshape_b(b, [seq_length, self.num_heads, 1, self.head_size])
+                # r = self.reshape_r(r, [batch_size, seq_length, self.num_heads, self.head_size])
+                # w = self.reshape_w(w, [batch_size, seq_length, self.num_heads, self.head_size])
+                # k = self.reshape_k(k, [batch_size, seq_length, self.num_heads, self.head_size])
+                # v = self.reshape_v(v, [batch_size, seq_length, self.num_heads, self.head_size])
+                # a = self.reshape_a(a, [batch_size, seq_length, self.num_heads, self.head_size])
+                # b = self.reshape_b(b, [batch_size, seq_length, self.num_heads, self.head_size])
 
                 output = self.wkv(r, w, k, v, a, b, state2)
                 x = self.wkv_output_x(output)
                 state2_out = self.wkv_output_state(output)
 
-            x = self.reshape_x(x, [batch_size, seq_length, self.num_heads, self.head_size])
+            # x = self.reshape_x(x, [batch_size, seq_length, self.num_heads, self.head_size])
         else:
             if seq_length == 1:
                 r = self.reshape_r_nocustomop(r, [batch_size, self.num_heads, self.head_size, 1])
@@ -257,8 +257,8 @@ class Rwkv7SelfAttention(nn.Module):
         self.ln_x.weight = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
 
-        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'])
-        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'])
+        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'].view(self.num_heads, self.head_size))
+        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'].view(self.num_heads, self.head_size))
 
         self.mul_ln_x = Multiply()
         self.add_ln_x = Add()
@@ -406,8 +406,8 @@ class Rwkv7SelfAttention(nn.Module):
         if self.custom_wkv:
             receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.num_heads, self.head_size])
         key = self.post_reshape_k(key, [batch_size, seq_length, self.num_heads, self.head_size])
-        value = self.post_reshape_v(value, [batch_size, seq_length, self.hidden_size])
-        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.hidden_size])
+        value = self.post_reshape_v(value, [batch_size, seq_length, self.num_heads, self.head_size])
+        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.num_heads, self.head_size])
         a = self.post_reshape_a(a, [batch_size, seq_length, self.num_heads, self.head_size])
         if self.custom_wkv:
             time_decay = self.post_reshape_w(time_decay, [batch_size, seq_length, self.num_heads, self.head_size])
@@ -424,7 +424,7 @@ class Rwkv7SelfAttention(nn.Module):
         else:
             tmp = self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv_premute)))
             tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
-            tmp = self.post_reshape_v1(tmp, [batch_size, seq_length, self.hidden_size])
+            tmp = self.post_reshape_v1(tmp, [batch_size, seq_length, self.num_heads, self.head_size])
             value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
 
         b = self.get_b(kk, a)
@@ -432,13 +432,13 @@ class Rwkv7SelfAttention(nn.Module):
         x, state2_out = self.wkv7(batch_size, seq_length, receptance, time_decay, key, value, a, b, state2)
 
         # group_norm
-        x = self.ln_x(x).view(batch_size, seq_length, self.hidden_size)
+        x = self.ln_x(x)#.view(batch_size, seq_length, self.hidden_size)
         x = self.mul_ln_x(x, self.ln_x_w)
         x = self.add_ln_x(x, self.ln_x_b)
 
         if not self.custom_wkv:
             receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.num_heads, self.head_size])
-        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value.view(batch_size, seq_length, self.num_heads, self.head_size)).view(batch_size, seq_length, self.hidden_size)
+        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value)
         x = self.add_x_residual(x , rkv)
         x = self.mul_gate(x, gate)
 
