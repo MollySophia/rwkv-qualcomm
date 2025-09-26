@@ -14,7 +14,7 @@ import torch.utils.cpp_extension
 from rwkv_src.rwkv_v6_modules import Rwkv6SelfAttention, Rwkv6FeedForward
 # from rwkv_src.rwkv_v5_modules import Rwkv5SelfAttention, Rwkv5FeedForward
 from rwkv_src.rwkv_v7_modules_conv import Rwkv7SelfAttention, Rwkv7FeedForward, Rwkv7aFeedForward
-from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape
+from aimet_torch.v2.nn.modules.custom import Permute, Concat, Reshape, Split
 
 def sample_logits(out, temperature=1.0, top_p=0.8, top_k=128):
     probs = F.softmax(out, dim=-1).squeeze().cpu().numpy()
@@ -63,7 +63,7 @@ def check_rwkv_info(state_dict):
 class RWKV_Block(nn.Module):
     def __init__(self, state_dict, n_embd, head_size, n_ffn, layer_id, 
                  layer_begin, rescale_layer=0, version=6.0, custom_wkv=False, 
-                 layer_total=0, output_last=False, has_deepemb=False):
+                 layer_total=0, output_last=False, has_deepemb=False, heads_per_split=-1):
         super().__init__()
         self.version = version
         self.layer_id = layer_id
@@ -71,7 +71,7 @@ class RWKV_Block(nn.Module):
         self.layer_total = layer_total
         self.has_deepemb = has_deepemb
         if self.version == 7:
-            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv)
+            self.att = Rwkv7SelfAttention(state_dict, n_embd, head_size, layer_id=layer_id, custom_wkv=custom_wkv, heads_per_split=heads_per_split)
             if self.has_deepemb:
                 self.ffn = Rwkv7aFeedForward(state_dict, n_embd, n_ffn, layer_id=layer_id, layer_total=layer_total, output_last=output_last)
             else:
@@ -190,12 +190,12 @@ class RWKV_RNN(torch.nn.Module):
         self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
             layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
             custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
-            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb) for i in range(self.layer_begin, self.layer_end)])
+            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb, \
+            heads_per_split=self.args.heads_per_split) for i in range(self.layer_begin, self.layer_end)])
         self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
         self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
         self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
-        # self.head = nn.Linear(self.args.n_embd, self.args.vocab_size, bias=False)
-        # self.head.weight = nn.Parameter(w['head.weight'])
+
         if 'head.bias' in w.keys():
             self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
             self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
@@ -208,6 +208,9 @@ class RWKV_RNN(torch.nn.Module):
         self.head_post_reshape = Reshape()
         self.head_pre_permute = Permute()
         self.head_post_permute = Permute()
+
+        self.split_v_first = Split()
+        self.reshape_v_first = Reshape()
 
         if self.args.fp16:
             self.half()
@@ -234,15 +237,21 @@ class RWKV_RNN(torch.nn.Module):
                 batch_size, seq_length = 1, 1
                 x = x.reshape(batch_size, seq_length, -1)
 
+            heads_per_split = self.args.heads_per_split if self.args.heads_per_split != -1 else self.args.n_head
+            if self.args.version == 7 and v_first is not None:
+                v_first = list(self.split_v_first(self.reshape_v_first(v_first, [batch_size, seq_length, self.args.n_head, self.args.head_size]), heads_per_split, dim=2))
+
             if self.args.has_deepemb and s_emb is None:
                 s_emb = [self.deep_emb[i](in0) for i in range(self.args.n_layer)]
 
             for i in range(self.layer_begin, self.layer_end):
                 if self.args.version == 7:
-                    if self.args.has_deepemb:
-                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i])
+                    x, state, tmp = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i] if self.args.has_deepemb else None)
+                    if i == self.layer_begin and self.chunk_idx == 0:
+                        v_first_ret = tmp
+                        v_first = list(self.split_v_first(self.reshape_v_first(tmp, [batch_size, seq_length, self.args.n_head, self.args.head_size]), heads_per_split, dim=2))
                     else:
-                        x, state, v_first = self.blocks[i-self.layer_begin](x, state, v_first)
+                        v_first = tmp
                 else:
                     x, state = self.blocks[i-self.layer_begin](x, state)
                 if self.args.RESCALE_LAYER > 0:
@@ -260,7 +269,7 @@ class RWKV_RNN(torch.nn.Module):
             else:
                 x = x.view(batch_size, seq_length, self.args.n_embd)
             if self.args.version == 7 and self.chunk_idx == 0 and self.layer_end < self.args.n_layer:
-                return x, state, v_first
+                return x, state, v_first_ret
             else:
                 return x, state
 

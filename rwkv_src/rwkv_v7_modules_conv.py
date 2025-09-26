@@ -73,16 +73,17 @@ class Wkv7(nn.Module):
             self.reshape_a_nocustomop = Reshape()
             self.reshape_b_nocustomop = Reshape()
 
-        self.reshape_r = Reshape()
-        self.reshape_w = Reshape()
+        # self.reshape_r = Reshape()
+        # self.reshape_w = Reshape()
         self.reshape_k = Reshape()
         self.reshape_v = Reshape()
-        self.reshape_a = Reshape()
-        self.reshape_b = Reshape()
-        self.reshape_x = Reshape()
+        self.matmul_kv = MatMul()
+        # self.reshape_a = Reshape()
+        # self.reshape_b = Reshape()
+        # self.reshape_x = Reshape()
 
-        self.reshape_state = Reshape()
-        self.reshape_state_out = Reshape()
+        # self.reshape_state = Reshape()
+        # self.reshape_state_out = Reshape()
 
         self.split_r = Split()
         self.split_w = Split()
@@ -120,43 +121,15 @@ class Wkv7(nn.Module):
                 state2_out_list = [None for _ in range(batch_size)]
                 x_list = [None for _ in range(batch_size)]
                 for i in range(batch_size):
-                    r[i] = self.reshape_r(r[i], [1, self.num_heads, 1, self.head_size])
-                    w[i] = self.reshape_w(w[i], [1, self.num_heads, 1, self.head_size])
-                    k[i] = self.reshape_k(k[i], [1, self.num_heads, 1, self.head_size])
-                    v[i] = self.reshape_v(v[i], [1, self.num_heads, 1, self.head_size])
-                    a[i] = self.reshape_a(a[i], [1, self.num_heads, 1, self.head_size])
-                    b[i] = self.reshape_b(b[i], [1, self.num_heads, 1, self.head_size])
                     output = self.wkv(r[i], w[i], k[i], v[i], a[i], b[i], state2_list[i])
                     x_list[i] = self.wkv_output_x(output)
                     state2_out_list[i] = self.wkv_output_state(output)
                 x = self.concat_x(*x_list)
                 state2_out = self.concat_state(*state2_out_list)
-                # assert seq_length == 1, "Batch prefilling is not supported yet"
-                # r = self.reshape_r(r, [1, batch_size * self.num_heads, 1, self.head_size])
-                # w = self.reshape_w(w, [1, batch_size * self.num_heads, 1, self.head_size])
-                # k = self.reshape_k(k, [1, batch_size * self.num_heads, 1, self.head_size])
-                # v = self.reshape_v(v, [1, batch_size * self.num_heads, 1, self.head_size])
-                # a = self.reshape_a(a, [1, batch_size * self.num_heads, 1, self.head_size])
-                # b = self.reshape_b(b, [1, batch_size * self.num_heads, 1, self.head_size])
-                # state2 = self.reshape_state(state2, [1, batch_size * self.num_heads, self.head_size, self.head_size])
-
-                # output = self.wkv(r, w, k, v, a, b, state2)
-                # x = self.wkv_output_x(output)
-                # state2_out = self.wkv_output_state(output)
-                # state2_out = self.reshape_state_out(state2_out, [batch_size, self.num_heads, self.head_size, self.head_size])
             else:
-                # r = self.reshape_r(r, [batch_size, seq_length, self.num_heads, self.head_size])
-                # w = self.reshape_w(w, [batch_size, seq_length, self.num_heads, self.head_size])
-                # k = self.reshape_k(k, [batch_size, seq_length, self.num_heads, self.head_size])
-                # v = self.reshape_v(v, [batch_size, seq_length, self.num_heads, self.head_size])
-                # a = self.reshape_a(a, [batch_size, seq_length, self.num_heads, self.head_size])
-                # b = self.reshape_b(b, [batch_size, seq_length, self.num_heads, self.head_size])
-
                 output = self.wkv(r, w, k, v, a, b, state2)
                 x = self.wkv_output_x(output)
                 state2_out = self.wkv_output_state(output)
-
-            # x = self.reshape_x(x, [batch_size, seq_length, self.num_heads, self.head_size])
         else:
             if seq_length == 1:
                 r = self.reshape_r_nocustomop(r, [batch_size, self.num_heads, self.head_size, 1])
@@ -187,114 +160,76 @@ class Wkv7(nn.Module):
 
         return x, state2_out
 
-
-class Rwkv7SelfAttention(nn.Module):
-    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False):
+class Rwkv7SelfAttentionHeadSplit(nn.Module):
+    def __init__(self, state_dict, num_heads, head_size, heads_per_split, layer_id, split_id, custom_wkv=False):
         super().__init__()
-        prefix = f'blocks.{layer_id}.att.'
-        self.layer_id = layer_id
-        self.num_heads = hidden_size // head_size
+        hidden_size = num_heads * head_size
+        self.num_heads = num_heads
         self.head_size = head_size
-        self.hidden_size = hidden_size
+        self.heads_per_split = heads_per_split
         self.custom_wkv = custom_wkv
+        self.layer_id = layer_id
+
+        prefix = f'blocks.{layer_id}.att.'
 
         self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
         self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
         self.D_GATE_LORA = state_dict[prefix + 'g1'].shape[-1]
 
-        self.x_r = nn.Parameter(state_dict[prefix + 'x_r'])
-        self.x_w = nn.Parameter(state_dict[prefix + 'x_w'])
-        self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
-        self.x_v = nn.Parameter(state_dict[prefix + 'x_v'])
-        self.x_a = nn.Parameter(state_dict[prefix + 'x_a'])
-        self.x_g = nn.Parameter(state_dict[prefix + 'x_g'])
-
-        self.matmul_time_decay_w1 = nn.Conv2d(hidden_size, self.D_DECAY_LORA, kernel_size=1, bias=False)
-        self.matmul_time_decay_w1.weight = nn.Parameter(state_dict[prefix + 'w1'].t().view(self.D_DECAY_LORA, hidden_size, 1, 1))
-
-        self.matmul_a1 = nn.Conv2d(hidden_size, self.D_AAA_LORA, kernel_size=1, bias=False)
-        self.matmul_a1.weight = nn.Parameter(state_dict[prefix + 'a1'].t().view(self.D_AAA_LORA, hidden_size, 1, 1))
-
         if layer_id != 0:
             self.D_MV_LORA = state_dict[prefix + 'v1'].shape[-1]
-            self.matmul_v1 = nn.Conv2d(hidden_size, self.D_MV_LORA, kernel_size=1, bias=False)
-            self.matmul_v1.weight = nn.Parameter(state_dict[prefix + 'v1'].t().view(self.D_MV_LORA, hidden_size, 1, 1))
+            self.value = nn.Conv2d(hidden_size, head_size * heads_per_split, kernel_size=1, bias=False)
+            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split, hidden_size)[split_id].reshape(self.head_size * heads_per_split, hidden_size, 1, 1))
 
-        self.matmul_g1 = nn.Conv2d(hidden_size, self.D_GATE_LORA, kernel_size=1, bias=False)
-        self.matmul_g1.weight = nn.Parameter(state_dict[prefix + 'g1'].t().view(self.D_GATE_LORA, hidden_size, 1, 1))
+        self.receptance = nn.Conv2d(hidden_size, head_size * heads_per_split, kernel_size=1, bias=False)
+        self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split, hidden_size)[split_id].reshape(self.head_size * heads_per_split, hidden_size, 1, 1))
+        self.key = nn.Conv2d(hidden_size, head_size * heads_per_split, kernel_size=1, bias=False)
+        self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split, hidden_size)[split_id].reshape(self.head_size * heads_per_split, hidden_size, 1, 1))
 
-        self.output = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
-        self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'].view(hidden_size, hidden_size, 1, 1))        
+        self.matmul_time_decay_w2 = nn.Conv2d(self.D_DECAY_LORA, head_size * heads_per_split, kernel_size=1)
+        self.matmul_time_decay_w2.weight = nn.Parameter(state_dict[prefix + 'w2'].t().view(self.num_heads // heads_per_split, self.head_size * heads_per_split, self.D_DECAY_LORA)[split_id].reshape(self.head_size * heads_per_split, self.D_DECAY_LORA, 1, 1))
+        self.matmul_time_decay_w2.bias = nn.Parameter(state_dict[prefix + 'w0'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(-1))
 
-        self.receptance = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
-        self.receptance.weight = nn.Parameter(state_dict[prefix + 'receptance.weight'].view(hidden_size, hidden_size, 1, 1))
-        self.key = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
-        self.key.weight = nn.Parameter(state_dict[prefix + 'key.weight'].view(hidden_size, hidden_size, 1, 1))
-        self.value = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
-        self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, hidden_size, 1, 1))
-
-        self.matmul_time_decay_w2 = nn.Conv2d(self.D_DECAY_LORA, hidden_size, kernel_size=1)
-        self.matmul_time_decay_w2.weight = nn.Parameter(state_dict[prefix + 'w2'].t().view(hidden_size, self.D_DECAY_LORA, 1, 1))
-        self.matmul_time_decay_w2.bias = nn.Parameter(state_dict[prefix + 'w0'].view(-1))
-
-        self.matmul_a2 = nn.Conv2d(self.D_AAA_LORA, hidden_size, kernel_size=1)
-        self.matmul_a2.weight = nn.Parameter(state_dict[prefix + 'a2'].t().view(hidden_size, self.D_AAA_LORA, 1, 1))
-        self.matmul_a2.bias = nn.Parameter(state_dict[prefix + 'a0'].view(-1))
+        self.matmul_a2 = nn.Conv2d(self.D_AAA_LORA, head_size * heads_per_split, kernel_size=1)
+        self.matmul_a2.weight = nn.Parameter(state_dict[prefix + 'a2'].t().view(self.num_heads // heads_per_split, self.head_size * heads_per_split, self.D_AAA_LORA)[split_id].reshape(self.head_size * heads_per_split, self.D_AAA_LORA, 1, 1))
+        self.matmul_a2.bias = nn.Parameter(state_dict[prefix + 'a0'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(-1))
 
         if layer_id != 0:
-            self.matmul_v2 = nn.Conv2d(self.D_MV_LORA, hidden_size, kernel_size=1)
-            self.matmul_v2.weight = nn.Parameter(state_dict[prefix + 'v2'].t().view(hidden_size, self.D_MV_LORA, 1, 1))
-            self.matmul_v2.bias = nn.Parameter(state_dict[prefix + 'v0'].view(-1))
+            self.matmul_v2 = nn.Conv2d(self.D_MV_LORA, head_size * heads_per_split, kernel_size=1)
+            self.matmul_v2.weight = nn.Parameter(state_dict[prefix + 'v2'].t().view(self.num_heads // heads_per_split, self.head_size * heads_per_split, self.D_MV_LORA)[split_id].reshape(self.head_size * heads_per_split, self.D_MV_LORA, 1, 1))
+            self.matmul_v2.bias = nn.Parameter(state_dict[prefix + 'v0'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(-1))
 
-        self.matmul_g2 = nn.Conv2d(self.D_GATE_LORA, hidden_size, kernel_size=1, bias=False)
-        self.matmul_g2.weight = nn.Parameter(state_dict[prefix + 'g2'].t().view(hidden_size, self.D_GATE_LORA, 1, 1))
+        self.matmul_g2 = nn.Conv2d(self.D_GATE_LORA, head_size * heads_per_split, kernel_size=1, bias=False)
+        self.matmul_g2.weight = nn.Parameter(state_dict[prefix + 'g2'].t().view(self.num_heads // heads_per_split, self.head_size * heads_per_split, self.D_GATE_LORA)[split_id].reshape(self.head_size * heads_per_split, self.D_GATE_LORA, 1, 1))
 
-        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads, self.head_size))
-        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads, self.head_size))
-        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads, self.head_size))
+        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
+        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
+        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
 
         self.ln_x = nn.LayerNorm(self.head_size, eps=64e-5)
         self.ln_x.weight = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
 
-        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'].view(self.num_heads, self.head_size))
-        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'].view(self.num_heads, self.head_size))
+        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, self.head_size), requires_grad=False)
+        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, self.head_size), requires_grad=False)
 
         self.mul_ln_x = Multiply()
         self.add_ln_x = Add()
+
+        self.wkv7 = Wkv7(heads_per_split, self.head_size, custom_wkv=self.custom_wkv)
 
         self.scale_w_param          = nn.Parameter(torch.as_tensor([-0.606531] * self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.ones_0                 = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.ones_1                 = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
 
-        self.ln_1                   = nn.LayerNorm(hidden_size, eps=1e-5)
-        self.ln_1.weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.weight'])
-        self.ln_1.bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.bias'])
-        self.add_attention          = Add()
         self.mul_gate               = Multiply()
         self.add_x_residual         = Add()
-        self.sub_shifted            = Subtract()
 
-        self.tanh_w                 = nn.Tanh()
         self.exp_w                  = Exponential()
         self.scale_w                = Multiply()
         self.sigmoid_a              = nn.Sigmoid()
-        self.sigmoid_g              = nn.Sigmoid()
         self.sigmoid_v              = nn.Sigmoid()
         self.sigmoid_w              = nn.Sigmoid()
-
-        self.lerp_mul_r             = Multiply()
-        self.lerp_add_r             = Add()
-        self.lerp_mul_w             = Multiply()
-        self.lerp_add_w             = Add()
-        self.lerp_mul_k             = Multiply()
-        self.lerp_add_k             = Add()
-        self.lerp_mul_v             = Multiply()
-        self.lerp_add_v             = Add()
-        self.lerp_mul_a             = Multiply()
-        self.lerp_add_a             = Add()
-        self.lerp_mul_g             = Multiply()
-        self.lerp_add_g             = Add()
 
         self.sub_value              = Subtract()
         self.mul_value              = Multiply()
@@ -316,25 +251,6 @@ class Rwkv7SelfAttention(nn.Module):
         self.get_a                  = Neg()
         self.get_b                  = Multiply()
 
-        self.concat_shift = Concat(1)
-        self.shift_gather1 = CustomGather()
-        self.shift_gather2 = CustomGather()
-        self.state_reshape = Reshape()
-        self.wkv7 = Wkv7(self.num_heads, self.head_size, custom_wkv=self.custom_wkv)
-
-        self.pre_reshape_r = Reshape()
-        self.pre_reshape_w = Reshape()
-        self.pre_reshape_k = Reshape()
-        self.pre_reshape_v = Reshape()
-        self.pre_reshape_a = Reshape()
-        self.pre_reshape_g = Reshape()
-        self.pre_permute_r = Permute()
-        self.pre_permute_w = Permute()
-        self.pre_permute_k = Permute()
-        self.pre_permute_v = Permute()
-        self.pre_permute_a = Permute()
-        self.pre_permute_g = Permute()
-
         self.post_reshape_r = Reshape()
         self.post_reshape_w = Reshape()
         self.post_reshape_k = Reshape()
@@ -350,10 +266,155 @@ class Rwkv7SelfAttention(nn.Module):
         self.post_permute_g = Permute()
         self.post_permute_v1 = Permute()
 
+    def forward(self, batch_size, seq_length, xr, xw, xk, xv, xv_lora, xa, xg, state2, v_first):
+        receptance = self.receptance(xr)
+        key = self.key(xk)
+        gate = self.matmul_g2(xg)
+        a = self.sigmoid_a(self.matmul_a2(xa))
+        time_decay = self.matmul_time_decay_w2(xw)
+
+        receptance = self.post_permute_r(receptance, [0, 3, 2, 1])
+        key = self.post_permute_k(key, [0, 3, 2, 1])
+        gate = self.post_permute_g(gate, [0, 3, 2, 1])
+        a = self.post_permute_a(a, [0, 3, 2, 1])
+        time_decay = self.post_permute_w(time_decay, [0, 3, 2, 1])
+
+        receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        key = self.post_reshape_k(key, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        a = self.post_reshape_a(a, [batch_size, seq_length, self.heads_per_split, self.head_size])
+
+        time_decay = self.post_reshape_w(time_decay, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        time_decay = self.exp_w(self.scale_w(self.sigmoid_w(time_decay), self.scale_w_param))
+
+        kk = self.mix_kk(key, self.k_k)
+        kk = self.l2norm(kk)
+        key = self.mix_ka_mul_key(key, self.mix_ka_add(self.ones_0, self.mix_ka_mul_a(self.mix_ka_sub(a, self.ones_1), self.k_a)))
+
+        if self.layer_id == 0:
+            value = v_first
+        else:
+            value = self.value(xv)
+            value = self.post_permute_v(value, [0, 3, 2, 1])
+            value = self.post_reshape_v(value, [batch_size, seq_length, self.heads_per_split, self.head_size])
+            tmp = self.sigmoid_v(self.matmul_v2(xv_lora))
+            tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
+            tmp = self.post_reshape_v1(tmp, [batch_size, seq_length, self.heads_per_split, self.head_size])
+            value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
+
+        b = self.get_b(kk, a)
+        a = self.get_a(kk)
+        x, state2_out = self.wkv7(batch_size, seq_length, receptance, time_decay, key, value, a, b, state2)
+
+        # group_norm
+        x = self.ln_x(x)
+        x = self.mul_ln_x(x, self.ln_x_w)
+        x = self.add_ln_x(x, self.ln_x_b)
+
+        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value)
+        x = self.add_x_residual(x , rkv)
+        x = self.mul_gate(x, gate)
+
+        return x, state2_out
+
+class Rwkv7SelfAttention(nn.Module):
+    def __init__(self, state_dict, hidden_size, head_size, layer_id=0, rescale_layer=0, custom_wkv=False, heads_per_split=-1):
+        super().__init__()
+        prefix = f'blocks.{layer_id}.att.'
+        self.layer_id = layer_id
+        self.num_heads = hidden_size // head_size
+        self.head_size = head_size
+        self.hidden_size = hidden_size
+        self.custom_wkv = custom_wkv
+
+        self.heads_per_split = self.num_heads if heads_per_split == -1 else heads_per_split
+
+        self.D_DECAY_LORA = state_dict[prefix + 'w1'].shape[-1]
+        self.D_AAA_LORA = state_dict[prefix + 'a1'].shape[-1]
+        self.D_GATE_LORA = state_dict[prefix + 'g1'].shape[-1]
+
+        self.x_r = nn.Parameter(state_dict[prefix + 'x_r'])
+        self.x_w = nn.Parameter(state_dict[prefix + 'x_w'])
+        self.x_k = nn.Parameter(state_dict[prefix + 'x_k'])
+        self.x_v = nn.Parameter(state_dict[prefix + 'x_v'])
+        self.x_a = nn.Parameter(state_dict[prefix + 'x_a'])
+        self.x_g = nn.Parameter(state_dict[prefix + 'x_g'])
+
+        self.heads = nn.ModuleList([Rwkv7SelfAttentionHeadSplit(state_dict, self.num_heads, head_size, self.heads_per_split, layer_id, i, custom_wkv) for i in range(self.num_heads // self.heads_per_split)])
+
+        self.matmul_time_decay_w1 = nn.Conv2d(hidden_size, self.D_DECAY_LORA, kernel_size=1, bias=False)
+        self.matmul_time_decay_w1.weight = nn.Parameter(state_dict[prefix + 'w1'].t().view(self.D_DECAY_LORA, hidden_size, 1, 1))
+
+        self.matmul_a1 = nn.Conv2d(hidden_size, self.D_AAA_LORA, kernel_size=1, bias=False)
+        self.matmul_a1.weight = nn.Parameter(state_dict[prefix + 'a1'].t().view(self.D_AAA_LORA, hidden_size, 1, 1))
+
+        if layer_id != 0:
+            self.D_MV_LORA = state_dict[prefix + 'v1'].shape[-1]
+            self.matmul_v1 = nn.Conv2d(hidden_size, self.D_MV_LORA, kernel_size=1, bias=False)
+            self.matmul_v1.weight = nn.Parameter(state_dict[prefix + 'v1'].t().view(self.D_MV_LORA, hidden_size, 1, 1))
+        else:
+            self.value = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
+            self.value.weight = nn.Parameter(state_dict[prefix + 'value.weight'].view(hidden_size, hidden_size, 1, 1))
+
+        self.matmul_g1 = nn.Conv2d(hidden_size, self.D_GATE_LORA, kernel_size=1, bias=False)
+        self.matmul_g1.weight = nn.Parameter(state_dict[prefix + 'g1'].t().view(self.D_GATE_LORA, hidden_size, 1, 1))
+
+        self.output = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, bias=False)
+        self.output.weight = nn.Parameter(state_dict[prefix + 'output.weight'].view(hidden_size, hidden_size, 1, 1))        
+
+        self.ln_1                   = nn.LayerNorm(hidden_size, eps=1e-5)
+        self.ln_1.weight            = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.weight'])
+        self.ln_1.bias              = nn.Parameter(state_dict[f'blocks.{layer_id}.ln1.bias'])
+        self.add_attention          = Add()
+        self.sub_shifted            = Subtract()
+
+        self.lerp_mul_r             = Multiply()
+        self.lerp_add_r             = Add()
+        self.lerp_mul_w             = Multiply()
+        self.lerp_add_w             = Add()
+        self.lerp_mul_k             = Multiply()
+        self.lerp_add_k             = Add()
+        self.lerp_mul_v             = Multiply()
+        self.lerp_add_v             = Add()
+        self.lerp_mul_a             = Multiply()
+        self.lerp_add_a             = Add()
+        self.lerp_mul_g             = Multiply()
+        self.lerp_add_g             = Add()
+
+        self.concat_shift = Concat(1)
+        self.shift_gather1 = CustomGather()
+        self.shift_gather2 = CustomGather()
+        self.state_reshape = Reshape()
+
+        self.pre_reshape_r = Reshape()
+        self.pre_reshape_w = Reshape()
+        self.pre_reshape_k = Reshape()
+        self.pre_reshape_v = Reshape()
+        self.pre_reshape_a = Reshape()
+        self.pre_reshape_g = Reshape()
+        self.pre_permute_r = Permute()
+        self.pre_permute_w = Permute()
+        self.pre_permute_k = Permute()
+        self.pre_permute_a = Permute()
+        self.pre_permute_g = Permute()
+        self.pre_permute_v = Permute()
+
+        self.post_permute_v = Permute()
+        self.post_reshape_v = Reshape()
+
         self.pre_output_reshape = Reshape()
         self.pre_output_transpose = Permute()
         self.post_output_transpose = Permute()
         self.post_output_reshape = Reshape()
+
+        self.split_state = Split()
+        self.concat_state = Concat(1)
+        self.concat_x = Concat(2)
+
+        self.split_v = Split()
+
+        self.tanh_w = nn.Tanh()
+        self.sigmoid_g = nn.Sigmoid()
 
     def forward(self, x, state1, state2, v_first):
         last_x = x
@@ -375,74 +436,45 @@ class Rwkv7SelfAttention(nn.Module):
         xa = self.lerp_add_a(x, self.lerp_mul_a(sx, self.x_a))
         xg = self.lerp_add_g(x, self.lerp_mul_g(sx, self.x_g))
 
-        xr = self.pre_reshape_r(xr, [batch_size, seq_length, 1, self.hidden_size])
-        xw = self.pre_reshape_w(xw, [batch_size, seq_length, 1, self.hidden_size])
-        xk = self.pre_reshape_k(xk, [batch_size, seq_length, 1, self.hidden_size])
-        xv = self.pre_reshape_v(xv, [batch_size, seq_length, 1, self.hidden_size])
-        xa = self.pre_reshape_a(xa, [batch_size, seq_length, 1, self.hidden_size])
-        xg = self.pre_reshape_g(xg, [batch_size, seq_length, 1, self.hidden_size])
+        xr = self.pre_reshape_r(xr, [1, batch_size * seq_length, 1, self.hidden_size])
+        xw = self.pre_reshape_w(xw, [1, batch_size * seq_length, 1, self.hidden_size])
+        xk = self.pre_reshape_k(xk, [1, batch_size * seq_length, 1, self.hidden_size])
+        xv = self.pre_reshape_v(xv, [1, batch_size * seq_length, 1, self.hidden_size])
+        xa = self.pre_reshape_a(xa, [1, batch_size * seq_length, 1, self.hidden_size])
+        xg = self.pre_reshape_g(xg, [1, batch_size * seq_length, 1, self.hidden_size])
 
         xr = self.pre_permute_r(xr, [0, 3, 2, 1])
         xw = self.pre_permute_w(xw, [0, 3, 2, 1])
         xk = self.pre_permute_k(xk, [0, 3, 2, 1])
-        xv_premute = self.pre_permute_v(xv, [0, 3, 2, 1])
+        xv = self.pre_permute_v(xv, [0, 3, 2, 1])
         xa = self.pre_permute_a(xa, [0, 3, 2, 1])
         xg = self.pre_permute_g(xg, [0, 3, 2, 1])
 
-        receptance = self.receptance(xr)
-        key = self.key(xk)
-        value = self.value(xv_premute)
-        gate = self.matmul_g2(self.sigmoid_g(self.matmul_g1(xg)))
-        a = self.sigmoid_a(self.matmul_a2(self.matmul_a1(xa)))
-        time_decay = self.matmul_time_decay_w2(self.tanh_w(self.matmul_time_decay_w1(xw)))
+        xw = self.tanh_w(self.matmul_time_decay_w1(xw))
+        xa = self.matmul_a1(xa)
+        xg = self.sigmoid_g(self.matmul_g1(xg))
 
-        receptance = self.post_permute_r(receptance, [0, 3, 2, 1])
-        key = self.post_permute_k(key, [0, 3, 2, 1])
-        value = self.post_permute_v(value, [0, 3, 2, 1])
-        gate = self.post_permute_g(gate, [0, 3, 2, 1])
-        a = self.post_permute_a(a, [0, 3, 2, 1])
-        time_decay = self.post_permute_w(time_decay, [0, 3, 2, 1])
-
-        if self.custom_wkv:
-            receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.num_heads, self.head_size])
-        key = self.post_reshape_k(key, [batch_size, seq_length, self.num_heads, self.head_size])
-        value = self.post_reshape_v(value, [batch_size, seq_length, self.num_heads, self.head_size])
-        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.num_heads, self.head_size])
-        a = self.post_reshape_a(a, [batch_size, seq_length, self.num_heads, self.head_size])
-        if self.custom_wkv:
-            time_decay = self.post_reshape_w(time_decay, [batch_size, seq_length, self.num_heads, self.head_size])
-            time_decay = self.exp_w(self.scale_w(self.sigmoid_w(time_decay), self.scale_w_param))
+        xv_lora = None
+        if self.layer_id != 0:
+            xv_lora = self.matmul_v1(xv)
+            v_first_list = v_first
         else:
-            time_decay = self.exp_w(self.sigmoid_w(time_decay) * -0.606531)
+            v_first = self.value(xv)
+            v_first = self.post_permute_v(v_first, [0, 3, 2, 1])
+            v_first = self.post_reshape_v(v_first, [batch_size, seq_length, self.hidden_size])
+            v_first_list = list(self.split_v(v_first.view(batch_size, seq_length, self.num_heads, self.head_size), self.heads_per_split, dim=2))
 
-        kk = self.mix_kk(key, self.k_k)
-        kk = self.l2norm(kk)
-        key = self.mix_ka_mul_key(key, self.mix_ka_add(self.ones_0, self.mix_ka_mul_a(self.mix_ka_sub(a, self.ones_1), self.k_a)))
+        state2_out_list = [None] * (self.num_heads // self.heads_per_split)
+        x_out_list = [None] * (self.num_heads // self.heads_per_split)
 
-        if self.layer_id == 0:
-            v_first = value
-        else:
-            tmp = self.sigmoid_v(self.matmul_v2(self.matmul_v1(xv_premute)))
-            tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
-            tmp = self.post_reshape_v1(tmp, [batch_size, seq_length, self.num_heads, self.head_size])
-            value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
+        state2_list = self.split_state(state2, self.heads_per_split, dim=1)
+        for i in range(self.num_heads // self.heads_per_split):
+            x_out_list[i], state2_out_list[i] = self.heads[i](batch_size, seq_length, xr, xw, xk, xv, xv_lora, xa, xg, state2_list[i], v_first_list[i])
 
-        b = self.get_b(kk, a)
-        a = self.get_a(kk)
-        x, state2_out = self.wkv7(batch_size, seq_length, receptance, time_decay, key, value, a, b, state2)
+        x = self.concat_x(*x_out_list)
+        state2_out = self.concat_state(*state2_out_list)
 
-        # group_norm
-        x = self.ln_x(x)#.view(batch_size, seq_length, self.hidden_size)
-        x = self.mul_ln_x(x, self.ln_x_w)
-        x = self.add_ln_x(x, self.ln_x_b)
-
-        if not self.custom_wkv:
-            receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.num_heads, self.head_size])
-        rkv = self.mix_rkv(self.reduce_sum(self.mul_r_k(self.mix_rk(receptance, key), self.r_k), dim=-1, keepdim=True), value)
-        x = self.add_x_residual(x , rkv)
-        x = self.mul_gate(x, gate)
-
-        x = self.pre_output_reshape(x, [batch_size, seq_length, 1, self.hidden_size])
+        x = self.pre_output_reshape(x, [1, batch_size * seq_length, 1, self.hidden_size])
         x = self.pre_output_transpose(x, [0, 3, 2, 1])
         x = self.output(x)
         x = self.post_output_transpose(x, [0, 3, 2, 1])
@@ -525,7 +557,7 @@ class Rwkv7FeedForward(nn.Module):
 
         xk = self.add_x_k(x, self.mul_x_k(sx, self.x_k))
 
-        xk = self.pre_conv_reshape(xk, [batch_size, seq_length, 1, self.hidden_size])
+        xk = self.pre_conv_reshape(xk, [1, batch_size * seq_length, 1, self.hidden_size])
         xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
         key = self.key(xk)
         key = self.pow(self.relu(key), 2)
@@ -616,7 +648,7 @@ class Rwkv7aFeedForward(nn.Module):
                 past, state_out = self.shift_split(x, 1, dim=1)
                 sx = self.sub_shifted(past, state_out)
                 x = state_out
-                semb = self.shift_semb(semb, torch.LongTensor([-1]).to(semb.device), 0)
+                semb = self.shift_semb(semb, torch.LongTensor([-1]).to(semb.device), 1)
         else:
             last_x = x
             x = self.ln_2(x)

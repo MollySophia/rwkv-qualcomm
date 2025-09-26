@@ -117,41 +117,41 @@ DEF_PACKAGE_OPTIMIZATION(
 )
 
 // vtcm
-DEF_PACKAGE_OPTIMIZATION(
-  HARD_OPS + 130,
-  Op("wkv7_output_x.fp16.flat", "input"),
-  OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_output_x.fp16.flat.tcm",
-      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
-      "input"
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   HARD_OPS + 130,
+//   Op("wkv7_output_x.fp16.flat", "input"),
+//   OK,
+//   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+//     Op("wkv7_output_x.fp16.flat.tcm",
+//       // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+//       "input"
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  HARD_OPS + 130,
-  Op("wkv7_output_x.flat", "input"),
-  OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_output_x.flat.tcm",
-      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
-      "input"
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   HARD_OPS + 130,
+//   Op("wkv7_output_x.flat", "input"),
+//   OK,
+//   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+//     Op("wkv7_output_x.flat.tcm",
+//       // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+//       "input"
+//     )
+//   )
+// )
 
-DEF_PACKAGE_OPTIMIZATION(
-  HARD_OPS + 130,
-  Op("wkv7_output_x.uint16.flat.dequant", "input"),
-  OK,
-  Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
-    Op("wkv7_output_x.uint16.flat.dequant.tcm",
-      // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
-      "input"
-    )
-  )
-)
+// DEF_PACKAGE_OPTIMIZATION(
+//   HARD_OPS + 130,
+//   Op("wkv7_output_x.uint16.flat.dequant", "input"),
+//   OK,
+//   Op(FROM_DEFAULT_PACKAGE("flat_from_vtcm"),
+//     Op("wkv7_output_x.uint16.flat.dequant.tcm",
+//       // WITH_SAME_OUTPUT("input", Op(FROM_DEFAULT_PACKAGE("flat_to_vtcm"), "input"))
+//       "input"
+//     )
+//   )
+// )
 
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7_output_x.fp16.flat", FAST, Flags::RESOURCE_HVX)
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7_output_x.fp16.flat.tcm", FAST, Flags::RESOURCE_HVX)
@@ -159,8 +159,8 @@ DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloatImpl<PlainFloatTensor>), "wkv7_output_x.flat", FAST, Flags::RESOURCE_HVX)
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloatImpl<PlainFloatTensor_TCM>), "wkv7_output_x.flat.tcm", FAST, Flags::RESOURCE_HVX)
 
-// DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7_output_x.uint16.flat.dequant", FAST, Flags::RESOURCE_HVX)
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_output_x.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7_output_x.uint16.flat.dequant", SNAIL, Flags::RESOURCE_HVX)
+// DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputXFloat16Impl<PlainFloat16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_output_x.uint16.flat.dequant.tcm", FAST, Flags::RESOURCE_HVX)
 
 /* execute functions for ops */
 #include <hvx_hexagon_protos.h>
@@ -225,29 +225,35 @@ template<typename TensorType, typename StateType>
 GraphStatus wkv7OutputXFloat16Impl(TensorType& out_0,
                     const StateType& input) {
 #ifdef USE_HVX
+  const int batch_size = input.dim(0);
   const int num_heads = input.dim(1);
   const int head_size = input.dim(3);
   const int seq_length = input.dim(2) - head_size;
 
   // auto outptr = (__fp16*)out_0.raw_data();
-  auto out_vec_ptr = (HVX_Vector*)out_0.raw_data();
-  auto inptr = (__fp16*)input.raw_data_const();
+  // auto out_vec_ptr = (HVX_Vector*)out_0.raw_data();
+  // auto inptr = (__fp16*)input.raw_data_const();
 
-  for (int i = 0; i < seq_length; i++) {
-    for (int h = 0; h < num_heads; h++) {
-      auto in_vec_ptr = (HVX_Vector*)(inptr + h * (seq_length + head_size) * head_size + i * head_size);
-      HVX_Vector x_vec_0 = *in_vec_ptr;
-      // in_vec_ptr += (seq_length + head_size);
-      // HVX_Vector x_vec_1 = *in_vec_ptr;
-      // in_vec_ptr += (seq_length + head_size);
-      // HVX_Vector x_vec_2 = *in_vec_ptr;
-      // in_vec_ptr += (seq_length + head_size);
-      // HVX_Vector x_vec_3 = *in_vec_ptr;
+  for (int b = 0; b < batch_size; b++) {
+    long indarr[] = {b, 0, 0, 0};
+    auto out_vec_ptr = (HVX_Vector*)out_0.element_ptr(4, indarr);
+    auto inptr = (__fp16*)input.element_ptr(4, indarr);
+    for (int i = 0; i < seq_length; i++) {
+      for (int h = 0; h < num_heads; h++) {
+        auto in_vec_ptr = (HVX_Vector*)(inptr + h * (seq_length + head_size) * head_size + i * head_size);
+        HVX_Vector x_vec_0 = *in_vec_ptr;
+        // in_vec_ptr += (seq_length + head_size);
+        // HVX_Vector x_vec_1 = *in_vec_ptr;
+        // in_vec_ptr += (seq_length + head_size);
+        // HVX_Vector x_vec_2 = *in_vec_ptr;
+        // in_vec_ptr += (seq_length + head_size);
+        // HVX_Vector x_vec_3 = *in_vec_ptr;
 
-      *out_vec_ptr++ = x_vec_0;
-      // *out_vec_ptr++ = x_vec_1;
-      // *out_vec_ptr++ = x_vec_2;
-      // *out_vec_ptr++ = x_vec_3;
+        *out_vec_ptr++ = x_vec_0;
+        // *out_vec_ptr++ = x_vec_1;
+        // *out_vec_ptr++ = x_vec_2;
+        // *out_vec_ptr++ = x_vec_3;
+      }
     }
   }
 #endif

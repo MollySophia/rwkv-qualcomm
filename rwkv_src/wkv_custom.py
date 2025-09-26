@@ -70,17 +70,18 @@ torch::Tensor wkv7_output_x(torch::Tensor in) {
     auto x = torch::zeros({batch_size, seq_length, num_head, head_size}, in.options());
     for (int b = 0; b < batch_size; b++) {
         for (int i = 0; i < seq_length; i++) {
-            x[b][i] = in.index({torch::indexing::Slice(), torch::indexing::Slice(), i, torch::indexing::Slice()}).reshape({num_head, head_size});
+            x[b][i] = in.index({b, torch::indexing::Slice(), i, torch::indexing::Slice()}).reshape({num_head, head_size});
         }
     }
     return x;
 }
 
 torch::Tensor wkv7_output_state(torch::Tensor in) {
+    auto batch_size = in.size(0);
     auto num_head = in.size(1);
     auto head_size = in.size(3);
     int seq_length = in.size(2) - head_size;
-    auto state = in.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(seq_length, in.size(2)), torch::indexing::Slice()}).reshape({1, num_head, head_size, head_size});
+    auto state = in.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(seq_length, in.size(2)), torch::indexing::Slice()}).reshape({batch_size, num_head, head_size, head_size});
     return state;
 }
 

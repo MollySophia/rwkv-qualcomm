@@ -80,7 +80,7 @@ def dump_htp_link_config(output_path: str, qnn_sdk_root_path: str):
         "backend_extensions":
         {
             "shared_library_path": f"{qnn_sdk_root_path}/lib/x86_64-linux-clang/libQnnHtpNetRunExtensions.so",
-            "config_file_path": output_path.replace("link.json", "config.json")
+            "config_file_path": output_path.replace("link", "config")
         }
     }
     with open(output_path, "w") as f:

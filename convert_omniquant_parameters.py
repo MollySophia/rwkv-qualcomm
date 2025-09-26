@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--omniquant_parameters', type=str, required=True)
 parser.add_argument('--model_path', type=str, required=True)
 parser.add_argument('--output_file', type=str, required=True)
+parser.add_argument('--num_head_splits', type=int, default=4, help='Number of head splits')
 args = parser.parse_args()
 
 omniquant_parameters = torch.load(args.omniquant_parameters, map_location='cpu')
@@ -54,17 +55,42 @@ for i in omniquant_parameters.keys():
             model_key = model_key.replace("a1", "matmul_a1").replace("g1", "matmul_g1")
             model_key = model_key.replace("w1", "matmul_time_decay_w1").replace("v1", "matmul_v1")
 
-        encodings["param_encodings"][model_key] = []
-        for c in range(xmax.shape[0]):
-            encodings["param_encodings"][model_key].append({
-                "bitwidth": BITWIDTH,
-                "dtype": "int",
-                "is_symmetric": "True",
-                "max": xmax[c].item(),
-                "min": xmin[c].item(),
-                "offset": offset[c].item(),
-                "scale": scale[c].item(),
-            })
+        if 'blocks.0.att.value.weight' in model_key:
+            continue
+
+        # print(model_key, xmax.shape)
+        if any([n in model_key for n in ['att.key.weight', 'att.receptance.weight', 'att.value.weight']]):
+            for split in range(args.num_head_splits):
+                xmax_split = xmax.reshape(args.num_head_splits, -1, 1)[split]
+                xmin_split = xmin.reshape(args.num_head_splits, -1, 1)[split]
+                scale_split = scale.reshape(args.num_head_splits, -1, 1)[split]
+                offset_split = offset.reshape(args.num_head_splits, -1, 1)[split]
+                model_key_split = model_key.replace('att.', f'att.heads.{split}.')
+                encodings["param_encodings"][model_key_split] = []
+                print(model_key_split, xmax_split.shape)
+                for c in range(xmax_split.shape[0]):
+                    encodings["param_encodings"][model_key_split].append({
+                        "bitwidth": BITWIDTH,
+                        "dtype": "int",
+                        "is_symmetric": "True",
+                        "max": xmax_split[c].item(),
+                        "min": xmin_split[c].item(),
+                        "offset": offset_split[c].item(),
+                        "scale": scale_split[c].item(),
+                    })
+        else:
+            encodings["param_encodings"][model_key] = []
+            print(model_key, xmax.shape)
+            for c in range(xmax.shape[0]):
+                encodings["param_encodings"][model_key].append({
+                    "bitwidth": BITWIDTH,
+                    "dtype": "int",
+                    "is_symmetric": "True",
+                    "max": xmax[c].item(),
+                    "min": xmin[c].item(),
+                    "offset": offset[c].item(),
+                    "scale": scale[c].item(),
+                })
 
 with open(args.output_file, 'w') as f:
     json.dump(encodings, f, indent=4)

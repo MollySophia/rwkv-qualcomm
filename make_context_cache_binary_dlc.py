@@ -19,8 +19,8 @@ def main():
     model_paths = [str(args.model_dlc)] if ',' not in str(args.model_dlc) else str(args.model_dlc).split(',')
     model_names = [str(path).split('/')[-1].replace('.dlc', '') for path in model_paths]
     print(f"Processing model {model_names}")
-    dump_htp_config(args.platform, model_names, model_paths[0].replace('.dlc', '_htp_config.json'))
-    dump_htp_link_config(model_paths[0].replace('.dlc', '_htp_link.json'), qnn_sdk_root)
+    dump_htp_config(args.platform, model_names, model_paths[0].replace('.dlc', f'_{args.platform}_htp_config.json'))
+    dump_htp_link_config(model_paths[0].replace('.dlc', f'_{args.platform}_htp_link.json'), qnn_sdk_root)
     convert_cmd = f"{qnn_sdk_root}/bin/x86_64-linux-clang/qnn-context-binary-generator"
     convert_cmd += f" --model {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnModelDlc.so"
     convert_cmd += f" --backend {qnn_sdk_root}/lib/x86_64-linux-clang/libQnnHtp.so"
@@ -28,7 +28,7 @@ def main():
     convert_cmd += f" --output_dir {args.output_path}"
     output_name = model_names[0].replace('lib', '') if args.output_name is None else args.output_name
     convert_cmd += f" --binary_file {output_name}"
-    convert_cmd += f" --config_file {model_paths[0].replace('.dlc', '_htp_link.json')}"
+    convert_cmd += f" --config_file {model_paths[0].replace('.dlc', f'_{args.platform}_htp_link.json')}"
     if args.use_optrace:
         convert_cmd += " --profiling_level detailed --profiling_option optrace"
 

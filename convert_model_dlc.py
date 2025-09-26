@@ -33,6 +33,7 @@ parser.add_argument('--no_cleanup', action='store_true', help='Do not cleanup on
 parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
 parser.add_argument('--save_input_vectors', action='store_true', help='Save input vectors')
 parser.add_argument('--input_vectors_save_path', type=Path, default="test_vector", help='Path to save input vectors')
+parser.add_argument('--heads_per_split', type=int, default=8, help='Number of heads per split')
 parser_args = parser.parse_args()
 
 seq_length = parser_args.prefill_seq_length if parser_args.prefill_model else 1
@@ -48,6 +49,8 @@ model_args.MODEL_NAME = str(parser_args.model)
 model_args.output_last = True
 model_args.EXTERNAL_HEAD = True if parser_args.ext_lmhead else False
 model_args.RESCALE_LAYER = 0
+# model_args.heads_per_split = 2 if parser_args.prefill_model else 8
+model_args.heads_per_split = parser_args.heads_per_split
 
 model = make_chunks(parser_args.chunks, model_args) if parser_args.chunks > 1 else RWKV_RNN(model_args)
 has_deepemb = model[0].args.has_deepemb if type(model) == list else model.args.has_deepemb
@@ -65,15 +68,15 @@ else:
     qnn_tools_target = 'x86_64-linux-clang'
 
 def save_input_vectors(input_tensors_list, input_vectors_save_path):
-    input_vectors_save_path = str(input_vectors_save_path)
+    input_vectors_save_path = str(input_vectors_save_path) + f"{'_prefill' if parser_args.prefill_model else '_bsz' + str(parser_args.batch_size) if parser_args.batch_size > 1 else ''}"
     os.path.exists(input_vectors_save_path) or os.mkdir(input_vectors_save_path)
     input_list = []
     for i in range(len(input_tensors_list)):
-        input_tensors_list[i].cpu().numpy().astype(np.float32).tofile(input_vectors_save_path + f"/input_vector_{i}{'_prefill' if parser_args.prefill_model else ''}.bin")
-        input_list.append(input_vectors_save_path + f"/input_vector_{i}{'_prefill' if parser_args.prefill_model else ''}.bin")
-    with open(input_vectors_save_path + f"/input_list{'_prefill' if parser_args.prefill_model else ''}.txt", "w") as f:
+        input_tensors_list[i].cpu().numpy().astype(np.float32).tofile(input_vectors_save_path + f"/input_vector_{i}.bin")
+        input_list.append(input_vectors_save_path + f"/input_vector_{i}.bin")
+    with open(input_vectors_save_path + f"/input_list.txt", "w") as f:
         f.writelines([" ".join(input_list) + "\n"])
-    print(f"Input vectors saved to {input_vectors_save_path}/input_list{'_prefill' if parser_args.prefill_model else ''}.txt")
+    print(f"Input vectors saved to {input_vectors_save_path}/input_list.txt")
 
 if type(model) == list:
     args = model[0].args
@@ -161,16 +164,17 @@ if type(model) == list:
             encodings_chunk = {"activation_encodings": [], "excluded_layers": [], "param_encodings": [], "quantizer_args": encodings_all["quantizer_args"], "version": encodings_all["version"]}
             for v in encodings_all["activation_encodings"]:
                 try:
-                    encoding_block_id = int(v['name'].split(".")[-1].split("/")[0]) if 'block' in v['name'] else args.n_layer-1
+                    encoding_block_id = int(v['name'].split(".")[1].split("/")[0]) if 'block' in v['name'] else args.n_layer-1
                 except ValueError:
                     encoding_block_id = int(v['name'].split(".")[1]) if 'block' in v['name'] else args.n_layer-1
                 if any([
                     'state' in v['name'],
                     (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end),
                     v['name'] == '/blocks.0/att/post_permute_v/Transpose_output_0',
+                    v['name'] == '/blocks.0/att/value/Conv_output_0',
                     v['name'] == f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0'
                 ]):
-                    if '/blocks.0/att/post_permute_v/Transpose_output_0' in v['name']:
+                    if '/blocks.0/att/post_permute_v/Transpose_output_0' in v['name'] or '/blocks.0/att/value/Conv_output_0' in v['name']:
                         apply_activation_quant_override(f'v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}', v, encodings_chunk)
                     elif f'/blocks.{model[i].layer_begin-1}/ffn/add_feed_forward/Add_output_0' in v['name']:
                         apply_activation_quant_override(input_name, v, encodings_chunk)
@@ -212,19 +216,16 @@ if type(model) == list:
         onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
         graph = gs.import_onnx(onnxmodel)
         # set output shape for wkv7_output
+        heads_per_split = args.n_head if model_args.heads_per_split == -1 else model_args.heads_per_split
         for k, v in graph.tensors().items():
-            if batch_size == 1:
-                if "wkv7_output_x_output_0" in k:
-                    graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, args.n_head, 1, args.head_size])
-                elif "wkv7_output_0" in k:
-                    graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size + seq_length, args.head_size])
-            else:
-                if "wkv7_output_x_output_0" in k:
-                    graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, 1, args.head_size])
-                elif "wkv7_output_state_output_0" in k:
-                    graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
-                elif "wkv7_output_0" in k:
-                    graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size + seq_length, args.head_size])
+            if "wkv7_output_x_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, heads_per_split, args.head_size])
+            elif "wkv7_output_state_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size, args.head_size])
+            elif any(f"state{3*j+1}_out" in k for j in range(args.n_layer)):
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
+            elif "wkv7_output_0" in k:
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size + seq_length, args.head_size])
 
         onnxmodel = gs.export_onnx(graph)
         convert_model_to_external_data(onnxmodel)
@@ -232,19 +233,23 @@ if type(model) == list:
         shape_inference.infer_shapes_path(onnx_output_path)
         print(f"onnx model chunk{i} saved to {onnx_output_path}")
 
-        if batch_size > 1:
-            for j in range(model[i].layer_end - model[i].layer_begin):
-                x_encoding = None
-                for e in encodings_chunk['activation_encodings']:
-                    if "wkv7_output_x_output_0" in e['name'] and f"blocks.{j}" in e['name']:
-                        x_encoding = e
-                        break
-                apply_activation_quant_override(f'/blocks.{j}/att/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_chunk)
-                for k, v in graph.tensors().items():
-                    if ("wkv7_output_state_output_0" in k or "wkv7_output_0" in k) and f"blocks.{j}" in k:
-                        apply_activation_quant_override(k, dummy_quant_override, encodings_chunk)
-                    elif "wkv7_output_x_output_0" in k and f"blocks.{j}" in k:
-                        apply_activation_quant_override(k, x_encoding, encodings_chunk)
+        for j in range(model[i].layer_end - model[i].layer_begin):
+            apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_in', dummy_quant_override, encodings_chunk)
+            apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_out', dummy_quant_override, encodings_chunk)
+            for split in range(1 if args.heads_per_split == -1 else args.n_head // args.heads_per_split):
+                apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/wkv/wkv7_output_0', dummy_quant_override, encodings_chunk)
+                apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_chunk)
+                if parser_args.batch_size > 1:
+                    x_encoding = None
+                    for e in encodings_chunk['activation_encodings']:
+                        if "wkv7_output_x_output_0" in e['name'] and f"blocks.{j}/att/heads.{split}" in e['name']:
+                            x_encoding = e
+                            break
+                    for k, v in graph.tensors().items():
+                        if ("wkv7_output_state_output_0" in k or "wkv7_output_0" in k) and f"blocks.{j}" in k:
+                            apply_activation_quant_override(k, dummy_quant_override, encodings_chunk)
+                        elif "wkv7_output_x_output_0" in k and f"blocks.{j}/att/heads.{split}" in k:
+                            apply_activation_quant_override(k, x_encoding, encodings_chunk)
         with open(f"{dirname}/quant_encodings_chunk{i}.encodings", "w") as f:
             json.dump(encodings_chunk, f, sort_keys=True, indent=4)
 
@@ -404,22 +409,16 @@ else:
     onnxmodel = onnx.load(onnx_output_path, load_external_data=True)
     graph = gs.import_onnx(onnxmodel)
     # set output shape for wkv7_output
+    heads_per_split = args.n_head if model_args.heads_per_split == -1 else model_args.heads_per_split
     for k, v in graph.tensors().items():
-        if batch_size == 1:
-            if "wkv7_output_x_output_0" in k:
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, args.n_head, args.head_size])
-            elif "wkv7_output_state_output_0" in k or any(f"state{i}_out" in k for i in range(3*args.n_layer+1)):
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
-            elif "wkv7_output_0" in k:
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size + seq_length, args.head_size])
-        else:
-            if "wkv7_output_x_output_0" in k:
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, args.n_head, args.head_size])
-            elif "wkv7_output_state_output_0" in k or any(f"state{i}_out" in k for i in range(3*args.n_layer+1)):
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
-            elif "wkv7_output_0" in k:
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size + seq_length, args.head_size])
-
+        if "wkv7_output_x_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, heads_per_split, args.head_size])
+        elif "wkv7_output_state_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size, args.head_size])
+        elif any(f"state{3*i+1}_out" in k for i in range(args.n_layer)):
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
+        elif "wkv7_output_0" in k:
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size + seq_length, args.head_size])
     onnxmodel = gs.export_onnx(graph)
     convert_model_to_external_data(onnxmodel)
     onnx.save(onnxmodel, onnx_output_path)
@@ -442,36 +441,23 @@ else:
                     if f'deep_emb.{i}.weight' in v['name']:
                         apply_activation_quant_override(f's_emb{i}_in{"_prefill" if parser_args.prefill_model else ""}', v, encodings_all)
                         break
-        if not parser_args.wkv_customop:
-            float_override = {
-                "bw": parser_args.qnn_float_width,
-                "dtype": "FLOAT",
-                "name": "state0_in",
-            }
 
-            for i in range(layer_begin, layer_end):
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_r_nocustomop/Reshape_output_0', float_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_w_nocustomop/Reshape_output_0', float_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_k_nocustomop/Reshape_output_0', float_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_v_nocustomop/Reshape_output_0', float_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_a_nocustomop/Reshape_output_0', float_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/reshape_b_nocustomop/Reshape_output_0', float_override, encodings_all)
-        else:
-            for i in range(layer_begin, layer_end):
-                apply_activation_quant_override(f'state{3*i+1}_in', dummy_quant_override, encodings_all)
-                apply_activation_quant_override(f'state{3*i+1}_out', dummy_quant_override, encodings_all)
-                apply_activation_quant_override(f'/blocks.{i}/att/wkv7/wkv/wkv7_output_0', dummy_quant_override, encodings_all)
+        for i in range(layer_begin, layer_end):
+            apply_activation_quant_override(f'state{3*i+1}_in', dummy_quant_override, encodings_all)
+            apply_activation_quant_override(f'state{3*i+1}_out', dummy_quant_override, encodings_all)
+            for split in range(1 if args.heads_per_split == -1 else args.n_head // args.heads_per_split):
+                apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/wkv/wkv7_output_0', dummy_quant_override, encodings_all)
+                apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_all)
                 if parser_args.batch_size > 1:
                     x_encoding = None
                     for e in encodings_all['activation_encodings']:
-                        if "wkv7_output_x_output_0" in e['name'] and f"blocks.{i}" in e['name']:
+                        if "wkv7_output_x_output_0" in e['name'] and f"blocks.{i}/att/heads.{split}" in e['name']:
                             x_encoding = e
                             break
-                    apply_activation_quant_override(f'/blocks.{i}/att/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_all)
                     for k, v in graph.tensors().items():
                         if ("wkv7_output_state_output_0" in k or "wkv7_output_0" in k) and f"blocks.{i}" in k:
                             apply_activation_quant_override(k, dummy_quant_override, encodings_all)
-                        elif "wkv7_output_x_output_0" in k and f"blocks.{i}" in k:
+                        elif "wkv7_output_x_output_0" in k and f"blocks.{i}/att/heads.{split}" in k:
                             apply_activation_quant_override(k, x_encoding, encodings_all)
 
         encoding_path = f"{dirname}/quant_encodings_prefill.encodings" if parser_args.prefill_model else f"{dirname}/quant_encodings.encodings"
@@ -482,7 +468,7 @@ else:
     del graph
 
     print("Converting to QNN model...")
-    states_layout = "NONTRIVIAL" if model_args.wkv_customop else "NCHW"
+    states_layout = "NONTRIVIAL"
     converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(layer_begin, layer_end)])
     converter_cmd += f" --float_bitwidth {parser_args.qnn_float_width} --float_bias_bitwidth {parser_args.qnn_float_width}"
     if parser_args.ext_embedding:
