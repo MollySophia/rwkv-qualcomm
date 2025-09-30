@@ -73,14 +73,14 @@ class Wkv7(nn.Module):
             self.reshape_a_nocustomop = Reshape()
             self.reshape_b_nocustomop = Reshape()
 
-        # self.reshape_r = Reshape()
-        # self.reshape_w = Reshape()
+        self.reshape_r = Reshape()
+        self.reshape_w = Reshape()
         self.reshape_k = Reshape()
         self.reshape_v = Reshape()
         self.matmul_kv = MatMul()
-        # self.reshape_a = Reshape()
-        # self.reshape_b = Reshape()
-        # self.reshape_x = Reshape()
+        self.reshape_a = Reshape()
+        self.reshape_b = Reshape()
+        self.reshape_x = Reshape()
 
         # self.reshape_state = Reshape()
         # self.reshape_state_out = Reshape()
@@ -111,6 +111,7 @@ class Wkv7(nn.Module):
     def forward(self, batch_size, seq_length, r, w, k, v, a, b, state2):
         if self.custom_wkv:
             if batch_size != 1:
+                assert seq_length == 1, "seq_length must be 1 for batch_size != 1"
                 r = list(self.split_r(r, 1, dim=0))
                 w = list(self.split_w(w, 1, dim=0))
                 k = list(self.split_k(k, 1, dim=0))
@@ -202,16 +203,16 @@ class Rwkv7SelfAttentionHeadSplit(nn.Module):
         self.matmul_g2 = nn.Conv2d(self.D_GATE_LORA, head_size * heads_per_split, kernel_size=1, bias=False)
         self.matmul_g2.weight = nn.Parameter(state_dict[prefix + 'g2'].t().view(self.num_heads // heads_per_split, self.head_size * heads_per_split, self.D_GATE_LORA)[split_id].reshape(self.head_size * heads_per_split, self.D_GATE_LORA, 1, 1))
 
-        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
-        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
-        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, self.head_size))
+        self.k_k = nn.Parameter(state_dict[prefix + 'k_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, 1, self.head_size))
+        self.k_a = nn.Parameter(state_dict[prefix + 'k_a'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, 1, self.head_size))
+        self.r_k = nn.Parameter(state_dict[prefix + 'r_k'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].view(heads_per_split, 1, self.head_size))
 
         self.ln_x = nn.LayerNorm(self.head_size, eps=64e-5)
         self.ln_x.weight = nn.Parameter(torch.ones(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
         self.ln_x.bias = nn.Parameter(torch.zeros(self.head_size, dtype=state_dict[f'blocks.{layer_id}.ln1.bias'].dtype, device=state_dict[f'blocks.{layer_id}.ln1.bias'].device))
 
-        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, self.head_size), requires_grad=False)
-        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, self.head_size), requires_grad=False)
+        self.ln_x_w = nn.Parameter(state_dict[prefix + 'ln_x.weight'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, 1, self.head_size), requires_grad=False)
+        self.ln_x_b = nn.Parameter(state_dict[prefix + 'ln_x.bias'].view(self.num_heads // heads_per_split, self.head_size * heads_per_split)[split_id].reshape(heads_per_split, 1, self.head_size), requires_grad=False)
 
         self.mul_ln_x = Multiply()
         self.add_ln_x = Add()
@@ -279,12 +280,12 @@ class Rwkv7SelfAttentionHeadSplit(nn.Module):
         a = self.post_permute_a(a, [0, 3, 2, 1])
         time_decay = self.post_permute_w(time_decay, [0, 3, 2, 1])
 
-        receptance = self.post_reshape_r(receptance, [batch_size, seq_length, self.heads_per_split, self.head_size])
-        key = self.post_reshape_k(key, [batch_size, seq_length, self.heads_per_split, self.head_size])
-        gate = self.post_reshape_g(gate, [batch_size, seq_length, self.heads_per_split, self.head_size])
-        a = self.post_reshape_a(a, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        receptance = self.post_reshape_r(receptance, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
+        key = self.post_reshape_k(key, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
+        gate = self.post_reshape_g(gate, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
+        a = self.post_reshape_a(a, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
 
-        time_decay = self.post_reshape_w(time_decay, [batch_size, seq_length, self.heads_per_split, self.head_size])
+        time_decay = self.post_reshape_w(time_decay, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
         time_decay = self.exp_w(self.scale_w(self.sigmoid_w(time_decay), self.scale_w_param))
 
         kk = self.mix_kk(key, self.k_k)
@@ -296,10 +297,10 @@ class Rwkv7SelfAttentionHeadSplit(nn.Module):
         else:
             value = self.value(xv)
             value = self.post_permute_v(value, [0, 3, 2, 1])
-            value = self.post_reshape_v(value, [batch_size, seq_length, self.heads_per_split, self.head_size])
+            value = self.post_reshape_v(value, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
             tmp = self.sigmoid_v(self.matmul_v2(xv_lora))
             tmp = self.post_permute_v1(tmp, [0, 3, 2, 1])
-            tmp = self.post_reshape_v1(tmp, [batch_size, seq_length, self.heads_per_split, self.head_size])
+            tmp = self.post_reshape_v1(tmp, [batch_size * seq_length, self.heads_per_split, 1, self.head_size])
             value = self.add_value_residual(value, self.mul_value(self.sub_value(v_first, value), tmp))
 
         b = self.get_b(kk, a)
@@ -409,7 +410,7 @@ class Rwkv7SelfAttention(nn.Module):
 
         self.split_state = Split()
         self.concat_state = Concat(1)
-        self.concat_x = Concat(2)
+        self.concat_x = Concat(1)
 
         self.split_v = Split()
 
@@ -462,7 +463,7 @@ class Rwkv7SelfAttention(nn.Module):
             v_first = self.value(xv)
             v_first = self.post_permute_v(v_first, [0, 3, 2, 1])
             v_first = self.post_reshape_v(v_first, [batch_size, seq_length, self.hidden_size])
-            v_first_list = list(self.split_v(v_first.view(batch_size, seq_length, self.num_heads, self.head_size), self.heads_per_split, dim=2))
+            v_first_list = list(self.split_v(v_first.view(batch_size * seq_length, self.num_heads, 1, self.head_size), self.heads_per_split, dim=1))
 
         state2_out_list = [None] * (self.num_heads // self.heads_per_split)
         x_out_list = [None] * (self.num_heads // self.heads_per_split)

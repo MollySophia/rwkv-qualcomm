@@ -239,7 +239,7 @@ class RWKV_RNN(torch.nn.Module):
 
             heads_per_split = self.args.heads_per_split if self.args.heads_per_split != -1 else self.args.n_head
             if self.args.version == 7 and v_first is not None:
-                v_first = list(self.split_v_first(self.reshape_v_first(v_first, [batch_size, seq_length, self.args.n_head, self.args.head_size]), heads_per_split, dim=2))
+                v_first = list(self.split_v_first(self.reshape_v_first(v_first, [batch_size * seq_length, self.args.n_head, 1, self.args.head_size]), heads_per_split, dim=1))
 
             if self.args.has_deepemb and s_emb is None:
                 s_emb = [self.deep_emb[i](in0) for i in range(self.args.n_layer)]
@@ -249,7 +249,7 @@ class RWKV_RNN(torch.nn.Module):
                     x, state, tmp = self.blocks[i-self.layer_begin](x, state, v_first, s_emb[i] if self.args.has_deepemb else None)
                     if i == self.layer_begin and self.chunk_idx == 0:
                         v_first_ret = tmp
-                        v_first = list(self.split_v_first(self.reshape_v_first(tmp, [batch_size, seq_length, self.args.n_head, self.args.head_size]), heads_per_split, dim=2))
+                        v_first = list(self.split_v_first(self.reshape_v_first(tmp, [batch_size * seq_length, self.args.n_head, 1, self.args.head_size]), heads_per_split, dim=1))
                     else:
                         v_first = tmp
                 else:

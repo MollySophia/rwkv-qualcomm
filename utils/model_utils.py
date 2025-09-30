@@ -234,28 +234,28 @@ def onnx_custom_wkv6(g, k, v, r, state2, time_first, time_decay):
         out2.setType(k.type().with_dtype(torch.float32).with_sizes([n_head, head_size, head_size]))
 
 def onnx_custom_wkv7(g, r, w, k, v, a, b, state):
-    batch_size = state.type().sizes()[0]
+    # batch_size = state.type().sizes()[0]
     n_head = state.type().sizes()[1]
     head_size = state.type().sizes()[2]
-    seq_length = r.type().sizes()[1]
+    seq_length = r.type().sizes()[0]
     out = g.op("rwkv::wkv7", r, w, k, v, a, b, state, outputs=1)
-    return out.setType(r.type().with_dtype(torch.float32).with_sizes([batch_size, n_head, head_size + seq_length, head_size]))
+    return out.setType(r.type().with_dtype(torch.float32).with_sizes([1, n_head, head_size + seq_length, head_size]))
 
 def onnx_custom_wkv7_output_x(g, input):
-    batch_size = input.type().sizes()[0]
+    # batch_size = input.type().sizes()[0]
     n_head = input.type().sizes()[1]
     head_size = input.type().sizes()[3]
     seq_length = input.type().sizes()[2] - head_size
     out = g.op("rwkv::wkv7_output_x", input, outputs=1)
-    return out.setType(input.type().with_dtype(torch.float32).with_sizes([batch_size, seq_length, n_head, head_size]))
+    return out.setType(input.type().with_dtype(torch.float32).with_sizes([seq_length, n_head, 1, head_size]))
 
 def onnx_custom_wkv7_output_state(g, input):
-    batch_size = input.type().sizes()[0]
+    # batch_size = input.type().sizes()[0]
     n_head = input.type().sizes()[1]
     head_size = input.type().sizes()[3]
     seq_length = input.type().sizes()[2] - head_size
     out = g.op("rwkv::wkv7_output_state", input, outputs=1)
-    return out.setType(input.type().with_dtype(torch.float32).with_sizes([batch_size, n_head, head_size, head_size]))
+    return out.setType(input.type().with_dtype(torch.float32).with_sizes([1, n_head, head_size, head_size]))
 
 def norm(g, self):
     return g.op("LpNormalization", self, p_i=2, axis_i=-1)

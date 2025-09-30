@@ -33,7 +33,7 @@ torch::Tensor wkv7(
     auto batch_size = state2.size(0);
     auto num_head = state2.size(1);
     auto head_size = state2.size(2);
-    int seq_length = k.size(1);
+    int seq_length = k.size(0);
 
     w = w.reshape({batch_size, seq_length, num_head, 1, head_size});
     k = k.reshape({batch_size, seq_length, num_head, 1, head_size});
@@ -73,7 +73,7 @@ torch::Tensor wkv7_output_x(torch::Tensor in) {
             x[b][i] = in.index({b, torch::indexing::Slice(), i, torch::indexing::Slice()}).reshape({num_head, head_size});
         }
     }
-    return x;
+    return x.reshape({batch_size*seq_length, num_head, 1, head_size});
 }
 
 torch::Tensor wkv7_output_state(torch::Tensor in) {

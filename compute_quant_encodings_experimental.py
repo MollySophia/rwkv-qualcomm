@@ -40,10 +40,10 @@ torch.cuda.manual_seed(SEED)
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False #if args_parser.use_cpu else torch.cuda.is_available()
-# model_args.fp16 = True if model_args.USE_CUDA else False
-model_args.bf16 = True if model_args.USE_CUDA else False
-model_args.fp16 = False
-# model_args.bf16 = False
+model_args.fp16 = True if model_args.USE_CUDA else False
+# model_args.bf16 = True if model_args.USE_CUDA else False
+# model_args.fp16 = False
+model_args.bf16 = False
 model_args.USE_EMBEDDING = True
 model_args.RESCALE_LAYER = 0
 model_args.wkv_customop = True

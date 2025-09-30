@@ -219,11 +219,9 @@ if type(model) == list:
         heads_per_split = args.n_head if model_args.heads_per_split == -1 else model_args.heads_per_split
         for k, v in graph.tensors().items():
             if "wkv7_output_x_output_0" in k:
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, heads_per_split, args.head_size])
+                graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, heads_per_split, 1, args.head_size])
             elif "wkv7_output_state_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size, args.head_size])
-            elif any(f"state{3*j+1}_out" in k for j in range(args.n_layer)):
-                graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
             elif "wkv7_output_0" in k:
                 graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size + seq_length, args.head_size])
 
@@ -412,11 +410,9 @@ else:
     heads_per_split = args.n_head if model_args.heads_per_split == -1 else model_args.heads_per_split
     for k, v in graph.tensors().items():
         if "wkv7_output_x_output_0" in k:
-            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, seq_length, heads_per_split, args.head_size])
+            graph.tensors()[k].to_variable(dtype=np.float32, shape=[seq_length, heads_per_split, 1, args.head_size])
         elif "wkv7_output_state_output_0" in k:
             graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size, args.head_size])
-        elif any(f"state{3*i+1}_out" in k for i in range(args.n_layer)):
-            graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, args.n_head, args.head_size, args.head_size])
         elif "wkv7_output_0" in k:
             graph.tensors()[k].to_variable(dtype=np.float32, shape=[1, heads_per_split, args.head_size + seq_length, args.head_size])
     onnxmodel = gs.export_onnx(graph)
