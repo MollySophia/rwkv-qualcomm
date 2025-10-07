@@ -261,7 +261,7 @@ class RWKV_RNN(torch.nn.Module):
             if self.chunk_idx == self.chunks - 1:
                 x = self.ln_out(x)
                 if not self.args.EXTERNAL_HEAD:
-                    x = self.head_pre_reshape(x, [batch_size, -1, 1, self.args.n_embd])
+                    x = self.head_pre_reshape(x, [1, -1, 1, self.args.n_embd])
                     x = self.head_pre_permute(x, [0, 3, 2, 1])
                     x = self.head(x)
                     x = self.head_post_permute(x, [0, 3, 2, 1])
