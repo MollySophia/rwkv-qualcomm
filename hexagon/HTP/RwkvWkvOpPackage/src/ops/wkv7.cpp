@@ -240,7 +240,7 @@ DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor_TCM, Plain
 // DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7FloatImpl<PlainFloatTensor>), "wkv7.flat", SNAIL, Flags::RESOURCE_HVX)
 // DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7FloatImpl<PlainFloatTensor_TCM>), "wkv7.flat.tcm", SNAIL, Flags::RESOURCE_HVX)
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7.uint16.flat.dequant", SNAIL, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Float32Impl<PlainFloat16Tensor, QuantUint16Tensor>), "wkv7.uint16.flat.dequant", SNAIL, Flags::RESOURCE_HVX)
 // DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7Float16Impl<PlainFloat16Tensor, QuantUint16Tensor_TCM>), "wkv7.uint16.flat.dequant.tcm", SNAIL, Flags::RESOURCE_HVX)
 
 /* execute functions for ops */

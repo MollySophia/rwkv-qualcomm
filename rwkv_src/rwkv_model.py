@@ -119,6 +119,7 @@ class RWKV_RNN(torch.nn.Module):
         self.args.n_ffn = w['blocks.0.ffn.key.weight'].shape[0]
         self.args.version, self.args.n_layer, self.args.n_head, self.args.has_deepemb = check_rwkv_info(w)
         self.args.head_size = self.args.n_embd // self.args.n_head
+        self.args.standalone_lmhead = getattr(args, 'standalone_lmhead', False)
 
         if self.args.version == 7:
             self.args.RESCALE_LAYER = 0
@@ -132,9 +133,18 @@ class RWKV_RNN(torch.nn.Module):
             print("n_ffn:", self.args.n_ffn)
             print("has_deepemb:", self.args.has_deepemb)
 
-        layers_per_chunk = self.args.n_layer // chunks
-        self.layer_begin = chunk_idx * layers_per_chunk
-        self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
+        if self.args.standalone_lmhead:
+            layers_per_chunk = self.args.n_layer // (chunks - 1)
+            if chunk_idx != chunks - 1:
+                self.layer_begin = chunk_idx * layers_per_chunk
+                self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
+            else:
+                self.layer_begin = -1
+                self.layer_end = -1
+        else:
+            layers_per_chunk = self.args.n_layer // chunks
+            self.layer_begin = chunk_idx * layers_per_chunk
+            self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
         self.chunk_idx = chunk_idx
         self.chunks = chunks
         print(f"Chunk {chunk_idx}: layers {self.layer_begin} to {self.layer_end}")
@@ -153,61 +163,64 @@ class RWKV_RNN(torch.nn.Module):
             if self.gpu:
                 w[k] = w[k].to(self.device)
 
-        emb_weight = w['emb.weight']
-        if self.args.USE_EMBEDDING:
-            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
-            self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
-        else:
-            # self.pre_ln = nn.LayerNorm(self.args.n_embd, eps=1e-5)
-            # self.pre_ln.weight = nn.Parameter(w['blocks.0.ln0.weight'])
-            # self.pre_ln.bias = nn.Parameter(w['blocks.0.ln0.bias'])
-            emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
-
-            if self.args.fp16:
-                self.emb_weight = emb_weight.half()
-            elif self.args.bf16:
-                self.emb_weight = emb_weight.bfloat16()
+        if not (self.args.standalone_lmhead and self.chunk_idx == self.chunks - 1):
+            emb_weight = w['emb.weight']
+            if self.args.USE_EMBEDDING:
+                emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
+                self.embedding = torch.nn.Embedding.from_pretrained(emb_weight)
             else:
-                self.emb_weight = emb_weight.float()
-            if self.gpu:
-                self.emb_weight = self.emb_weight.to(self.device)
+                # self.pre_ln = nn.LayerNorm(self.args.n_embd, eps=1e-5)
+                # self.pre_ln.weight = nn.Parameter(w['blocks.0.ln0.weight'])
+                # self.pre_ln.bias = nn.Parameter(w['blocks.0.ln0.bias'])
+                emb_weight = F.layer_norm(emb_weight, emb_weight.size()[-1:], weight=w['blocks.0.ln0.weight'].flatten(), bias=w['blocks.0.ln0.bias'].flatten())
 
-        if self.args.has_deepemb:
-            self.deep_emb = []
-            for i in range(self.args.n_layer):
-                weight = w[f'blocks.{i}.ffn.s_emb.weight'] + emb_weight @ w[f'blocks.{i}.ffn.s_emb_x.weight'].t()
                 if self.args.fp16:
-                    weight = weight.half()
+                    self.emb_weight = emb_weight.half()
                 elif self.args.bf16:
-                    weight = weight.bfloat16()
+                    self.emb_weight = emb_weight.bfloat16()
                 else:
-                    weight = weight.float()
+                    self.emb_weight = emb_weight.float()
                 if self.gpu:
-                    weight = weight.to(self.device)
-                self.deep_emb.append(nn.Embedding.from_pretrained(weight))
-            self.deep_emb = nn.ModuleList(self.deep_emb)
+                    self.emb_weight = self.emb_weight.to(self.device)
 
-        self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
-            layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
-            custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
-            output_last=self.args.output_last, has_deepemb=self.args.has_deepemb, \
-            heads_per_split=self.args.heads_per_split) for i in range(self.layer_begin, self.layer_end)])
-        self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
-        self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
-        self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
+            if self.args.has_deepemb:
+                self.deep_emb = []
+                for i in range(self.args.n_layer):
+                    weight = w[f'blocks.{i}.ffn.s_emb.weight'] + emb_weight @ w[f'blocks.{i}.ffn.s_emb_x.weight'].t()
+                    if self.args.fp16:
+                        weight = weight.half()
+                    elif self.args.bf16:
+                        weight = weight.bfloat16()
+                    else:
+                        weight = weight.float()
+                    if self.gpu:
+                        weight = weight.to(self.device)
+                    self.deep_emb.append(nn.Embedding.from_pretrained(weight))
+                self.deep_emb = nn.ModuleList(self.deep_emb)
 
-        if 'head.bias' in w.keys():
-            self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
-            self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
-            self.head.bias = nn.Parameter(w['head.bias'].reshape(-1))
-        else:
-            self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
-            self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
+            self.blocks = nn.ModuleList([RWKV_Block(w, self.args.n_embd, self.args.head_size, self.args.n_ffn, \
+                layer_id=i,layer_begin=self.layer_begin, rescale_layer=self.args.RESCALE_LAYER, version=self.args.version, \
+                custom_wkv=self.args.wkv_customop, layer_total=self.args.n_layer, \
+                output_last=self.args.output_last, has_deepemb=self.args.has_deepemb, \
+                heads_per_split=self.args.heads_per_split) for i in range(self.layer_begin, self.layer_end)])
 
-        self.head_pre_reshape = Reshape()
-        self.head_post_reshape = Reshape()
-        self.head_pre_permute = Permute()
-        self.head_post_permute = Permute()
+        if chunk_idx == chunks - 1:
+            self.ln_out = nn.LayerNorm(self.args.n_embd, eps=1e-5)
+            self.ln_out.weight = nn.Parameter(w['ln_out.weight'])
+            self.ln_out.bias = nn.Parameter(w['ln_out.bias'])
+
+            if 'head.bias' in w.keys():
+                self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=True)
+                self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
+                self.head.bias = nn.Parameter(w['head.bias'].reshape(-1))
+            else:
+                self.head = nn.Conv2d(self.args.n_embd, self.args.vocab_size, 1, bias=False)
+                self.head.weight = nn.Parameter(w['head.weight'].view(-1, self.args.n_embd, 1, 1))
+
+            self.head_pre_reshape = Reshape()
+            self.head_post_reshape = Reshape()
+            self.head_pre_permute = Permute()
+            self.head_post_permute = Permute()
 
         self.split_v_first = Split()
         self.reshape_v_first = Reshape()

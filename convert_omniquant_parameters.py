@@ -26,10 +26,13 @@ for i in omniquant_parameters.keys():
     for key, value in omniquant_parameters[i].items():
         if 'lowbound' in key:
             continue
+
+        if 'lora.2' in key or 'head' in key:
+            continue
         model_key = key.replace('attn', 'att').replace('r_proj', 'receptance')
         model_key = model_key.replace('v_proj', 'value').replace('k_proj', 'key')
         model_key = model_key.replace('o_proj', 'output')
-        model_key = model_key.replace('_lora.lora.0', '1')
+        model_key = model_key.replace('_lora.lora.0', '1').replace('_lora.lora.2', '2')
         model_key = model_key.replace('weight_quantizer', 'weight')
         model_key = f'blocks.{i}.{model_key.replace(".upbound_factor", "")}'
         if "lora" in key:
