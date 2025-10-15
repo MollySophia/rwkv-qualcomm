@@ -415,6 +415,8 @@ class Rwkv7SelfAttention(nn.Module):
         self.split_v = Split()
 
         self.tanh_w = nn.Tanh()
+        self.reshape_w = Reshape()
+        self.reshape_w_1 = Reshape()
         self.sigmoid_g = nn.Sigmoid()
 
     def forward(self, x, state1, state2, v_first):
@@ -451,7 +453,9 @@ class Rwkv7SelfAttention(nn.Module):
         xa = self.pre_permute_a(xa, [0, 3, 2, 1])
         xg = self.pre_permute_g(xg, [0, 3, 2, 1])
 
-        xw = self.tanh_w(self.matmul_time_decay_w1(xw))
+        # workaround for qualcomm's broken tanh implementation with qnn 2.39
+        xw = self.reshape_w(self.matmul_time_decay_w1(xw), [batch_size * seq_length * self.D_DECAY_LORA])
+        xw = self.reshape_w_1(self.tanh_w(xw), [1, self.D_DECAY_LORA, 1, batch_size * seq_length])
         xa = self.matmul_a1(xa)
         xg = self.sigmoid_g(self.matmul_g1(xg))
 

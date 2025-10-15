@@ -36,6 +36,7 @@ def main():
         convert_cmd += " --op_packages hexagon/HTP/RwkvWkvOpPackage/build/x86_64-linux-clang/libQnnRwkvWkvOpPackage.so:RwkvWkvOpPackageInterfaceProvider"
 
     convert_cmd += " --input_output_tensor_mem_type memhandle"
+    # convert_cmd += " --enable_intermediate_outputs"
     os.system(convert_cmd)
 
 if __name__ == '__main__':

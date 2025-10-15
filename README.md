@@ -12,7 +12,7 @@
 - Setup the QNN SDK environment by following the instructions in Qualcomm's [documents](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/introduction.html).
 - Setup the $QNN_SDK_ROOT environment variable to point to the QNN SDK installation directory. It should by default be installed at /opt/qcom/aistack/qnn/{version}.
 - This project has been verified with:
-    - QNN SDK 2.35.3.250617
+    - QNN SDK 2.39.0.250926
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
     - onnx_graphsurgeon==0.5.8

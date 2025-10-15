@@ -203,6 +203,8 @@ if type(model) == list:
                 inputs += [[torch.zeros(batch_size, seq_length, deep_emb_size, dtype=input_dtype) for _ in range(model[i].layer_begin, model[i].layer_end)]]
                 input_names += [f's_emb{j}_in' for j in range(model[i].layer_begin, model[i].layer_end)]
 
+        if parser_args.save_input_vectors and i == 0:
+            save_input_vectors([in0] + inputs[1], parser_args.input_vectors_save_path)
         onnx_output_path = f"{dirname}/{filename}"
         if parser_args.ext_embedding:
             onnx_output_path += "_embedding"
