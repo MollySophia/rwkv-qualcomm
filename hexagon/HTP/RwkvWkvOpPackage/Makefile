@@ -1,14 +1,3 @@
-#=============================================================================
-#
-#  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#  All rights reserved.
-#  Confidential and Proprietary - Qualcomm Technologies, Inc.
-#
-#=============================================================================
-
-# users should provide locations for QNN_INCLUDE and HEXAGON_SDK_ROOT
-# export HEXAGON_SDK_ROOT = /path/to/hexagon-sdk
-
 # check all setup prerequisites if the command goal is not clean
 ifneq ($(MAKECMDGOALS),clean)
 ifndef QNN_INCLUDE
@@ -48,7 +37,7 @@ HEXAGON_SDK_ROOT_V69 := $(HEXAGON_SDK_BASE)/hexagon-sdk-4.3.0
 HEXAGON_SDK_ROOT_V73 := $(HEXAGON_SDK_BASE)/hexagon-sdk-5.4.0
 HEXAGON_SDK_ROOT_V75 := $(HEXAGON_SDK_BASE)/hexagon-sdk-5.4.0
 HEXAGON_SDK_ROOT_V79 := $(HEXAGON_SDK_BASE)/hexagon-sdk-6.2.0
-HEXAGON_SDK_ROOT_V81 := $(HEXAGON_SDK_BASE)/hexagon-sdk-6.2.0
+HEXAGON_SDK_ROOT_V81 := $(HEXAGON_SDK_BASE)/hexagon-sdk-6.4.0
 
 #Updated to point to latest sdk to match with libQnnHtp.so
 HEXAGON_SDK_ROOT_X86 := $(HEXAGON_SDK_ROOT_V81)
@@ -57,10 +46,10 @@ HEXAGON_TOOLS_VERSION_V69 := 8.5.03
 HEXAGON_TOOLS_VERSION_V73 := 8.6.02
 HEXAGON_TOOLS_VERSION_V75 := 8.7.03
 HEXAGON_TOOLS_VERSION_V79 := 8.8.06
-HEXAGON_TOOLS_VERSION_V81 := 19.0.01
+HEXAGON_TOOLS_VERSION_V81 := 19.0.04
 
 #Updated to point to latest sdk to match with libQnnHtp.so
-HEXAGON_TOOLS_VERSION_X86 := 8.8.06
+HEXAGON_TOOLS_VERSION_X86 := 19.0.04
 
 ifndef ANDROID_NDK_ROOT
 ifeq ($(MAKECMDGOALS),htp_aarch64)

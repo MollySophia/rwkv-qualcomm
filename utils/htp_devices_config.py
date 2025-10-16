@@ -1,6 +1,14 @@
 import json
 
 htp_devices = {
+    "SC8480XP": {
+        "dsp_arch": "v81",
+        "soc_id": 88,
+    },
+    "SM8850": {
+        "dsp_arch": "v81",
+        "soc_id": 87,
+    },
     "SM8750": {
         "dsp_arch": "v79",
         "soc_id": 69,
