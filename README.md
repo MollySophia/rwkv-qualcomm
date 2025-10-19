@@ -3,7 +3,6 @@
 ## Features
 - Support for RWKV v5, v6 and experimentally v7 models
 - Inference RWKV using QNN SDK, with Qualcomm CPU, GPU or HTP (Hexagon Tensor Processor) as the backend.
-- Support for whole-model float16 inference (since Qualcomm HTP cannot do float32 math).
 - Support for activation INT16 and weights INT8 quantized inference (with some key operations running with float16).
 - Support for activation INT16 and weights INT4/INT8 mixed quantized inference.
 
@@ -12,7 +11,7 @@
 - Setup the QNN SDK environment by following the instructions in Qualcomm's [documents](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/introduction.html).
 - Setup the $QNN_SDK_ROOT environment variable to point to the QNN SDK installation directory. It should by default be installed at /opt/qcom/aistack/qnn/{version}.
 - This project has been verified with:
-    - QNN SDK 2.39.0.250926
+    - QNN SDK 2.39.3.251009
     - python==3.10 (as is recommended by QNN SDK documentation)
     - onnx==1.16.1
     - onnx_graphsurgeon==0.5.8
