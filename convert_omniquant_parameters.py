@@ -27,8 +27,6 @@ for i in omniquant_parameters.keys():
         if 'lowbound' in key:
             continue
 
-        if 'lora.2' in key or 'head' in key:
-            continue
         model_key = key.replace('attn', 'att').replace('r_proj', 'receptance')
         model_key = model_key.replace('v_proj', 'value').replace('k_proj', 'key')
         model_key = model_key.replace('o_proj', 'output')
@@ -39,6 +37,9 @@ for i in omniquant_parameters.keys():
             model[model_key] = model[model_key.replace(".weight", "")].t()
         if "lm_head" in model_key:
             model_key = "head.weight"
+
+        if 'lora.2' in key or 'head' in key or 'output.weight' in model_key:
+            continue
 
         xmax = model[model_key].max(dim=1, keepdim=True)[0].float()
         xmin = model[model_key].min(dim=1, keepdim=True)[0].float()

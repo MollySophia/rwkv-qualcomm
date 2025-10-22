@@ -19,13 +19,15 @@
     - onnxscript==0.2.6
     - protobuf==5.29.3
     - torch==2.1.2
-    - aimet-torch==2.8.0
+    - aimet-torch==2.17.0
 
 ## Tested Devices
 ### Android devices
-- Snapdragon 8 Elite (SM8750) with HTP v79 (Xiaomi Mi 15)
+- Snapdragon 8 Elite Gen5 (SM8850) with HTP v81 (Xiaomi 17)
+- Snapdragon 8 Elite (SM8750) with HTP v79 (Xiaomi Mi 15 and Oppo Find N5)
 - Snapdragon 8 Gen 3 (SM8650) with HTP v75 (Xiaomi Mi 14)
-- Snapdragon 8s Gen 3 (SM8635) with HTP v73 (Xiaomi Civi 4 Pro)
+- Snapdragon 8s Gen 3 (SM8635) with HTP v73 (Xiaomi Civi 4 Pro and Xiaomi MiPad 7 Pro)
+- Snapdragon 8 Gen 2 (SM8550) with HTP v73 (Ayn Odin 2)
 - Snapdragon 8+ Gen 1 (SM8475) with HTP v69 (Xiaomi MiPad 6 Pro)
 - Snapdragon 778G (SM7325) with HTP v68 (Qualcomm QRD7325)
 
@@ -33,7 +35,7 @@
 - Qualcomm Snapdragon X Elite laptops (without customop support yet)
 
 ### Linux devices
-- Dragonwing QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel)
+- Dragonwing QCM6490 with HTP v68 (Radxa Dragon Q6A under mainline kernel, and QuecPi Alpha with qualcomm linux)
 
 ## Usage
 ### *This tutorial is obsolete. I will update it soon.*
