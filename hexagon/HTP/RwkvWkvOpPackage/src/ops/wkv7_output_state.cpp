@@ -117,11 +117,11 @@ DEF_PACKAGE_OPTIMIZATION_WITH_FLAGS(
 //   )
 // )
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7_output_state.fp16.flat", SNAIL, Flags::RESOURCE_HVX)
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7_output_state.fp16.flat.tcm", SNAIL, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<PlainFloat16Tensor, PlainFloat16Tensor>), "wkv7_output_state.fp16", SNAIL, Flags::RESOURCE_HVX)
+// DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<PlainFloat16Tensor_TCM, PlainFloat16Tensor_TCM>), "wkv7_output_state.fp16.flat.tcm", SNAIL, Flags::RESOURCE_HVX)
 
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloatImpl<PlainFloatTensor>), "wkv7_output_state.flat", SNAIL, Flags::RESOURCE_HVX)
-DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloatImpl<PlainFloatTensor_TCM>), "wkv7_output_state.flat.tcm", SNAIL, Flags::RESOURCE_HVX)
+DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloatImpl<PlainFloatTensor>), "wkv7_output_state", SNAIL, Flags::RESOURCE_HVX)
+// DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloatImpl<PlainFloatTensor_TCM>), "wkv7_output_state.flat.tcm", SNAIL, Flags::RESOURCE_HVX)
 
 DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<QuantUint16Tensor, QuantUint16Tensor>), "wkv7_output_state.uint16", SNAIL, Flags::RESOURCE_HVX)
 // DEF_PACKAGE_OP_AND_COST_AND_FLAGS((wkv7OutputStateFloat16Impl<QuantUint16Tensor_TCM, QuantUint16Tensor_TCM>), "wkv7_output_state.uint16.flat.dequant.tcm", SNAIL, Flags::RESOURCE_HVX)

@@ -22,7 +22,7 @@ register_customop_symbols()
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
-parser.add_argument('--qnn_float_width', type=int, default=32, help='QNN float width')
+parser.add_argument('--qnn_float_width', type=int, default=16, help='QNN float width')
 parser.add_argument('--ext_embedding', action='store_true', default=False, help='Use external embedding')
 parser.add_argument('--ext_lmhead', action='store_true', default=False, help='Use external head')
 parser.add_argument('--quant_encodings', type=Path, help='Path to quant encodings')
@@ -425,7 +425,7 @@ else:
 
     encoding_path = str(parser_args.quant_encodings) if parser_args.quant_encodings else None
     # if encoding_path and (not args.USE_EMBEDDING or has_deepemb or not parser_args.wkv_customop):
-    if True:
+    if encoding_path:
         with open(encoding_path, 'r') as f:
             encodings_all = json.load(f)
         if not args.USE_EMBEDDING:
