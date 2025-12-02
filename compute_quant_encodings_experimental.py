@@ -30,6 +30,7 @@ parser.add_argument('--load_encodings', type=Path, default=None, help='Path to l
 parser.add_argument('--w8_embedding', action='store_true', help='Use int8 quantization for embedding')
 parser.add_argument('--w4_head', action='store_true', help='Use int4 quantization for head')
 parser.add_argument('--heads_per_split', type=int, default=8, help='Number of heads per split')
+parser.add_argument('--data_no_padding', action='store_true', help='Do not pad the data')
 args_parser = parser.parse_args()
 
 SEED = 42
@@ -262,38 +263,40 @@ dataloader = None
 if args_parser.binidx_dataset is not None:
     from utils.indexed_dataset import MMapIndexedDataset
     dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
-    block_size = 2048
-    len_total = 1
-    took = []
-    tokens = np.array([0])
-    while len_total < max(args_parser.calib_num_batches, args_parser.seqmse_num_batches) * block_size:
-        if len(took) >= len(dataset):
-            break
-        idx = random.randint(0, len(dataset) - 1)
-        while idx in took:
+    if not args_parser.data_no_padding:
+        block_size = 8192
+        print(f"Padding data to {block_size} tokens")
+        len_total = 1
+        took = []
+        tokens = np.array([0])
+        while len_total < max(args_parser.calib_num_batches, args_parser.seqmse_num_batches) * block_size:
             if len(took) >= len(dataset):
                 break
             idx = random.randint(0, len(dataset) - 1)
-        took.append(idx)
-        len_total += len(dataset[idx])
-        tokens = np.concatenate((tokens, np.array([0]), np.array(dataset[idx])), axis=0)
+            while idx in took:
+                if len(took) >= len(dataset):
+                    break
+                idx = random.randint(0, len(dataset) - 1)
+            took.append(idx)
+            len_total += len(dataset[idx])
+            tokens = np.concatenate((tokens, np.array([0]), np.array(dataset[idx])), axis=0)
 
-    class CustomDataset(torch.utils.data.Dataset):
-        def __init__(self, tokens, block_size=2048):
-            self.full_tokens = tokens
-            self.block_size = block_size
-            self._len = len(tokens) // block_size
+        class CustomDataset(torch.utils.data.Dataset):
+            def __init__(self, tokens, block_size=2048):
+                self.full_tokens = tokens
+                self.block_size = block_size
+                self._len = len(tokens) // block_size
 
-        def __len__(self):
-            return self._len
+            def __len__(self):
+                return self._len
 
-        def __getitem__(self, idx):
-            start_idx = idx * self.block_size
-            end_idx = (idx+1) * self.block_size
+            def __getitem__(self, idx):
+                start_idx = idx * self.block_size
+                end_idx = (idx+1) * self.block_size
 
-            input_ids = self.full_tokens[start_idx:end_idx]
-            return input_ids
-    dataset = CustomDataset(tokens, block_size)
+                input_ids = self.full_tokens[start_idx:end_idx]
+                return input_ids
+        dataset = CustomDataset(tokens, block_size)
     def collate_fn(x):
         return {'input_ids': torch.LongTensor(np.array(x, dtype=np.int64))}
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=collate_fn)

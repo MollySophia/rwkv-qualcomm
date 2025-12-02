@@ -38,7 +38,7 @@ for i in omniquant_parameters.keys():
         if "lm_head" in model_key:
             model_key = "head.weight"
 
-        if 'lora.2' in key or 'head' in key or 'output.weight' in model_key:
+        if 'lora' in key or 'head' in key or 'output.weight' in model_key:
             continue
 
         xmax = model[model_key].max(dim=1, keepdim=True)[0].float()
