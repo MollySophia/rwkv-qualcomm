@@ -34,6 +34,7 @@ parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
 parser.add_argument('--save_input_vectors', action='store_true', help='Save input vectors')
 parser.add_argument('--input_vectors_save_path', type=Path, default="test_vector", help='Path to save input vectors')
 parser.add_argument('--heads_per_split', type=int, default=8, help='Number of heads per split')
+parser.add_argument('--output_name', type=str, default=None, help='Output name for generated files (without extension). If not provided, uses input model filename.')
 parser_args = parser.parse_args()
 
 seq_length = parser_args.prefill_seq_length if parser_args.prefill_model else 1
@@ -80,7 +81,14 @@ def save_input_vectors(input_tensors_list, input_vectors_save_path):
 
 if type(model) == list:
     args = model[0].args
-    filename = args.MODEL_NAME.split("/")[-1]
+    # Use output_name if provided, otherwise extract from input model path
+    if parser_args.output_name:
+        filename = parser_args.output_name
+    else:
+        filename = args.MODEL_NAME.split("/")[-1]
+        # Remove extension if present
+        if '.' in filename:
+            filename = os.path.splitext(filename)[0]
     input_dtype = torch.float16 if args.fp16 else torch.float32
 
     if args.EXTERNAL_HEAD:
@@ -127,7 +135,12 @@ if type(model) == list:
 
 
     for i in range(len(model)):
+        # Add prefill and bsz suffix to dirname to allow parallel execution
         dirname = "onnx/" + filename + f"_chunk{i+1}of{len(model)}"
+        if parser_args.prefill_model:
+            dirname += "_prefill"
+        if parser_args.batch_size > 1:
+            dirname += f"_bsz{parser_args.batch_size}"
         os.path.exists(dirname) or os.mkdir(dirname)
         if i == 0 and args.USE_EMBEDDING:
             in0 = torch.LongTensor([[1]*seq_length] * batch_size, device=model[i].device)
@@ -255,7 +268,12 @@ if type(model) == list:
 
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
+        # Add prefill and bsz suffix to dirname to allow parallel execution
         dirname = "onnx/" + filename + f"_chunk{i+1}of{len(model)}"
+        if parser_args.prefill_model:
+            dirname += "_prefill"
+        if parser_args.batch_size > 1:
+            dirname += f"_bsz{parser_args.batch_size}"
         onnx_output_path = f"{dirname}/{filename}"
         if parser_args.ext_embedding:
             onnx_output_path += "_embedding"
@@ -284,7 +302,10 @@ if type(model) == list:
 
         if os.name == 'nt':
             converter_cmd = "python " + converter_cmd
-        os.system(converter_cmd)
+        result = os.system(converter_cmd)
+        if result != 0:
+            print(f"Error converting QNN dlc model: {converter_cmd}")
+            exit(1)
 
         if parser_args.quant_encodings:
             print("Quantizing QNN dlc model...")
@@ -293,7 +314,10 @@ if type(model) == list:
                 quant_cmd = "python " + quant_cmd
             print(quant_cmd)
 
-            os.system(quant_cmd)
+            result = os.system(quant_cmd)
+            if result != 0:
+                print(f"Error quantizing QNN dlc model: {quant_cmd}")
+                exit(1)
         if not parser_args.no_cleanup:
             for file in os.listdir(dirname):
                 filepath = os.path.join(dirname, file)
@@ -302,8 +326,20 @@ if type(model) == list:
                         os.remove(filepath)
 else:
     args = model.args
-    filename = args.MODEL_NAME.split("/")[-1]
+    # Use output_name if provided, otherwise extract from input model path
+    if parser_args.output_name:
+        filename = parser_args.output_name
+    else:
+        filename = args.MODEL_NAME.split("/")[-1]
+        # Remove extension if present
+        if '.' in filename:
+            filename = os.path.splitext(filename)[0]
+    # Add prefill and bsz suffix to dirname to allow parallel execution
     dirname = "onnx/" + filename
+    if parser_args.prefill_model:
+        dirname += "_prefill"
+    if parser_args.batch_size > 1:
+        dirname += f"_bsz{parser_args.batch_size}"
     os.path.exists(dirname) or os.mkdir(dirname)
     if not args.USE_EMBEDDING:
         if not parser_args.quant_encodings:
@@ -484,7 +520,10 @@ else:
     if os.name == 'nt':
         converter_cmd = "python " + converter_cmd
     print(converter_cmd)
-    os.system(converter_cmd)
+    exit_code = os.system(converter_cmd)
+    if exit_code != 0:
+        print(f"Error: qairt-converter failed with exit code {exit_code}")
+        exit(1)
 
     if parser_args.quant_encodings:
         print("Quantizing QNN dlc model...")
@@ -492,7 +531,10 @@ else:
         if os.name == 'nt':
             quant_cmd = "python " + quant_cmd
         print(quant_cmd)
-        os.system(quant_cmd)
+        exit_code = os.system(quant_cmd)
+        if exit_code != 0:
+            print(f"Error: qairt-quantizer failed with exit code {exit_code}")
+            exit(1)
 
     if not parser_args.no_cleanup:
         # Delete all files in output_path except .dlc files

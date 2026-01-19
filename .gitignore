@@ -21,3 +21,11 @@ test_wkv*
 test_data*
 QNN/
 v7_*_quant/
+*.bin
+*.idx
+*.pth
+*.gguf
+*.dlc
+*.rmpack
+*.encodings
+omniquant_encodings_*.json

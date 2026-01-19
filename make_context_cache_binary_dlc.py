@@ -37,7 +37,8 @@ def main():
 
     convert_cmd += " --input_output_tensor_mem_type memhandle"
     # convert_cmd += " --enable_intermediate_outputs"
-    os.system(convert_cmd)
+    result = os.system(convert_cmd)
+    exit(result)
 
 if __name__ == '__main__':
     main()

@@ -264,7 +264,7 @@ if args_parser.binidx_dataset is not None:
     from utils.indexed_dataset import MMapIndexedDataset
     dataset = MMapIndexedDataset(str(args_parser.binidx_dataset))
     if not args_parser.data_no_padding:
-        block_size = 8192
+        block_size = 4096
         print(f"Padding data to {block_size} tokens")
         len_total = 1
         took = []
