@@ -15,6 +15,10 @@ import random
 import argparse
 
 MODEL_FILES = {
+    # "sudoku": {
+    #     "path": "/home/molly/workspace/rwkv-qualcomm/sudoku_rwkv-v7-L10-D320.pth",
+
+    # },
     "ABC-Music": {
         "path": "/home/molly/workspace/models/RWKV-7-ABC-2024-11-22-15-50-00.pth",
         "encoding": "quant_export/v7-abc/RWKV-7-ABC-2024-11-22-15-50-00.encodings",
@@ -50,6 +54,7 @@ MODEL_FILES = {
         "encoding": "quant_export/modrwkv-v3-0b4-251113/modrwkv-v3-0.4b-251113.encodings",
         "size": "0.4",
         "quant": "a16w8",
+        "need_embed_graph": True,
     },
     "0.4B-translate": {
         "path": "/models/RWKV_v7_G1a_0.4B_Translate_ctx4096_20250915_latest.pth",
@@ -76,8 +81,8 @@ MODEL_FILES = {
         "quant": "a16w8",
     },
     "1.5B-RolePlay": {
-        "path": "/models/rwkv7-g1a3-1.5B-disha-roleplay-ctx8192-251107.pth",
-        "encoding": "quant_export/g1a3-roleplay-1b5/rwkv7-g1a3-1.5B-disha-roleplay-ctx8192-251107.encodings",
+        "path": "/models/rwkv7-g1c-1.5B-MiSS-Roleplay-260116-ctx8192.pth",
+        "encoding": "quant_export/g1c-1b5-w8-roleplay/rwkv7-g1c-1.5B-MiSS-Roleplay-260116-ctx8192.encodings",
         "size": "1.5",
         "quant": "a16w8",
     },
@@ -124,6 +129,7 @@ DEVICE_MATRIX = {
     "8gen2": "SM8550",
     "8plusgen1": "SM8475",
     "6490": "SM7325",
+    "xelite": "SC8380",
 }
 
 EXTRA_BSZ_CONVERTING = {
@@ -133,13 +139,12 @@ EXTRA_BSZ_CONVERTING = {
     "2.9B-w4": [2, 4, 6, 8],
 }
 
-FULL_BSZ_DEVICES = ["8gen3", "8elite", "8sgen3", "8elitegen5"]
+FULL_BSZ_DEVICES = ["8gen3", "8elite", "8sgen3", "8elitegen5", "xelite"]
 LIMITED_BSZ_DEVICES = ["8gen2"]
 
 VOCAB_SIZE = 65536
 
 CHUNKS_BY_SIZE = {
-    # Defaults for convert_model_dlc.py --chunks; can be overridden per model via MODEL_FILES[...]["chunks"]
     "0.08": 1,
     "0.1": 1,
     "0.4": 4,
@@ -172,7 +177,13 @@ def resolve_model_name(model_key, cfg):
 
     return model_key
 
-def construct_context_binary_cmd(model_name, num_chunks, added_bszs, quant_type, device_name, device_codename, output_path="output/"):
+def construct_context_binary_cmd(model_name, num_chunks, added_bszs, quant_type, device_name, device_codename, output_path="output/", need_embed_graph=False):
+    """
+    Build make_context_cache_binary_dlc.py commands.
+    
+    Args:
+        need_embed_graph: If True, include ext_embedding variants (decode and prefill) in the model list
+    """
     # model_name already includes quant suffix from build_context_cache_commands
     if num_chunks == 1:
         # decode and prefill use different directories now
@@ -180,6 +191,14 @@ def construct_context_binary_cmd(model_name, num_chunks, added_bszs, quant_type,
             f"onnx/{model_name}/{model_name}.dlc",
             f"onnx/{model_name}_prefill/{model_name}_prefill.dlc"
         ]
+        
+        # Add ext_embedding variants if needed
+        if need_embed_graph:
+            models.extend([
+                f"onnx/{model_name}_embedding/{model_name}_ext_embedding.dlc",
+                f"onnx/{model_name}_embedding_prefill/{model_name}_ext_embedding_prefill.dlc"
+            ])
+        
         if added_bszs is not None:
             for bsz in added_bszs:
                 # dirname includes bsz suffix for batch_size > 1
@@ -198,6 +217,14 @@ def construct_context_binary_cmd(model_name, num_chunks, added_bszs, quant_type,
                 f"{base_dirname}/{model_name}_chunk{chunk_id+1}of{num_chunks}.dlc",
                 f"{base_dirname}_prefill/{model_name}_prefill_chunk{chunk_id+1}of{num_chunks}.dlc"
             ]
+            
+            # Add ext_embedding variants if needed
+            if need_embed_graph:
+                models.extend([
+                    f"{base_dirname}_embedding/{model_name}_embedding_chunk{chunk_id+1}of{num_chunks}.dlc",
+                    f"{base_dirname}_embedding_prefill/{model_name}_embedding_prefill_chunk{chunk_id+1}of{num_chunks}.dlc"
+                ])
+            
             if added_bszs is not None:
                 for bsz in added_bszs:
                     # dirname includes bsz suffix for batch_size > 1
@@ -214,10 +241,13 @@ def construct_context_binary_cmd(model_name, num_chunks, added_bszs, quant_type,
             )
         return cmds
 
-def construct_convert_cmd(model_pth, encoding_path, num_chunks, heads_per_split, needed_batchsizes, quant_type, model_key):
+def construct_convert_cmd(model_pth, encoding_path, num_chunks, heads_per_split, needed_batchsizes, quant_type, model_key, need_embed_graph=False):
     """
     Build convert_model_dlc.py commands. Returns a list of commands that can be executed in parallel.
     Uses --output_name parameter to ensure different quant types produce different output paths.
+    
+    Args:
+        need_embed_graph: If True, also generate ext_embedding variants (decode and prefill)
     """
     # Generate output name from model path and quant type
     model_basename = os.path.basename(model_pth)
@@ -229,6 +259,14 @@ def construct_convert_cmd(model_pth, encoding_path, num_chunks, heads_per_split,
         f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --heads_per_split {heads_per_split} --output_name {output_name}",
         f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --wkv_customop --prefill_model --heads_per_split {heads_per_split} --output_name {output_name}",
     ]
+    
+    # Add ext_embedding variants if needed
+    if need_embed_graph:
+        cmds.extend([
+            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name}",
+            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --wkv_customop --ext_embedding --prefill_model --heads_per_split {heads_per_split} --output_name {output_name}",
+        ])
+    
     if needed_batchsizes is not None:
         for bsz in needed_batchsizes:
             cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name}")
@@ -278,13 +316,13 @@ def construct_pack_cmd(
     extra = (" " + " ".join(extra_pack_args)) if len(extra_pack_args) > 0 else ""
     output_pack = f"{output_path}{name}{pack_variant}.rmpack"
 
-    # if cleanup:
-    #     if num_chunks == 1:
-    #         cleanup_cmd = f" && rm -rf {output_path}{name}.bin"
-    #     else:
-    #         cleanup_cmd = f" && rm -rf {output_path}{name}_chunk*.bin"
-    # else:
-    cleanup_cmd = ""
+    if cleanup:
+        if num_chunks == 1:
+            cleanup_cmd = f" && rm -rf {output_path}{name}.bin"
+        else:
+            cleanup_cmd = f" && rm -rf {output_path}{name}_chunk*.bin"
+    else:
+        cleanup_cmd = ""
 
     return (
         f"python pack_model_file.py --hidden_size {hidden_size} --vocab_size {VOCAB_SIZE} "
@@ -437,6 +475,7 @@ def build_convert_commands(selected_models=None):
         num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
         heads_per_split = int(HEADS_PER_SPLIT_BY_SIZE[model_size])
         extra_bszs = EXTRA_BSZ_CONVERTING.get(model_key)
+        need_embed_graph = cfg.get("need_embed_graph", False)
 
         model_cmds = construct_convert_cmd(
             model_pth=model_pth,
@@ -446,6 +485,7 @@ def build_convert_commands(selected_models=None):
             needed_batchsizes=extra_bszs,
             quant_type=quant_type,
             model_key=model_key,
+            need_embed_graph=need_embed_graph,
         )
         # Extend with list of commands to allow parallel execution
         cmds.extend(model_cmds)
@@ -488,6 +528,7 @@ def build_context_cache_commands(selected_models=None, selected_socs=None):
             model_name = f"{base_model_name}-{quant_type}"
             num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
             added_bszs = get_supported_bszs(device_name, model_key, model_size)
+            need_embed_graph = cfg.get("need_embed_graph", False)
 
             cmds.extend(
                 construct_context_binary_cmd(
@@ -497,6 +538,7 @@ def build_context_cache_commands(selected_models=None, selected_socs=None):
                     quant_type=quant_type,
                     device_name=device_name,
                     device_codename=device_codename,
+                    need_embed_graph=need_embed_graph,
                 )
             )
 

@@ -137,6 +137,8 @@ if type(model) == list:
     for i in range(len(model)):
         # Add prefill and bsz suffix to dirname to allow parallel execution
         dirname = "onnx/" + filename + f"_chunk{i+1}of{len(model)}"
+        if parser_args.ext_embedding:
+            dirname += "_embedding"
         if parser_args.prefill_model:
             dirname += "_prefill"
         if parser_args.batch_size > 1:
@@ -270,6 +272,8 @@ if type(model) == list:
     for i in range(len(model)):
         # Add prefill and bsz suffix to dirname to allow parallel execution
         dirname = "onnx/" + filename + f"_chunk{i+1}of{len(model)}"
+        if parser_args.ext_embedding:
+            dirname += "_embedding"
         if parser_args.prefill_model:
             dirname += "_prefill"
         if parser_args.batch_size > 1:
@@ -336,6 +340,8 @@ else:
             filename = os.path.splitext(filename)[0]
     # Add prefill and bsz suffix to dirname to allow parallel execution
     dirname = "onnx/" + filename
+    if parser_args.ext_embedding:
+        dirname += "_embedding"
     if parser_args.prefill_model:
         dirname += "_prefill"
     if parser_args.batch_size > 1:
