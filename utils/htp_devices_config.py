@@ -40,7 +40,11 @@ htp_devices = {
     "SSG2125P": {
         "dsp_arch": "v73",
         "soc_id": 58,
-    }
+    },
+    "SC8280X": {
+        "dsp_arch": "v68",
+        "soc_id": 37,
+    },
 }
 
 def dump_htp_config(soc_name: str, graph_names: list, output_path: str):

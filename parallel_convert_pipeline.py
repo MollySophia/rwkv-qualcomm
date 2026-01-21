@@ -130,6 +130,7 @@ DEVICE_MATRIX = {
     "8plusgen1": "SM8475",
     "6490": "SM7325",
     "xelite": "SC8380",
+    "8cxgen3": "SC8280X",
 }
 
 EXTRA_BSZ_CONVERTING = {
