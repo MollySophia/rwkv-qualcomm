@@ -285,3 +285,9 @@ dummy_quant_override = {
         1.5259021893143654e-05
     ]
 }
+
+float_override = {
+    "bw": 16,
+    "dtype": "FLOAT",
+    "name": "state0_in",
+}

@@ -1,6 +1,6 @@
 from rwkv_src.rwkv_model import RWKV_RNN, make_chunks
 from rwkv_src.rwkv_v7_modules_conv import Wkv7, L2Norm
-from utils.model_utils import register_customop_symbols, get_dummy_state_kvcache, apply_activation_quant_override, dummy_quant_override
+from utils.model_utils import register_customop_symbols, get_dummy_state_kvcache, apply_activation_quant_override, dummy_quant_override, float_override
 import types
 import os
 import torch
@@ -18,6 +18,17 @@ import aimet_torch.onnx_utils
 aimet_torch.onnx_utils.EXPORT_TO_ONNX_DIRECT = True
 
 register_customop_symbols()
+
+def remove_quant_entries(encodings, names):
+    name_set = set(names)
+    if "activation_encodings" in encodings:
+        encodings["activation_encodings"] = [
+            e for e in encodings["activation_encodings"] if e.get("name") not in name_set
+        ]
+    if "param_encodings" in encodings:
+        encodings["param_encodings"] = [
+            e for e in encodings["param_encodings"] if e.get("name") not in name_set
+        ]
 
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
@@ -39,6 +50,10 @@ parser_args = parser.parse_args()
 
 seq_length = parser_args.prefill_seq_length if parser_args.prefill_model else 1
 batch_size = parser_args.batch_size
+
+qnn_float_width = parser_args.qnn_float_width
+# if not parser_args.wkv_customop:
+#     qnn_float_width = 32
 
 model_args = types.SimpleNamespace()
 model_args.USE_CUDA = False
@@ -102,6 +117,9 @@ if type(model) == list:
     if parser_args.quant_encodings:
         with open(parser_args.quant_encodings, 'r') as f:
             encodings_all = json.load(f)
+
+        for i in range(model[0].args.n_layer):
+            remove_quant_entries(encodings_all, [f'state{3*i+1}_in', f'state{3*i+1}_out'])
 
         if parser_args.wkv_customop:
             for i in range(model[0].args.n_layer):
@@ -249,9 +267,27 @@ if type(model) == list:
         print(f"onnx model chunk{i} saved to {onnx_output_path}")
 
         for j in range(model[i].layer_end - model[i].layer_begin):
-            apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_in', dummy_quant_override, encodings_chunk)
-            apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_out', dummy_quant_override, encodings_chunk)
+            remove_quant_entries(encodings_chunk, [
+                f'state{3*(j + model[i].layer_begin)+1}_in',
+                f'state{3*(j + model[i].layer_begin)+1}_out',
+            ])
+            if model_args.wkv_customop:
+                apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_in', dummy_quant_override, encodings_chunk)
+                apply_activation_quant_override(f'state{3*(j + model[i].layer_begin)+1}_out', dummy_quant_override, encodings_chunk)
             for split in range(1 if args.heads_per_split == -1 else args.n_head // args.heads_per_split):
+                if not model_args.wkv_customop:
+                    # remove_quant_entries(encodings_chunk, [
+                    #     f'/blocks.{j}/att/heads.{split}/get_a/Neg_output_0',
+                    #     f'/blocks.{j}/att/heads.{split}/get_b/Mul_output_0',
+                    #     f'/blocks.{j}/att/heads.{split}/post_permute_k/Transpose_output_0'
+                    # ])
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_r_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_w_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_k_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_v_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_a_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+                    apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/reshape_b_nocustomop/Reshape_output_0', float_override, encodings_chunk)
+
                 apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/wkv/wkv7_output_0', dummy_quant_override, encodings_chunk)
                 apply_activation_quant_override(f'/blocks.{j}/att/heads.{split}/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_chunk)
                 if parser_args.batch_size > 1:
@@ -291,7 +327,7 @@ if type(model) == list:
         states_layout = "NONTRIVIAL"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter --input_network {onnx_output_path} "
         converter_cmd += " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
-        converter_cmd += f" --float_bitwidth {parser_args.qnn_float_width} --float_bias_bitwidth {parser_args.qnn_float_width}"
+        converter_cmd += f" --float_bitwidth {qnn_float_width} --float_bias_bitwidth {qnn_float_width}"
         # if args.version == 7:
         #     converter_cmd += f' --source_model_input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
         if i != 0:
@@ -470,6 +506,8 @@ else:
     if encoding_path:
         with open(encoding_path, 'r') as f:
             encodings_all = json.load(f)
+        for i in range(layer_begin, layer_end):
+            remove_quant_entries(encodings_all, [f'state{3*i+1}_in', f'state{3*i+1}_out'])
         if not args.USE_EMBEDDING:
             for v in encodings_all["param_encodings"]:
                 if f'embedding.weight' in v['name']:
@@ -483,9 +521,21 @@ else:
                         break
 
         for i in range(layer_begin, layer_end):
-            apply_activation_quant_override(f'state{3*i+1}_in', dummy_quant_override, encodings_all)
-            apply_activation_quant_override(f'state{3*i+1}_out', dummy_quant_override, encodings_all)
+            if model_args.wkv_customop:
+                apply_activation_quant_override(f'state{3*i+1}_in', dummy_quant_override, encodings_all)
+                apply_activation_quant_override(f'state{3*i+1}_out', dummy_quant_override, encodings_all)
             for split in range(1 if args.heads_per_split == -1 else args.n_head // args.heads_per_split):
+                if not model_args.wkv_customop:
+                    # remove_quant_entries(encodings_all, [
+                    #     f'/blocks.{i}/att/heads.{split}/get_a/Neg_output_0',
+                    #     f'/blocks.{i}/att/heads.{split}/get_b/Mul_output_0',
+                    # ])
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_r_nocustomop/Reshape_output_0', float_override, encodings_all)
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_w_nocustomop/Reshape_output_0', float_override, encodings_all)
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_k_nocustomop/Reshape_output_0', float_override, encodings_all)
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_v_nocustomop/Reshape_output_0', float_override, encodings_all)
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_a_nocustomop/Reshape_output_0', float_override, encodings_all)
+                    apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/reshape_b_nocustomop/Reshape_output_0', float_override, encodings_all)
                 apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/wkv/wkv7_output_0', dummy_quant_override, encodings_all)
                 apply_activation_quant_override(f'/blocks.{i}/att/heads.{split}/wkv7/wkv_output_state/wkv7_output_state_output_0', dummy_quant_override, encodings_all)
                 if parser_args.batch_size > 1:
@@ -510,7 +560,7 @@ else:
     print("Converting to QNN model...")
     states_layout = "NONTRIVIAL"
     converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter -i {onnx_output_path}  " + " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(layer_begin, layer_end)])
-    converter_cmd += f" --float_bitwidth {parser_args.qnn_float_width} --float_bias_bitwidth {parser_args.qnn_float_width}"
+    converter_cmd += f" --float_bitwidth {qnn_float_width} --float_bias_bitwidth {qnn_float_width}"
     if parser_args.ext_embedding:
         converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
 

@@ -59,13 +59,6 @@ class Wkv7(nn.Module):
         self.custom_wkv = custom_wkv
 
         if not self.custom_wkv:
-            self.apply_time_decay = Multiply()
-            self.matmul_sa = MatMul()
-            self.matmul_sab = MatMul()
-            self.matmul_kv = MatMul()
-            self.matmul_r = MatMul()
-            self.add_kv = Add()
-            self.add_sab = Add()
             self.reshape_r_nocustomop = Reshape()
             self.reshape_w_nocustomop = Reshape()
             self.reshape_k_nocustomop = Reshape()
@@ -77,7 +70,6 @@ class Wkv7(nn.Module):
         self.reshape_w = Reshape()
         self.reshape_k = Reshape()
         self.reshape_v = Reshape()
-        self.matmul_kv = MatMul()
         self.reshape_a = Reshape()
         self.reshape_b = Reshape()
         self.reshape_x = Reshape()
@@ -140,24 +132,33 @@ class Wkv7(nn.Module):
                 a = self.reshape_a_nocustomop(a, [batch_size, self.num_heads, self.head_size, 1])
                 b = self.reshape_b_nocustomop(b, [batch_size, self.num_heads, 1, self.head_size])
 
-                kv = self.matmul_kv(v, k)
-                state2_out = self.add_kv(self.add_sab(self.apply_time_decay(state2, w), self.matmul_sab(self.matmul_sa(state2, a), b)), kv)
-                x = self.matmul_r(state2_out, r).view(batch_size, self.num_heads, 1, self.head_size)
+                kv = v @ k
+                sab = state2 @ a @ b
+                state2_out = w * state2 + kv + sab
+                x = (state2_out @ r).view(batch_size, self.num_heads, 1, self.head_size)
             else:
                 assert batch_size == 1
-                r = r.view(seq_length, self.num_heads, self.head_size, 1)
-                v = v.view(seq_length, self.num_heads, self.head_size, 1)
-                k = k.view(seq_length, self.num_heads, 1, self.head_size)
-                w = w.view(seq_length, self.num_heads, 1, self.head_size)
-                b = b.view(seq_length, self.num_heads, 1, self.head_size)
-                a = a.view(seq_length, self.num_heads, self.head_size, 1)
-                kv = self.matmul_kv(v, k)
-                x = torch.zeros(seq_length, self.num_heads, self.head_size, 1, device=k.device, dtype=kv.dtype)
+                r = self.reshape_r_nocustomop(r, [seq_length, self.num_heads, self.head_size, 1])
+                w = self.reshape_w_nocustomop(w, [seq_length, self.num_heads, 1, self.head_size])
+                k = self.reshape_k_nocustomop(k, [seq_length, self.num_heads, 1, self.head_size])
+                v = self.reshape_v_nocustomop(v, [seq_length, self.num_heads, self.head_size, 1])
+                a = self.reshape_a_nocustomop(a, [seq_length, self.num_heads, self.head_size, 1])
+                b = self.reshape_b_nocustomop(b, [seq_length, self.num_heads, 1, self.head_size])
+
+                r_list = list(self.split_r(r, 1, dim=0))
+                w_list = list(self.split_w(w, 1, dim=0))
+                k_list = list(self.split_k(k, 1, dim=0))
+                v_list = list(self.split_v(v, 1, dim=0))
+                a_list = list(self.split_a(a, 1, dim=0))
+                b_list = list(self.split_b(b, 1, dim=0))
+                x_list = []
                 for i in range(seq_length):
-                    state2 = self.apply_time_decay(state2, w[i, :, :, :]) + (state2 @ a[i, :, :, :] @ b[i, :, :, :]) + kv[i, :, :, :]
-                    x[i, :, :, :] = state2 @ r[i, :, :, :]
+                    kv = v_list[i] @ k_list[i]
+                    sab = state2 @ a_list[i] @ b_list[i]
+                    state2 = state2 * w_list[i] + kv + sab
+                    x_list.append(state2 @ r_list[i])
                 state2_out = state2
-                x = x.view(seq_length, self.num_heads, 1, self.head_size)
+                x = torch.cat(x_list, dim=0).view(seq_length, self.num_heads, 1, self.head_size)
 
         return x, state2_out
 
