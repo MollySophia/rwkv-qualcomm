@@ -257,6 +257,10 @@ if args_parser.use_w4_seq_mse or args_parser.blockwise_quant or args_parser.use_
     if args_parser.w4_head:
         set_linear_weight_quantizer_to_4bit(sim.model.head)
 
+if has_deep_embedding:
+    for i in range(len(sim.model.deep_emb)):
+        sim.model.deep_emb[i].param_quantizers['weight'] = Q.affine.Quantize((), bitwidth=8, symmetric=False).to(device)
+
 tokenizer = RWKV_TOKENIZER("./assets/rwkv_vocab_v20230424.txt")
 
 dataloader = None

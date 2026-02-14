@@ -111,7 +111,7 @@ def main():
     parser.add_argument('--external_embedding_file', type=Path, default=None, help='external embedding file')
     parser.add_argument('--external_embedding_dtype', type=str, default='uint16', choices=['uint16', 'fp16', 'fp32'], help='external embedding dtype')
     parser.add_argument('--external_deep_embedding_file', type=Path, default=None, help='external deep embedding file')
-    parser.add_argument('--external_deep_embedding_dtype', type=str, default='uint16', choices=['uint16', 'fp16', 'fp32'], help='external deep embedding dtype')
+    parser.add_argument('--external_deep_embedding_dtype', type=str, default='uint16', choices=['uint8', 'uint16', 'fp16', 'fp32'], help='external deep embedding dtype')
     parser.add_argument('--deep_emb_size', type=int, default=0, help='deep embedding size')
     parser.add_argument('--external_lmhead_file', type=Path, default=None, help='external lmhead file')
     parser.add_argument('--external_lmhead_filetype', type=str, default='mnn', choices=['mnn', 'raw_fp32', 'raw_fp16'], help='external lmhead filetype')

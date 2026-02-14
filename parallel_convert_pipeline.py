@@ -37,9 +37,18 @@ MODEL_FILES = {
         "size": "0.1",
         "quant": "a16w8",
     },
+    "0.1B-deepemb": {
+        "path": "/models/rwkv7a-g1d-0.1b-20260212-ctx8192.pth",
+        "encoding": "quant_export/v7a-g1d-0b1/rwkv7a-g1d-0.1b-20260212-ctx8192.encodings",
+        "size": "0.1",
+        "quant": "a16w8",
+        "deep_emb_dtype": "uint8",
+        "is_deepemb": True,
+        "deep_emb_size": 1024,
+    },
     "0.4B": {
-        "path": "/models/rwkv7-g1a-0.4b-20250905-ctx4096.pth",
-        "encoding": "quant_export/g1a-0b4/rwkv7-g1a-0.4b-20250905-ctx4096.encodings",
+        "path": "/models/rwkv7-g1d-0.4b-20260210-ctx8192.pth",
+        "encoding": "quant_export/g1d-0b4/rwkv7-g1d-0.4b-20260210-ctx8192.encodings",
         "size": "0.4",
         "quant": "a16w8",
     },
@@ -63,14 +72,14 @@ MODEL_FILES = {
         "quant": "a16w8",
     },
     "1.5B-w8": {
-        "path": "/models/rwkv7-g1c-1.5b-20260110-ctx8192.pth",
-        "encoding": "quant_export/g1c-1b5-w8/rwkv7-g1c-1.5b-20260110-ctx8192.encodings",
+        "path": "/models/rwkv7-g1d-1.5b-20260212-ctx8192.pth",
+        "encoding": "quant_export/g1d-1b5-w8/rwkv7-g1d-1.5b-20260212-ctx8192.encodings",
         "size": "1.5",
         "quant": "a16w8",
     },
     "1.5B-w4": {
-        "path": "/models/rwkv7-g1c-1.5b-20260110-ctx8192.pth",
-        "encoding": "quant_export/g1c-1b5-w4/rwkv7-g1c-1.5b-20260110-ctx8192.encodings",
+        "path": "/models/rwkv7-g1d-1.5b-20260212-ctx8192.pth",
+        "encoding": "quant_export/g1d-1b5-w4/rwkv7-g1d-1.5b-20260212-ctx8192.encodings",
         "size": "1.5",
         "quant": "a16w4",
     },
@@ -311,40 +320,48 @@ def construct_convert_cmd(
     output_name = f"{model_name_without_ext}-{quant_type}"
     output_name_nocustomop = f"{output_name}-nocustomop"
     
-    prefill_encoding_path = encoding_path.replace(".encodings", "_prefill.encodings")
+    quant_encodings_arg = f" --quant_encodings {encoding_path}" if encoding_path is not None else ""
+    prefill_encoding_path = (
+        encoding_path.replace(".encodings", "_prefill.encodings")
+        if encoding_path is not None
+        else None
+    )
+    prefill_quant_encodings_arg = (
+        f" --quant_encodings {prefill_encoding_path}" if prefill_encoding_path is not None else ""
+    )
     prefill_seq_length_arg = ""
     if generate_nocustomop and str(model_size) == "1.5":
         # 1.5B nocustomop models use shorter prefill length
         prefill_seq_length_arg = " --prefill_seq_length 8"
     cmds = [
-        f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --heads_per_split {heads_per_split} --output_name {output_name}",
-        f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --wkv_customop --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
+        f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --heads_per_split {heads_per_split} --output_name {output_name}",
+        f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
     ]
     if generate_nocustomop:
         cmds.extend(
             [
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
             ]
         )
     
     # Add ext_embedding variants if needed
     if need_embed_graph:
         cmds.extend([
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name}",
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --wkv_customop --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
+            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name}",
+            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
         ])
         if generate_nocustomop:
             cmds.extend([
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {prefill_encoding_path} --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
             ])
     
     if needed_batchsizes is not None:
         for bsz in needed_batchsizes:
-            cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --wkv_customop --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name}")
+            cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name}")
             if generate_nocustomop:
-                cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks} --quant_encodings {encoding_path} --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}")
+                cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}")
 
     return cmds
 
@@ -543,7 +560,7 @@ def build_convert_commands(selected_models=None):
             continue
 
         model_pth = cfg["path"]
-        encoding_path = cfg["encoding"]
+        encoding_path = cfg.get("encoding", None)
         model_size = str(cfg["size"])
         quant_type = cfg["quant"]
 
@@ -673,6 +690,20 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
             if device_name in NO_WKV_CUSTOMOP:
                 model_name = f"{model_name}-nocustomop"
             num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
+            extra_pack_args = []
+            if cfg.get("is_deepemb", False):
+                deep_emb_size = cfg.get("deep_emb_size", 1024)
+                deep_emb_dtype = cfg.get("deep_emb_dtype", "uint16")
+                if deep_emb_size is None:
+                    raise ValueError(f"Model {model_key} has is_deepemb=True but missing deep_emb_size")
+                deep_emb_file = f"onnx/{model_name}/{model_name}.{deep_emb_dtype}.deepemb"
+                extra_pack_args.extend(
+                    [
+                        f"--deep_emb_size {deep_emb_size}",
+                        f"--external_deep_embedding_dtype {deep_emb_dtype}",
+                        f"--external_deep_embedding_file {deep_emb_file}",
+                    ]
+                )
 
             pack_bszs = get_pack_bszs(device_name, model_key, model_size)
 
@@ -688,6 +719,7 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
                         target_platform=device_codename,
                         pack_variant="-batch",
                         pack_bszs=pack_bszs,
+                        extra_pack_args=extra_pack_args,
                         cleanup=cleanup,
                     )
                 )
@@ -703,6 +735,7 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
                         target_platform=device_codename,
                         pack_variant="",
                         pack_bszs=None,
+                        extra_pack_args=extra_pack_args,
                         cleanup=cleanup,
                     )
                 )

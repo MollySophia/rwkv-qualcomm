@@ -411,7 +411,7 @@ else:
 
     if has_deepemb:
         if not parser_args.quant_encodings:
-            deepemb_weights_rearranged = torch.cat([model.s_emb_weights[i].unsqueeze(0) for i in range(model.layer_begin, model.layer_end)], dim=0)
+            deepemb_weights_rearranged = torch.cat([model.deep_emb[i].weight.unsqueeze(0) for i in range(model.layer_begin, model.layer_end)], dim=0)
             deepemb_weights_rearranged = deepemb_weights_rearranged.permute(1, 0, 2).contiguous().reshape(args.vocab_size, -1)
             deepemb_weights_rearranged.numpy().astype(np.float16).tofile(dirname + '/' + filename + ".fp16.deepemb")
             print(f"Deep embedding saved to {dirname}/{filename}.fp16.deepemb")
@@ -443,8 +443,13 @@ else:
                 deepemb_weights_list.append(weight)
 
             deepemb_weights = torch.stack(deepemb_weights_list, dim=0).permute(1, 0, 2).contiguous().reshape(args.vocab_size, -1)
-            deepemb_weights.numpy().astype(np.uint16).tofile(dirname + '/' + filename + ".uint16.deepemb")
-            print(f"Deep embedding quantized and saved to {dirname}/{filename}.uint16.deepemb")
+            if bitwidth == 8:
+                deepemb_dtype_name = "uint8"
+                deepemb_weights.numpy().astype(np.uint8).tofile(dirname + '/' + filename + ".uint8.deepemb")
+            elif bitwidth == 16:
+                deepemb_dtype_name = "uint16"
+                deepemb_weights.numpy().astype(np.uint16).tofile(dirname + '/' + filename + ".uint16.deepemb")
+            print(f"Deep embedding quantized and saved to {dirname}/{filename}.{deepemb_dtype_name}.deepemb")
 
     input_dtype = torch.float16 if args.fp16 else torch.float32
 

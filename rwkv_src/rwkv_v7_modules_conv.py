@@ -636,7 +636,9 @@ class Rwkv7aFeedForward(nn.Module):
         self.deepemb_s2.weight = nn.Parameter(state_dict[prefix + 's2'].t().reshape(intermediate_size, 32, 1, 1))
         self.deepemb_s2.bias = nn.Parameter(state_dict[prefix + 's0'].reshape(-1))
 
-        self.matmul_deepemb = MatMul()
+        # self.matmul_deepemb = MatMul()
+        self.matmul_deepemb = Multiply()
+        self.sum_deepemb = Sum()
         self.mul_deepemb = Multiply()
 
     def forward(self, x, state, semb):
@@ -672,9 +674,10 @@ class Rwkv7aFeedForward(nn.Module):
         ss = self.pre_deepemb_s1_transpose(ss, [0, 3, 2, 1])
         ss = self.deepemb_s1(ss)
         ss = self.post_deepemb_s1_transpose(ss, [0, 3, 2, 1])
-        ss = self.post_deepemb_s1_reshape(ss, [-1, 1, 32])
-
+        # ss = self.post_deepemb_s1_reshape(ss, [-1, 1, 32])
+        ss = self.post_deepemb_s1_reshape(ss, [-1, 32, 1])
         ss = self.matmul_deepemb(ss, semb.view(-1, 32, 32))
+        ss = self.sum_deepemb(ss, dim=1)
 
         ss = self.pre_deepemb_s2_reshape(ss, [batch_size, -1, 1, 32])
         ss = self.pre_deepemb_s2_transpose(ss, [0, 3, 2, 1])
@@ -687,10 +690,11 @@ class Rwkv7aFeedForward(nn.Module):
         xk = self.pre_conv_reshape(xk, [batch_size, -1, 1, self.hidden_size])
         xk = self.pre_conv_transpose(xk, [0, 3, 2, 1])
         key = self.key(xk)
+        key = self.pow(self.relu(key), 2)
+
         key = self.post_conv_transpose2(key, [0, 3, 2, 1])
         key = self.post_conv_reshape2(key, [batch_size, -1, self.intermediate_size])
-
-        key = self.pow(self.relu(key), 2)
+        
         key = self.mul_deepemb(key, ss.reshape(batch_size, -1, self.intermediate_size))
 
         key = self.pre_conv_reshape2(key, [batch_size, -1, 1, self.intermediate_size])
