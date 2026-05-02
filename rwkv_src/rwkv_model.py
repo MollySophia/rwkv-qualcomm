@@ -4,7 +4,7 @@
 
 import numpy as np
 np.set_printoptions(precision=4, suppress=True, linewidth=200)
-import types, torch
+import types, torch, math
 import torch.nn as nn
 from torch.nn import functional as F
 from typing import List,Set,Dict
@@ -142,7 +142,8 @@ class RWKV_RNN(torch.nn.Module):
                 self.layer_begin = -1
                 self.layer_end = -1
         else:
-            layers_per_chunk = self.args.n_layer // chunks
+            # layers_per_chunk = self.args.n_layer // chunks
+            layers_per_chunk = math.ceil(self.args.n_layer / chunks)
             self.layer_begin = chunk_idx * layers_per_chunk
             self.layer_end = min(self.args.n_layer, (chunk_idx + 1) * layers_per_chunk)
         self.chunk_idx = chunk_idx

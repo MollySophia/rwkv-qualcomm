@@ -13,6 +13,10 @@ htp_devices = {
         "dsp_arch": "v81",
         "soc_id": 87,
     },
+    "SM8845": {
+        "dsp_arch": "v81",
+        "soc_id": 97,
+    },
     "SM8750": {
         "dsp_arch": "v79",
         "soc_id": 69,
@@ -56,6 +60,10 @@ htp_devices = {
     "SC8280X": {
         "dsp_arch": "v68",
         "soc_id": 37,
+    },
+    "SC8480XP": {
+        "dsp_arch": "v81",
+        "soc_id": 88,
     },
 }
 

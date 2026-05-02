@@ -24,7 +24,7 @@ def upload_file(file):
         return
 
     print(f"Uploading {file}")
-    result = os.system(f"huggingface-cli upload mollysama/rwkv-mobile-models output/{file} {remote_path}")
+    result = os.system(f"hf upload mollysama/rwkv-mobile-models output/{file} {remote_path}")
     if result != 0:
         print(f"Error uploading {file}: {result}")
         exit(result)
