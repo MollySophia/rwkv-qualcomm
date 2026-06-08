@@ -29,3 +29,5 @@ v7_*_quant/
 *.rmpack
 *.encodings
 omniquant_encodings_*.json
+profiling_logs/
+qnn_compare/

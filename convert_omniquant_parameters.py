@@ -15,6 +15,8 @@ parser.add_argument('--omniquant_parameters', type=str, required=True)
 parser.add_argument('--model_path', type=str, required=True)
 parser.add_argument('--output_file', type=str, required=True)
 parser.add_argument('--num_head_splits', type=int, default=4, help='Number of head splits')
+parser.add_argument('--include_att_output', action='store_true',
+                    help='Include attention output projection W4 encodings')
 args = parser.parse_args()
 
 omniquant_parameters = torch.load(args.omniquant_parameters, map_location='cpu')
@@ -38,7 +40,9 @@ for i in omniquant_parameters.keys():
         if "lm_head" in model_key:
             model_key = "head.weight"
 
-        if 'lora' in key or 'head' in key or 'output.weight' in model_key:
+        if 'lora' in key or 'head' in key:
+            continue
+        if 'output.weight' in model_key and not args.include_att_output:
             continue
 
         xmax = model[model_key].max(dim=1, keepdim=True)[0].float()

@@ -30,6 +30,21 @@ def remove_quant_entries(encodings, names):
             e for e in encodings["param_encodings"] if e.get("name") not in name_set
         ]
 
+def dump_quant_encodings(encodings, file):
+    has_lpbq = any(
+        entry.get("enc_type") == "LPBQ"
+        for entry in encodings.get("param_encodings", [])
+    )
+    if has_lpbq:
+        json.dump(encodings, file, separators=(",", ":"))
+    else:
+        json.dump(encodings, file, sort_keys=True, indent=4)
+
+def apply_param_quant_override(name, quant_override, encodings):
+    tmp = copy.deepcopy(quant_override)
+    tmp["name"] = name
+    encodings["param_encodings"].append(tmp)
+
 parser = argparse.ArgumentParser(description='Convert model')
 parser.add_argument('model', type=Path, help='Path to RWKV pth file')
 parser.add_argument('--chunks', type=int, default=2, help='Number of chunks')
@@ -224,7 +239,7 @@ if type(model) == list:
                 else:
                     encoding_block_id = int(v['name'].split(".")[1]) if 'block' in v['name'] else args.n_layer-1
                 if 'state' in v['name'] or (encoding_block_id >= model[i].layer_begin and encoding_block_id < model[i].layer_end):
-                    apply_activation_quant_override(v['name'].replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}"), v, encodings_chunk)
+                    apply_param_quant_override(v['name'].replace(f"blocks.{encoding_block_id}", f"blocks.{encoding_block_id-model[i].layer_begin}"), v, encodings_chunk)
 
         if args.version == 7:
             if i == 0:
@@ -302,7 +317,7 @@ if type(model) == list:
                         elif "wkv7_output_x_output_0" in k and f"blocks.{j}/att/heads.{split}" in k:
                             apply_activation_quant_override(k, x_encoding, encodings_chunk)
         with open(f"{dirname}/quant_encodings_chunk{i}.encodings", "w") as f:
-            json.dump(encodings_chunk, f, sort_keys=True, indent=4)
+            dump_quant_encodings(encodings_chunk, f)
 
     print("Converting and compiling QNN models...")
     for i in range(len(model)):
@@ -324,13 +339,22 @@ if type(model) == list:
         onnx_output_path += f"_chunk{i+1}of{len(model)}.onnx"
         os.path.exists(dirname) or os.mkdir(dirname)
 
+        input_name = 'in'
+        if not args.USE_EMBEDDING and i == 0:
+            input_name += '_embedding'
+        if parser_args.prefill_model:
+            input_name += '_prefill'
+        if parser_args.batch_size > 1:
+            input_name += '_bsz' + str(parser_args.batch_size)
+        input_name += f'_chunk{i+1}'
+
         states_layout = "NONTRIVIAL"
         converter_cmd = f"{qnn_sdk_root}/bin/{qnn_tools_target}/qairt-converter --input_network {onnx_output_path} "
         converter_cmd += " ".join([f'--source_model_input_layout "state{3*j+1}_in" "{states_layout}"' for j in range(model[i].layer_begin, model[i].layer_end)])
         converter_cmd += f" --float_bitwidth {qnn_float_width} --float_bias_bitwidth {qnn_float_width}"
         # if args.version == 7:
         #     converter_cmd += f' --source_model_input_layout "v_first_in{"_prefill" if parser_args.prefill_model else ""}_chunk{i+1}" "NONTRIVIAL"'
-        if i != 0:
+        if i != 0 or not args.USE_EMBEDDING:
             converter_cmd += f' --source_model_input_layout "{input_name}" "NFC"'
 
         if parser_args.quant_encodings:
@@ -558,7 +582,7 @@ else:
 
         encoding_path = f"{dirname}/quant_encodings_prefill.encodings" if parser_args.prefill_model else f"{dirname}/quant_encodings.encodings"
         with open(encoding_path, 'w') as f:
-            json.dump(encodings_all, f, sort_keys=True, indent=4)
+            dump_quant_encodings(encodings_all, f)
 
     del onnxmodel
     del graph

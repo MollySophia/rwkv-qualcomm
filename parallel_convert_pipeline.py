@@ -72,8 +72,8 @@ MODEL_FILES = {
         "quant": "a16w8",
     },
     "1.5B-w8": {
-        "path": "/models/rwkv7-g1f-1.5b-20260419-ctx8192.pth",
-        "encoding": "quant_export/g1f-1b5-w8/rwkv7-g1f-1.5b-20260419-ctx8192.encodings",
+        "path": "/models/rwkv7-g1g-1.5b-20260526-ctx8192.pth",
+        "encoding": "quant_export/g1g-1b5-w8/rwkv7-g1g-1.5b-20260526-ctx8192.encodings",
         "size": "1.5",
         "quant": "a16w8",
     },
@@ -102,10 +102,32 @@ MODEL_FILES = {
         "quant": "a16w8",
     },
     "2.9B-w4": {
-        "path": "/models/rwkv7-g1f-2.9b-20260420-ctx8192.pth",
-        "encoding": "quant_export/g1f-2b9-w4/rwkv7-g1f-2.9b-20260420-ctx8192.encodings",
+        "path": "/models/rwkv7-g1g-2.9b-20260526-ctx8192.pth",
+        "encoding": "quant_export/g1g-2b9-w4/rwkv7-g1g-2.9b-20260526-ctx8192.encodings",
         "size": "2.9",
         "quant": "a16w4",
+    },
+    "2.9B-w4-lpbq": {
+        "path": "/models/rwkv7-g1g-2.9b-20260526-ctx8192.pth",
+        "encoding": "quant_export/g1g-2b9-lpbq-w4/rwkv7-g1g-2.9b-20260526-ctx8192.encodings",
+        "size": "2.9",
+        "quant": "a16w4",
+        "convert_suffix": "a16w4-lpbq",
+        "pack_suffix": "a16w4-lpbq",
+    },
+    "2.9B-w4-lpbq-b32": {
+        "path": "/models/rwkv7-g1g-2.9b-20260526-ctx8192.pth",
+        "encoding": "quant_export/g1g-2b9-lpbq-b32-w4/rwkv7-g1g-2.9b-20260526-ctx8192.encodings",
+        "size": "2.9",
+        "quant": "a16w4",
+        "convert_suffix": "a16w4-lpbq-b32",
+        "pack_suffix": "a16w4-lpbq-b32",
+    },
+    "2.9B-w8": {
+        "path": "/models/rwkv7-g1g-2.9b-20260526-ctx8192.pth",
+        "encoding": "quant_export/g1g-2b9-w8/rwkv7-g1g-2.9b-20260526-ctx8192.encodings",
+        "size": "2.9",
+        "quant": "a16w8",
     },
     "2.9B-roleplay-w4": {
         "path": "/models/rwkv7-g1c-2.9B-MiSS-Roleplay-260115-ctx8192.pth",
@@ -113,16 +135,21 @@ MODEL_FILES = {
         "size": "2.9",
         "quant": "a16w4",
     },
-    # TODO
     "7.2B-w4": {
-        "path": "/models/rwkv7-g1d-7.2b-20260131-ctx8192.pth",
-        "encoding": "quant_export/g1d-7b-w4/rwkv7-g1d-7.2b-20260131-ctx8192.encodings",
+        "path": "/models/rwkv7-g1g-7.2b-20260523-ctx8192.pth",
+        "encoding": "quant_export/g1g-7b-mix-att-rkv-w4/rwkv7-g1g-7.2b-20260523-ctx8192.encodings",
         "size": "7.2",
         "quant": "a16w4",
-        # "extra_pack_args": ["--spill_fill_buffer_size 320000000"],
+        "convert_suffix": "a16w4-mix-att-rkv",
+        "pack_suffix": "a16w4-lpbq",
+        "extra_pack_args": ["--spill_fill_buffer_size 320000000"],
         "need_embed_graph": True,
         "embed_graph_only": True,
-    }
+        "heads_per_split": 8,
+        "chunks_by_soc": {
+            "8gen2": 7,
+        },
+    },
 }
 
 HEADS_PER_SPLIT_BY_SIZE = {
@@ -131,7 +158,7 @@ HEADS_PER_SPLIT_BY_SIZE = {
     "0.4": 4,
     "1.5": 4,
     "2.9": 4,
-    "7.2": 4,
+    "7.2": 8,
 }
 
 DEVICE_MATRIX = {
@@ -159,6 +186,7 @@ EXTRA_BSZ_CONVERTING = {
     "1.5B-w8": [2, 4, 6, 8, 10, 12, 14],
     "1.5B-translate-w8": [2, 4, 6, 8, 10, 12, 14],
     "2.9B-w4": [2, 4, 6, 8],
+    "2.9B-w4-lpbq-b32": [2, 4, 6, 8],
 }
 
 # FULL_BSZ_DEVICES = ["8gen3", "8elite", "8sgen3", "8elitegen5", "xelite", "8sgen4"]
@@ -178,6 +206,7 @@ BSZ_GROUPS = [
         "1.5B-w8": [2, 4, 6, 8, 10, 12, 14],
         "1.5B-translate-w8": [2, 4, 6, 8, 10, 12, 14],
         "2.9B-w4": [2, 4, 6, 8],
+        "2.9B-w4-lpbq-b32": [2, 4, 6, 8],
     },
     {
         "ABC-Music": [2, 4, 6, 8, 10, 12, 14, 16],
@@ -186,6 +215,8 @@ BSZ_GROUPS = [
         "0.4B-translate": [2, 4, 6, 8, 10, 12, 14, 16],
         "1.5B-w8": [2, 4, 6, 8],
         "1.5B-translate-w8": [2, 4, 6, 8],
+        "2.9B-w4": [6],
+        "2.9B-w4-lpbq-b32": [6],
     },
 ]
 assert len(BSZ_GROUPS) == len(BSZ_SOC_GROUPS)
@@ -202,7 +233,7 @@ CHUNKS_BY_SIZE = {
     "0.4": 4,
     "1.5": 4,
     "2.9": 4,
-    "7.2": 6,
+    "7.2": 5,
 }
 
 HIDDEN_SIZE_BY_SIZE = {
@@ -228,6 +259,32 @@ def resolve_model_name(model_key, cfg):
         return os.path.splitext(os.path.basename(encoding_path))[0]
 
     return model_key
+
+def resolve_model_name_with_suffix(model_key, cfg, suffix_key, default_suffix):
+    base_model_name = resolve_model_name(model_key, cfg)
+    suffix = cfg.get(suffix_key, default_suffix)
+    return f"{base_model_name}-{suffix}"
+
+def get_num_chunks_for_soc(cfg, model_size, device_name=None):
+    if device_name is not None:
+        soc_overrides = cfg.get("chunks_by_soc", {})
+        if device_name in soc_overrides:
+            return int(soc_overrides[device_name])
+    return int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
+
+def get_num_chunks_for_convert(model_key, cfg, model_size, selected_socs=None):
+    target_socs = selected_socs if selected_socs is not None else list(DEVICE_MATRIX.keys())
+    chunk_counts = {
+        get_num_chunks_for_soc(cfg, model_size, device_name)
+        for device_name in target_socs
+    }
+    if len(chunk_counts) != 1:
+        raise ValueError(
+            f"Model {model_key} needs different chunk counts for selected SoCs "
+            f"{target_socs}: {sorted(chunk_counts)}. Run conversion with --filter_soc "
+            "groups that share the same chunk count to avoid same-name output collisions."
+        )
+    return next(iter(chunk_counts))
 
 def construct_context_binary_cmd(
     model_name,
@@ -332,7 +389,10 @@ def construct_convert_cmd(
     model_size,
     need_embed_graph=False,
     embed_graph_only=False,
+    generate_customop=True,
     generate_nocustomop=False,
+    output_suffix=None,
+    no_cleanup=False,
 ):
     """
     Build convert_model_dlc.py commands. Returns a list of commands that can be executed in parallel.
@@ -345,7 +405,7 @@ def construct_convert_cmd(
     # Generate output name from model path and quant type
     model_basename = os.path.basename(model_pth)
     model_name_without_ext = os.path.splitext(model_basename)[0]
-    output_name = f"{model_name_without_ext}-{quant_type}"
+    output_name = f"{model_name_without_ext}-{output_suffix or quant_type}"
     output_name_nocustomop = f"{output_name}-nocustomop"
 
     quant_encodings_arg = f" --quant_encodings {encoding_path}" if encoding_path is not None else ""
@@ -357,41 +417,47 @@ def construct_convert_cmd(
     prefill_quant_encodings_arg = (
         f" --quant_encodings {prefill_encoding_path}" if prefill_encoding_path is not None else ""
     )
-    prefill_seq_length_arg = ""
+    nocustomop_prefill_seq_length_arg = ""
     if generate_nocustomop and str(model_size) == "1.5":
         # 1.5B nocustomop models use shorter prefill length
-        prefill_seq_length_arg = " --prefill_seq_length 8"
+        nocustomop_prefill_seq_length_arg = " --prefill_seq_length 8"
+    cleanup_arg = " --no_cleanup" if no_cleanup else ""
     cmds = []
     if not embed_graph_only:
-        cmds = [
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --heads_per_split {heads_per_split} --output_name {output_name}",
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
-        ]
+        if generate_customop:
+            cmds.extend(
+                [
+                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --heads_per_split {heads_per_split} --output_name {output_name}{cleanup_arg}",
+                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --prefill_model --heads_per_split {heads_per_split} --output_name {output_name}{cleanup_arg}",
+                ]
+            )
         if generate_nocustomop:
             cmds.extend(
                 [
-                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
-                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
+                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}{cleanup_arg}",
+                    f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --prefill_model --heads_per_split {heads_per_split}{nocustomop_prefill_seq_length_arg} --output_name {output_name_nocustomop}{cleanup_arg}",
                 ]
             )
 
     # Add ext_embedding variants if needed
     if need_embed_graph:
-        cmds.extend([
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name}",
-            f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name}",
-        ])
+        if generate_customop:
+            cmds.extend([
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name}{cleanup_arg}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --wkv_customop --ext_embedding --prefill_model --heads_per_split {heads_per_split} --output_name {output_name}{cleanup_arg}",
+            ])
         if generate_nocustomop:
             cmds.extend([
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}",
-                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --ext_embedding --prefill_model --heads_per_split {heads_per_split}{prefill_seq_length_arg} --output_name {output_name_nocustomop}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --ext_embedding --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}{cleanup_arg}",
+                f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{prefill_quant_encodings_arg} --ext_embedding --prefill_model --heads_per_split {heads_per_split}{nocustomop_prefill_seq_length_arg} --output_name {output_name_nocustomop}{cleanup_arg}",
             ])
 
     if needed_batchsizes is not None and not embed_graph_only:
         for bsz in needed_batchsizes:
-            cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name}")
+            if generate_customop:
+                cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --wkv_customop --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name}{cleanup_arg}")
             if generate_nocustomop:
-                cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}")
+                cmds.append(f"python convert_model_dlc.py {model_pth} --chunks {num_chunks}{quant_encodings_arg} --batch_size {bsz} --heads_per_split {heads_per_split} --output_name {output_name_nocustomop}{cleanup_arg}")
 
     return cmds
 
@@ -409,6 +475,7 @@ def construct_pack_cmd(
     cleanup: bool = True,
     embed_graph_only: bool = False,
     external_embedding_dtype: str = "uint16",
+    output_pack_name: str = None,
 ):
     """
     Build a pack_model_file.py command, matching the formatting style used in packing_commands:
@@ -449,7 +516,10 @@ def construct_pack_cmd(
             external_embedding_file = f"onnx/{model_name}_chunk1of{num_chunks}.{external_embedding_dtype}.emb"
         extra = f" --external_embedding_file {external_embedding_file} --external_embedding_dtype {external_embedding_dtype}" + extra
 
-    output_pack = f"{output_path}{name}{pack_variant}.rmpack"
+    if output_pack_name is None:
+        output_pack = f"{output_path}{name}{pack_variant}.rmpack"
+    else:
+        output_pack = f"{output_path}{output_pack_name}{pack_variant}.rmpack"
 
     if cleanup:
         if num_chunks == 1:
@@ -466,7 +536,7 @@ def construct_pack_cmd(
     )
 
 NUM_PARALLEL_CONVERT = 4
-NUM_PARALLEL_CONTEXT_BINARY = 10
+NUM_PARALLEL_CONTEXT_BINARY = 3
 NUM_PARALLEL_PACK = 20
 
 def execute_command_subprocess(device_name, soc_code, cmd, result_queue):
@@ -589,7 +659,10 @@ def run_task_batch(
 
     return results
 
-def build_convert_commands(selected_models=None):
+def has_failed_tasks(results):
+    return any("Success" not in result for result in results)
+
+def build_convert_commands(selected_models=None, selected_socs=None, no_cleanup=False):
     """
     Generate convert_model_dlc.py command strings using:
     - MODEL_FILES
@@ -598,6 +671,10 @@ def build_convert_commands(selected_models=None):
     - CHUNKS_BY_SIZE (as default, overridable via MODEL_FILES[model]["chunks"])
     """
     cmds = []
+    target_socs = selected_socs if selected_socs is not None else list(DEVICE_MATRIX.keys())
+    generate_customop = any(soc not in NO_WKV_CUSTOMOP for soc in target_socs)
+    generate_nocustomop = any(soc in NO_WKV_CUSTOMOP for soc in target_socs)
+
     for model_key, cfg in MODEL_FILES.items():
         if selected_models is not None and model_key not in selected_models:
             continue
@@ -607,8 +684,8 @@ def build_convert_commands(selected_models=None):
         model_size = str(cfg["size"])
         quant_type = cfg["quant"]
 
-        num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
-        heads_per_split = int(HEADS_PER_SPLIT_BY_SIZE[model_size])
+        num_chunks = get_num_chunks_for_convert(model_key, cfg, model_size, selected_socs)
+        heads_per_split = int(cfg.get("heads_per_split") or HEADS_PER_SPLIT_BY_SIZE[model_size])
         extra_bszs = EXTRA_BSZ_CONVERTING.get(model_key)
         need_embed_graph = cfg.get("need_embed_graph", False)
         embed_graph_only = cfg.get("embed_graph_only", False)
@@ -624,12 +701,26 @@ def build_convert_commands(selected_models=None):
             model_size=model_size,
             need_embed_graph=need_embed_graph,
             embed_graph_only=embed_graph_only,
-            generate_nocustomop=bool(NO_WKV_CUSTOMOP),
+            generate_customop=generate_customop,
+            generate_nocustomop=generate_nocustomop,
+            output_suffix=cfg.get("convert_suffix"),
+            no_cleanup=no_cleanup,
         )
         # Extend with list of commands to allow parallel execution
         cmds.extend(model_cmds)
 
     return cmds
+
+def selected_models_need_serial_convert(selected_models=None):
+    for model_key, cfg in MODEL_FILES.items():
+        if selected_models is not None and model_key not in selected_models:
+            continue
+        try:
+            if float(str(cfg["size"])) >= 7.0:
+                return True
+        except ValueError:
+            continue
+    return False
 
 def get_supported_bszs(device_name, model_key, model_size):
     extra_bszs = EXTRA_BSZ_CONVERTING.get(model_key)
@@ -664,12 +755,11 @@ def build_context_cache_commands(selected_models=None, selected_socs=None, enabl
             base_model_name = resolve_model_name(model_key, cfg)
             model_size = str(cfg["size"])
             quant_type = cfg["quant"]
-            # Add quant suffix to match convert stage output paths
-            model_name = f"{base_model_name}-{quant_type}"
+            model_name = resolve_model_name_with_suffix(model_key, cfg, "convert_suffix", quant_type)
             use_wkv_customop = device_name not in NO_WKV_CUSTOMOP
             if not use_wkv_customop:
                 model_name = f"{model_name}-nocustomop"
-            num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
+            num_chunks = get_num_chunks_for_soc(cfg, model_size, device_name)
             added_bszs = get_supported_bszs(device_name, model_key, model_size)
             need_embed_graph = cfg.get("need_embed_graph", False)
             embed_graph_only = cfg.get("embed_graph_only", False)
@@ -730,14 +820,14 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
             if selected_models is not None and model_key not in selected_models:
                 continue
 
-            base_model_name = resolve_model_name(model_key, cfg)
             model_size = str(cfg["size"])
             quant_type = cfg["quant"]
-            # Add quant suffix to match convert stage output paths
-            model_name = f"{base_model_name}-{quant_type}"
+            model_name = resolve_model_name_with_suffix(model_key, cfg, "convert_suffix", quant_type)
+            output_pack_name = f"{resolve_model_name_with_suffix(model_key, cfg, 'pack_suffix', quant_type)}-{device_name}"
             if device_name in NO_WKV_CUSTOMOP:
                 model_name = f"{model_name}-nocustomop"
-            num_chunks = int(cfg.get("chunks") or CHUNKS_BY_SIZE.get(model_size, 1))
+                output_pack_name = f"{output_pack_name}-nocustomop"
+            num_chunks = get_num_chunks_for_soc(cfg, model_size, device_name)
             extra_pack_args = cfg.get("extra_pack_args", [])
             if not isinstance(extra_pack_args, (list, tuple)):
                 raise TypeError(f"extra_pack_args must be a list/tuple for model {model_key}, e.g. ['--spill_fill_buffer_size 320000000']")
@@ -775,6 +865,7 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
                         cleanup=cleanup,
                         embed_graph_only=embed_graph_only,
                         external_embedding_dtype=external_embedding_dtype,
+                        output_pack_name=output_pack_name,
                     )
                 )
             else:
@@ -793,6 +884,7 @@ def build_pack_commands(selected_models=None, selected_socs=None, cleanup=True):
                         cleanup=cleanup,
                         embed_graph_only=embed_graph_only,
                         external_embedding_dtype=external_embedding_dtype,
+                        output_pack_name=output_pack_name,
                     )
                 )
 
@@ -803,7 +895,7 @@ def main():
     parser.add_argument('--skip_convert', action='store_true', help='Skip convert_model_dlc.py stage')
     parser.add_argument('--skip_binary_gen', action='store_true', help='Skip make_context_cache_binary_dlc.py stage')
     parser.add_argument('--enable_profiling', action='store_true', help='Pass --use_optrace to make_context_cache_binary_dlc.py for optrace profiling')
-    parser.add_argument('--no_cleanup', action='store_true', help='Pass cleanup=False to build_pack_commands (do not rm .bin after pack)')
+    parser.add_argument('--no_cleanup', action='store_true', help='Do not cleanup convert artifacts or packed .bin files')
     parser.add_argument('--skip_pack', action='store_true', help='Skip pack_model_file.py stage')
     parser.add_argument('--filter_model', type=str, default=None, 
                         help='Filter models to process, comma-separated list (e.g., --filter_model 2.9B-roleplay-w4,1.5B-translate)')
@@ -843,9 +935,12 @@ def main():
 
     # Stage 1: convert_model_dlc.py (host-only)
     if not args.skip_convert:
-        convert_commands = build_convert_commands(selected_models=selected_models)
+        convert_commands = build_convert_commands(selected_models=selected_models, selected_socs=selected_socs, no_cleanup=args.no_cleanup)
         random.shuffle(convert_commands)
-        run_task_batch(convert_commands, NUM_PARALLEL_CONVERT, "convert_model_dlc")
+        convert_parallel = 1 if selected_models_need_serial_convert(selected_models) else NUM_PARALLEL_CONVERT
+        convert_results = run_task_batch(convert_commands, convert_parallel, "convert_model_dlc")
+        if has_failed_tasks(convert_results):
+            sys.exit(1)
     else:
         print("Skipping convert_model_dlc.py stage")
 
@@ -853,14 +948,18 @@ def main():
     if not args.skip_binary_gen:
         context_commands = build_context_cache_commands(selected_models=selected_models, selected_socs=selected_socs, enable_profiling=args.enable_profiling)
         random.shuffle(context_commands)
-        run_task_batch(context_commands, NUM_PARALLEL_CONTEXT_BINARY, "make_context_cache_binary_dlc")
+        context_results = run_task_batch(context_commands, NUM_PARALLEL_CONTEXT_BINARY, "make_context_cache_binary_dlc")
+        if has_failed_tasks(context_results):
+            sys.exit(1)
     else:
         print("Skipping make_context_cache_binary_dlc.py stage")
 
     # Stage 3: pack_model_file.py (device-specific)
     if not args.skip_pack:
         pack_commands = build_pack_commands(selected_models=selected_models, selected_socs=selected_socs, cleanup=not args.no_cleanup)
-        run_task_batch(pack_commands, NUM_PARALLEL_PACK, "pack_model_file")
+        pack_results = run_task_batch(pack_commands, NUM_PARALLEL_PACK, "pack_model_file")
+        if has_failed_tasks(pack_results):
+            sys.exit(1)
     else:
         print("Skipping pack_model_file.py stage")
 
