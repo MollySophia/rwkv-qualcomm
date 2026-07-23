@@ -72,8 +72,8 @@ MODEL_FILES = {
         "quant": "a16w8",
     },
     "1.5B-w8": {
-        "path": "/models/rwkv7-g1g-1.5b-20260526-ctx8192.pth",
-        "encoding": "quant_export/g1g-1b5-w8/rwkv7-g1g-1.5b-20260526-ctx8192.encodings",
+        "path": "/models/rwkv7-g1h-1.5b-20260710-ctx10240.pth",
+        "encoding": "quant_export/g1h-1b5-w8/rwkv7-g1h-1.5b-20260710-ctx10240.encodings",
         "size": "1.5",
         "quant": "a16w8",
     },
@@ -116,8 +116,8 @@ MODEL_FILES = {
         "pack_suffix": "a16w4-lpbq",
     },
     "2.9B-w4-lpbq-b32": {
-        "path": "/models/rwkv7-g1g-2.9b-20260526-ctx8192.pth",
-        "encoding": "quant_export/g1g-2b9-lpbq-b32-w4/rwkv7-g1g-2.9b-20260526-ctx8192.encodings",
+        "path": "/models/rwkv7-g1h-2.9b-20260710-ctx10240.pth",
+        "encoding": "quant_export/g1h-2b9-lpbq-b32-w4/rwkv7-g1h-2.9b-20260710-ctx10240.encodings",
         "size": "2.9",
         "quant": "a16w4",
         "convert_suffix": "a16w4-lpbq-b32",

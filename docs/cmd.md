@@ -31,3 +31,8 @@ python compute_quant_encodings_experimental.py /models/rwkv7-g1g-1.5b-20260526-c
 ```
 python compute_quant_encodings_experimental.py /models/rwkv7-g1g-2.9b-20260526-ctx8192.pth --output_folder quant_export/g1g-2b9-w4/ --binidx_dataset ./1 --calib_num_batches 1 --heads_per_split 4 --load_encodings omniquant_encodings_g1g_2b9.json
 ```
+
+### w4 LPBQ b32 2.9B
+```
+python compute_quant_encodings_experimental.py /models/rwkv7-g1h-2.9b-20260710-ctx10240.pth --output_folder quant_export/g1h-2b9-lpbq-b32-w4/ --binidx_dataset ./1 --calib_num_batches 1 --heads_per_split 4 --blockwise_quant --blockwise_block_size 32
+```
