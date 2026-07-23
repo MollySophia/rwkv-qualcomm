@@ -17,7 +17,7 @@ def upload_file(file):
 
     remote_path = f"/qnn/{VERSION}/{file}"
     if "rwkv-vl" in file:
-        remote_path = f"/multimodal/model/rwkv-vl/{VERSION}/{file}"
+        remote_path = f"/multimodal/model/rwkv-vl-260625/{VERSION}/{file}"
     elif "respark" in file:
         remote_path = f"/multimodal/sparktts/{VERSION}/{file}"
     elif "ABC" in file:
