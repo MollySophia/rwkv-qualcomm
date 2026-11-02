@@ -19,8 +19,8 @@ parser.add_argument('--include_att_output', action='store_true',
                     help='Include attention output projection W4 encodings')
 args = parser.parse_args()
 
-omniquant_parameters = torch.load(args.omniquant_parameters, map_location='cpu')
-model = torch.load(args.model_path, map_location='cpu')
+omniquant_parameters = torch.load(args.omniquant_parameters, map_location='cpu', weights_only=True)
+model = torch.load(args.model_path, map_location='cpu', weights_only=True)
 
 encodings = {"activation_encodings": {}, "param_encodings": {}}
 

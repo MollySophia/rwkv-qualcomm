@@ -112,7 +112,7 @@ class RWKV_RNN(torch.nn.Module):
 
         if '.pth' in args.MODEL_NAME:
             args.MODEL_NAME = args.MODEL_NAME.replace('.pth', '')
-        w = torch.load(args.MODEL_NAME + '.pth', map_location='cpu')
+        w = torch.load(args.MODEL_NAME + '.pth', map_location='cpu', weights_only=True)
         self.args.n_embd = w['emb.weight'].shape[1]
         self.args.vocab_size = w['emb.weight'].shape[0]
         self.args.n_att = w['blocks.0.att.key.weight'].shape[0]
